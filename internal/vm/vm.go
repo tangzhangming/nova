@@ -362,6 +362,10 @@ func (vm *VM) execute() InterpretResult {
 			if !ok {
 				return vm.runtimeError("undefined class '%s'", className)
 			}
+			// 验证类约束（抽象类、接口实现）
+			if err := vm.validateClass(class); err != nil {
+				return vm.runtimeError("%v", err)
+			}
 			obj := bytecode.NewObjectInstance(class)
 			// 初始化属性默认值
 			vm.initObjectProperties(obj, class)

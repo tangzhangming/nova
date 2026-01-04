@@ -195,3 +195,29 @@ func (vm *VM) callConstructor(obj *bytecode.Object, argCount int) InterpretResul
 	return vm.call(closure, argCount)
 }
 
+// validateClass 验证类的接口实现和抽象类约束
+func (vm *VM) validateClass(class *bytecode.Class) error {
+	// 检查抽象类不能被实例化
+	if class.IsAbstract {
+		return vm.makeError("cannot instantiate abstract class '%s'", class.Name)
+	}
+	
+	// 检查接口实现
+	for _, ifaceName := range class.Implements {
+		iface, ok := vm.classes[ifaceName]
+		if !ok {
+			return vm.makeError("interface '%s' not found", ifaceName)
+		}
+		
+		// 检查类是否实现了接口的所有方法
+		for methodName := range iface.Methods {
+			if vm.lookupMethod(class, methodName) == nil {
+				return vm.makeError("class '%s' does not implement method '%s' from interface '%s'", 
+					class.Name, methodName, ifaceName)
+			}
+		}
+	}
+	
+	return nil
+}
+

@@ -353,17 +353,40 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 }
 
 func (c *Compiler) compileMultiVarDecl(s *ast.MultiVarDeclStmt) {
-	// 编译右侧表达式
+	// 编译右侧表达式（应返回数组）
 	c.compileExpr(s.Value)
-
-	// TODO: 多返回值处理
-	// 目前简单处理：只取第一个值
-	for i, name := range s.Names {
-		if i > 0 {
-			c.emit(bytecode.OpDup) // 复制值给后续变量
+	
+	if c.scopeDepth > 0 {
+		// 局部变量：记住数组在栈上的位置
+		arrSlot := c.localCount
+		c.addLocal("") // 占位，数组就在这个位置
+		
+		// 多返回值解包：从数组中提取各个值
+		for i, name := range s.Names {
+			// 加载数组（从栈上的固定位置）
+			c.emitU16(bytecode.OpLoadLocal, uint16(arrSlot))
+			// 获取数组的第 i 个元素
+			c.emitConstant(bytecode.NewInt(int64(i)))
+			c.emit(bytecode.OpArrayGet)
+			
+			// 声明变量，值已在栈顶的正确位置
+			c.declareVariable(name.Name)
+			c.defineVariable()
 		}
-		c.declareVariable(name.Name)
-		c.defineVariable()
+	} else {
+		// 全局变量：从数组中提取每个值并存储到全局变量表
+		for i, name := range s.Names {
+			if i < len(s.Names)-1 {
+				c.emit(bytecode.OpDup) // 复制数组给下一次使用
+			}
+			// 获取数组的第 i 个元素
+			c.emitConstant(bytecode.NewInt(int64(i)))
+			c.emit(bytecode.OpArrayGet)
+			// 存储到全局变量
+			idx := c.makeConstant(bytecode.NewString(name.Name))
+			c.emitU16(bytecode.OpStoreGlobal, idx)
+			c.emit(bytecode.OpPop)
+		}
 	}
 }
 
@@ -628,9 +651,16 @@ func (c *Compiler) compileContinueStmt() {
 func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
 	if len(s.Values) == 0 {
 		c.emit(bytecode.OpReturnNull)
-	} else {
-		// 目前只支持单返回值
+	} else if len(s.Values) == 1 {
+		// 单返回值
 		c.compileExpr(s.Values[0])
+		c.emit(bytecode.OpReturn)
+	} else {
+		// 多返回值：用数组包装
+		for _, val := range s.Values {
+			c.compileExpr(val)
+		}
+		c.emitU16(bytecode.OpNewArray, uint16(len(s.Values)))
 		c.emit(bytecode.OpReturn)
 	}
 }

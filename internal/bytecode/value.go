@@ -329,8 +329,10 @@ func (o *Object) SetField(name string, value Value) {
 // Class 类定义
 type Class struct {
 	Name       string
-	ParentName string  // 父类名（用于运行时解析）
+	ParentName string   // 父类名（用于运行时解析）
 	Parent     *Class
+	Implements []string // 实现的接口名
+	IsAbstract bool     // 是否是抽象类
 	Constants  map[string]Value
 	StaticVars map[string]Value
 	Methods    map[string]*Method

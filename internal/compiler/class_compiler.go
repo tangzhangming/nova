@@ -22,6 +22,14 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 		class.ParentName = decl.Extends.Name
 	}
 
+	// 处理接口
+	for _, iface := range decl.Implements {
+		class.Implements = append(class.Implements, iface.Name)
+	}
+	
+	// 抽象类标记
+	class.IsAbstract = decl.Abstract
+
 	// 编译常量
 	for _, constDecl := range decl.Constants {
 		value := c.evaluateConstant(constDecl.Value)
