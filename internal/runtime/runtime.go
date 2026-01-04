@@ -190,6 +190,18 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["string"] = builtinToString
 	r.builtins["bool"] = builtinToBool
 
+	// 反射/注解函数
+	r.builtins["get_class"] = builtinGetClass
+	r.builtins["get_class_annotations"] = func(args []bytecode.Value) bytecode.Value {
+		return r.getClassAnnotations(args)
+	}
+	r.builtins["get_method_annotations"] = func(args []bytecode.Value) bytecode.Value {
+		return r.getMethodAnnotations(args)
+	}
+	r.builtins["has_annotation"] = func(args []bytecode.Value) bytecode.Value {
+		return r.hasAnnotation(args)
+	}
+
 	// 数组函数
 	r.builtins["len"] = builtinLen
 	r.builtins["push"] = builtinPush
@@ -235,8 +247,11 @@ func (r *Runtime) registerBuiltinsToVM() {
 func createBuiltinWrapper(fn BuiltinFunc) *bytecode.Function {
 	// 内置函数使用特殊标记
 	f := bytecode.NewFunction("<builtin>")
-	f.Arity = -1 // 可变参数
-	// 内置函数不需要字节码，在 VM 中特殊处理
+	f.Arity = 255       // 最大参数数量
+	f.MinArity = 0      // 最小参数数量
+	f.IsVariadic = true // 标记为可变参数
+	f.IsBuiltin = true  // 标记为内置函数
+	f.BuiltinFn = bytecode.BuiltinFn(fn) // 保存内置函数实现
 	return f
 }
 
@@ -692,5 +707,120 @@ func builtinRound(args []bytecode.Value) bytecode.Value {
 		return bytecode.ZeroValue
 	}
 	return bytecode.NewInt(int64(math.Round(args[0].AsFloat())))
+}
+
+// ============================================================================
+// 反射/注解函数
+// ============================================================================
+
+// get_class(object) - 获取对象的类名
+func builtinGetClass(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 || args[0].Type != bytecode.ValObject {
+		return bytecode.NullValue
+	}
+	obj := args[0].AsObject()
+	return bytecode.NewString(obj.Class.Name)
+}
+
+// get_class_annotations(className) - 获取类的注解
+func (r *Runtime) getClassAnnotations(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.NewArray(nil)
+	}
+	
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.NewArray(nil)
+	}
+	
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.NewArray(nil)
+	}
+	
+	return annotationsToArray(class.Annotations)
+}
+
+// get_method_annotations(className, methodName) - 获取方法的注解
+func (r *Runtime) getMethodAnnotations(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewArray(nil)
+	}
+	
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.NewArray(nil)
+	}
+	
+	methodName := args[1].AsString()
+	
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.NewArray(nil)
+	}
+	
+	method := class.GetMethod(methodName)
+	if method == nil {
+		return bytecode.NewArray(nil)
+	}
+	
+	return annotationsToArray(method.Annotations)
+}
+
+// has_annotation(className, annotationName) - 检查类是否有指定注解
+func (r *Runtime) hasAnnotation(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.FalseValue
+	}
+	
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.FalseValue
+	}
+	
+	annotationName := args[1].AsString()
+	
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.FalseValue
+	}
+	
+	for _, ann := range class.Annotations {
+		if ann.Name == annotationName {
+			return bytecode.TrueValue
+		}
+	}
+	
+	return bytecode.FalseValue
+}
+
+// annotationsToArray 将注解列表转换为数组
+func annotationsToArray(annotations []*bytecode.Annotation) bytecode.Value {
+	if len(annotations) == 0 {
+		return bytecode.NewArray(nil)
+	}
+	
+	result := make([]bytecode.Value, len(annotations))
+	for i, ann := range annotations {
+		// 每个注解转换为 map: {name: "...", args: [...]}
+		annMap := make(map[bytecode.Value]bytecode.Value)
+		annMap[bytecode.NewString("name")] = bytecode.NewString(ann.Name)
+		annMap[bytecode.NewString("args")] = bytecode.NewArray(ann.Args)
+		result[i] = bytecode.NewMap(annMap)
+	}
+	
+	return bytecode.NewArray(result)
 }
 

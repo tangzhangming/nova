@@ -15,6 +15,7 @@ const (
 	ValFloat
 	ValString
 	ValArray
+	ValFixedArray // 定长数组
 	ValMap
 	ValObject
 	ValFunc
@@ -24,6 +25,12 @@ const (
 	ValIterator
 	ValEnum // 枚举值
 )
+
+// FixedArray 定长数组
+type FixedArray struct {
+	Elements []Value
+	Capacity int
+}
 
 // Value 运行时值
 type Value struct {
@@ -73,6 +80,29 @@ func NewArray(arr []Value) Value {
 	return Value{Type: ValArray, Data: arr}
 }
 
+// NewFixedArray 创建定长数组值
+func NewFixedArray(capacity int) Value {
+	return Value{Type: ValFixedArray, Data: &FixedArray{
+		Elements: make([]Value, capacity),
+		Capacity: capacity,
+	}}
+}
+
+// NewFixedArrayWithElements 创建带初始值的定长数组
+func NewFixedArrayWithElements(elements []Value, capacity int) Value {
+	arr := &FixedArray{
+		Elements: make([]Value, capacity),
+		Capacity: capacity,
+	}
+	// 复制初始元素
+	copy(arr.Elements, elements)
+	// 剩余位置填充 null
+	for i := len(elements); i < capacity; i++ {
+		arr.Elements[i] = NullValue
+	}
+	return Value{Type: ValFixedArray, Data: arr}
+}
+
 // NewMap 创建 Map 值
 func NewMap(m map[Value]Value) Value {
 	return Value{Type: ValMap, Data: m}
@@ -113,6 +143,8 @@ func (v Value) IsTruthy() bool {
 		return v.Data.(string) != ""
 	case ValArray:
 		return len(v.Data.([]Value)) > 0
+	case ValFixedArray:
+		return v.Data.(*FixedArray).Capacity > 0
 	case ValMap:
 		return len(v.Data.(map[Value]Value)) > 0
 	default:
@@ -173,6 +205,14 @@ func (v Value) AsArray() []Value {
 	return nil
 }
 
+// AsFixedArray 获取定长数组
+func (v Value) AsFixedArray() *FixedArray {
+	if v.Type == ValFixedArray {
+		return v.Data.(*FixedArray)
+	}
+	return nil
+}
+
 // AsMap 获取 Map
 func (v Value) AsMap() map[Value]Value {
 	if v.Type == ValMap {
@@ -212,6 +252,13 @@ func (v Value) String() string {
 			parts = append(parts, elem.String())
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
+	case ValFixedArray:
+		fa := v.Data.(*FixedArray)
+		var parts []string
+		for _, elem := range fa.Elements {
+			parts = append(parts, elem.String())
+		}
+		return fmt.Sprintf("[%s](%d)", strings.Join(parts, ", "), fa.Capacity)
 	case ValMap:
 		m := v.Data.(map[Value]Value)
 		var parts []string
@@ -265,6 +312,20 @@ func (v Value) Equals(other Value) bool {
 		}
 		for i := range a1 {
 			if !a1[i].Equals(a2[i]) {
+				return false
+			}
+		}
+		return true
+	case ValFixedArray:
+		if other.Type != ValFixedArray {
+			return false
+		}
+		fa1, fa2 := v.Data.(*FixedArray), other.Data.(*FixedArray)
+		if fa1.Capacity != fa2.Capacity {
+			return false
+		}
+		for i := range fa1.Elements {
+			if !fa1.Elements[i].Equals(fa2.Elements[i]) {
 				return false
 			}
 		}
@@ -330,6 +391,12 @@ func (o *Object) SetField(name string, value Value) {
 	o.Fields[name] = value
 }
 
+// Annotation 注解
+type Annotation struct {
+	Name string
+	Args []Value
+}
+
 // Class 类定义
 type Class struct {
 	Name           string
@@ -337,22 +404,25 @@ type Class struct {
 	Parent         *Class
 	Implements     []string // 实现的接口名
 	IsAbstract     bool     // 是否是抽象类
+	Annotations    []*Annotation         // 类注解
 	Constants      map[string]Value
 	StaticVars     map[string]Value
 	Methods        map[string][]*Method  // 方法重载：同名不同参数数量
 	Properties     map[string]Value      // 属性默认值
 	PropVisibility map[string]Visibility // 属性可见性
+	PropAnnotations map[string][]*Annotation // 属性注解
 }
 
 // NewClass 创建类定义
 func NewClass(name string) *Class {
 	return &Class{
-		Name:           name,
-		Constants:      make(map[string]Value),
-		StaticVars:     make(map[string]Value),
-		Methods:        make(map[string][]*Method),
-		Properties:     make(map[string]Value),
-		PropVisibility: make(map[string]Visibility),
+		Name:            name,
+		Constants:       make(map[string]Value),
+		StaticVars:      make(map[string]Value),
+		Methods:         make(map[string][]*Method),
+		Properties:      make(map[string]Value),
+		PropVisibility:  make(map[string]Visibility),
+		PropAnnotations: make(map[string][]*Annotation),
 	}
 }
 
@@ -413,15 +483,19 @@ const (
 )
 
 type Method struct {
-	Name       string
-	Arity      int // 参数数量
-	IsStatic   bool
-	Visibility Visibility // 访问修饰符
-	Chunk      *Chunk
-	LocalCount int // 局部变量数量
+	Name        string
+	Arity       int // 参数数量
+	IsStatic    bool
+	Visibility  Visibility // 访问修饰符
+	Annotations []*Annotation
+	Chunk       *Chunk
+	LocalCount  int // 局部变量数量
 }
 
 // Function 函数定义
+// BuiltinFn 内置函数类型
+type BuiltinFn func(args []Value) Value
+
 type Function struct {
 	Name          string
 	Arity         int
@@ -431,6 +505,8 @@ type Function struct {
 	UpvalueCount  int      // 捕获的外部变量数量
 	IsVariadic    bool     // 是否是可变参数函数
 	DefaultValues []Value  // 默认参数值（从第 MinArity 个参数开始）
+	IsBuiltin     bool     // 是否是内置函数
+	BuiltinFn     BuiltinFn // 内置函数实现
 }
 
 // NewFunction 创建函数
@@ -471,6 +547,9 @@ func NewIterator(v Value) *Iterator {
 	case ValArray:
 		iter.Type = "array"
 		iter.Array = v.AsArray()
+	case ValFixedArray:
+		iter.Type = "array"
+		iter.Array = v.AsFixedArray().Elements
 	case ValMap:
 		iter.Type = "map"
 		iter.Map = v.AsMap()

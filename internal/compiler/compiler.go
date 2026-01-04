@@ -344,11 +344,46 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 }
 
 func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
-	// 编译初始值
-	if s.Value != nil {
-		c.compileExpr(s.Value)
+	// 检查是否是定长数组类型
+	if arrType, ok := s.Type.(*ast.ArrayType); ok && arrType.Size != nil {
+		// 获取数组大小（必须是常量整数）
+		capacity := c.evalConstInt(arrType.Size)
+		if capacity < 0 {
+			c.error(arrType.Size.Pos(), "array size must be a non-negative constant")
+			return
+		}
+		
+		if s.Value != nil {
+			// 有初始值
+			if arr, ok := s.Value.(*ast.ArrayLiteral); ok {
+				// 数组字面量初始化
+				if len(arr.Elements) > capacity {
+					c.error(arr.Pos(), "too many elements in array initializer (max %d, got %d)", capacity, len(arr.Elements))
+					return
+				}
+				for _, elem := range arr.Elements {
+					c.compileExpr(elem)
+				}
+				// 创建定长数组
+				c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
+				c.currentChunk().WriteU16(uint16(len(arr.Elements)), 0)
+			} else {
+				// 非数组字面量初始化，创建空定长数组
+				c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
+				c.currentChunk().WriteU16(0, 0)
+			}
+		} else {
+			// 无初始值，创建空定长数组
+			c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
+			c.currentChunk().WriteU16(0, 0)
+		}
 	} else {
-		c.emit(bytecode.OpNull)
+		// 普通变量或动态数组
+		if s.Value != nil {
+			c.compileExpr(s.Value)
+		} else {
+			c.emit(bytecode.OpNull)
+		}
 	}
 
 	// 声明并定义变量
@@ -974,6 +1009,24 @@ func (c *Compiler) compileTernaryExpr(e *ast.TernaryExpr) {
 }
 
 func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
+	// 特殊处理数组索引赋值：OpArraySet 期望栈顺序为 [array, index, value] (底到顶)
+	if idx, ok := e.Left.(*ast.IndexExpr); ok {
+		c.compileExpr(idx.Object)  // array
+		c.compileExpr(idx.Index)   // index
+		c.compileExpr(e.Right)     // value
+		
+		// 复合赋值暂不支持索引操作
+		if e.Operator.Type != token.ASSIGN {
+			c.error(e.Pos(), "compound assignment to array element not yet supported")
+			return
+		}
+		
+		// OpArraySet 会弹出 value, idx, array，然后 push value 作为表达式结果
+		c.emit(bytecode.OpArraySet)
+		return
+	}
+	
+	// 其他情况的赋值
 	// 复合赋值
 	if e.Operator.Type != token.ASSIGN {
 		c.compileExpr(e.Left)
@@ -1015,8 +1068,16 @@ func (c *Compiler) compileAssignTarget(target ast.Expression) {
 			c.emitU16(bytecode.OpStoreGlobal, idx)
 		}
 	case *ast.IndexExpr:
-		c.compileExpr(t.Object)
-		c.compileExpr(t.Index)
+		// 栈上现在有值，需要按 array, index, value 顺序排列
+		// 当前栈：[..., value]
+		c.compileExpr(t.Object)  // 栈：[..., value, array]
+		c.compileExpr(t.Index)   // 栈：[..., value, array, index]
+		// 交换顺序使其变为 [array, index, value]
+		// 需要一个临时方法来重新排列栈，或者我们改变 OpArraySet 的期望
+		// 简单方法：emit rotations
+		// 更简单的方法：修改编译方式
+		// 先弹出 value 保存，编译 array 和 index，然后把 value 放回
+		// 但我们没有临时变量支持，所以改变 compileAssignExpr
 		c.emit(bytecode.OpArraySet)
 	case *ast.PropertyAccess:
 		c.compileExpr(t.Object)
@@ -1328,7 +1389,36 @@ func (c *Compiler) emitLoop(loopStart int) {
 	c.currentChunk().WriteU16(uint16(offset), 0)
 }
 
-func (c *Compiler) error(pos token.Position, message string) {
-	c.errors = append(c.errors, Error{Pos: pos, Message: message})
+func (c *Compiler) error(pos token.Position, message string, args ...interface{}) {
+	c.errors = append(c.errors, Error{Pos: pos, Message: fmt.Sprintf(message, args...)})
+}
+
+// evalConstInt 在编译时计算常量整数表达式
+func (c *Compiler) evalConstInt(expr ast.Expression) int {
+	switch e := expr.(type) {
+	case *ast.IntegerLiteral:
+		return int(e.Value)
+	case *ast.UnaryExpr:
+		if e.Operator.Type == token.MINUS {
+			return -c.evalConstInt(e.Operand)
+		}
+	case *ast.BinaryExpr:
+		left := c.evalConstInt(e.Left)
+		right := c.evalConstInt(e.Right)
+		switch e.Operator.Type {
+		case token.PLUS:
+			return left + right
+		case token.MINUS:
+			return left - right
+		case token.STAR:
+			return left * right
+		case token.SLASH:
+			if right != 0 {
+				return left / right
+			}
+		}
+	}
+	c.error(expr.Pos(), "array size must be a compile-time constant")
+	return -1
 }
 

@@ -17,6 +17,9 @@ type ClassCompiler struct {
 func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	class := bytecode.NewClass(decl.Name.Name)
 
+	// 处理类注解
+	class.Annotations = c.compileAnnotations(decl.Annotations)
+
 	// 处理父类
 	if decl.Extends != nil {
 		class.ParentName = decl.Extends.Name
@@ -54,6 +57,11 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 			class.Properties[prop.Name.Name] = value
 			class.PropVisibility[prop.Name.Name] = vis
 		}
+		
+		// 保存属性注解
+		if len(prop.Annotations) > 0 {
+			class.PropAnnotations[prop.Name.Name] = c.compileAnnotations(prop.Annotations)
+		}
 	}
 
 	// 编译方法
@@ -63,6 +71,33 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	}
 
 	return class
+}
+
+// compileAnnotations 编译注解列表
+func (c *Compiler) compileAnnotations(annotations []*ast.Annotation) []*bytecode.Annotation {
+	if len(annotations) == 0 {
+		return nil
+	}
+	result := make([]*bytecode.Annotation, len(annotations))
+	for i, ann := range annotations {
+		result[i] = &bytecode.Annotation{
+			Name: ann.Name.Name,
+			Args: c.evaluateAnnotationArgs(ann.Args),
+		}
+	}
+	return result
+}
+
+// evaluateAnnotationArgs 计算注解参数
+func (c *Compiler) evaluateAnnotationArgs(args []ast.Expression) []bytecode.Value {
+	if len(args) == 0 {
+		return nil
+	}
+	result := make([]bytecode.Value, len(args))
+	for i, arg := range args {
+		result[i] = c.evaluateConstant(arg)
+	}
+	return result
 }
 
 // toByteVisibility 转换 AST 可见性到字节码可见性
@@ -82,11 +117,12 @@ func toByteVisibility(v ast.Visibility) bytecode.Visibility {
 // compileMethod 编译方法
 func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *bytecode.Method {
 	method := &bytecode.Method{
-		Name:       decl.Name.Name,
-		Arity:      len(decl.Parameters),
-		IsStatic:   decl.Static,
-		Visibility: toByteVisibility(decl.Visibility),
-		Chunk:      bytecode.NewChunk(),
+		Name:        decl.Name.Name,
+		Arity:       len(decl.Parameters),
+		IsStatic:    decl.Static,
+		Visibility:  toByteVisibility(decl.Visibility),
+		Annotations: c.compileAnnotations(decl.Annotations),
+		Chunk:       bytecode.NewChunk(),
 	}
 
 	// 如果是抽象方法，不编译方法体

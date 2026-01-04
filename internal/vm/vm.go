@@ -559,16 +559,44 @@ func (vm *VM) execute() InterpretResult {
 			}
 			vm.push(bytecode.NewArray(arr))
 
+		case bytecode.OpNewFixedArray:
+			capacity := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			initLength := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			elements := make([]bytecode.Value, initLength)
+			for i := initLength - 1; i >= 0; i-- {
+				elements[i] = vm.pop()
+			}
+			vm.push(bytecode.NewFixedArrayWithElements(elements, capacity))
+
 		case bytecode.OpArrayGet:
 			idx := vm.pop()
 			arrVal := vm.pop()
-			if arrVal.Type != bytecode.ValArray {
+			
+			var arr []bytecode.Value
+			var capacity int = -1
+			
+			switch arrVal.Type {
+			case bytecode.ValArray:
+				arr = arrVal.AsArray()
+			case bytecode.ValFixedArray:
+				fa := arrVal.AsFixedArray()
+				arr = fa.Elements
+				capacity = fa.Capacity
+			default:
 				return vm.runtimeError("subscript operator requires array")
 			}
-			arr := arrVal.AsArray()
+			
 			i := int(idx.AsInt())
-			if i < 0 || i >= len(arr) {
-				return vm.runtimeError("array index out of bounds")
+			if capacity > 0 {
+				if i < 0 || i >= capacity {
+					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, capacity)
+				}
+			} else {
+				if i < 0 || i >= len(arr) {
+					return vm.runtimeError("array index out of bounds")
+				}
 			}
 			vm.push(arr[i])
 
@@ -576,23 +604,44 @@ func (vm *VM) execute() InterpretResult {
 			value := vm.pop()
 			idx := vm.pop()
 			arrVal := vm.pop()
-			if arrVal.Type != bytecode.ValArray {
+			
+			var arr []bytecode.Value
+			var capacity int = -1
+			
+			switch arrVal.Type {
+			case bytecode.ValArray:
+				arr = arrVal.AsArray()
+			case bytecode.ValFixedArray:
+				fa := arrVal.AsFixedArray()
+				arr = fa.Elements
+				capacity = fa.Capacity
+			default:
 				return vm.runtimeError("subscript operator requires array")
 			}
-			arr := arrVal.AsArray()
+			
 			i := int(idx.AsInt())
-			if i < 0 || i >= len(arr) {
-				return vm.runtimeError("array index out of bounds")
+			if capacity > 0 {
+				if i < 0 || i >= capacity {
+					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, capacity)
+				}
+			} else {
+				if i < 0 || i >= len(arr) {
+					return vm.runtimeError("array index out of bounds")
+				}
 			}
 			arr[i] = value
 			vm.push(value)
 
 		case bytecode.OpArrayLen:
 			arrVal := vm.pop()
-			if arrVal.Type != bytecode.ValArray {
+			switch arrVal.Type {
+			case bytecode.ValArray:
+				vm.push(bytecode.NewInt(int64(len(arrVal.AsArray()))))
+			case bytecode.ValFixedArray:
+				vm.push(bytecode.NewInt(int64(arrVal.AsFixedArray().Capacity)))
+			default:
 				return vm.runtimeError("length requires array")
 			}
-			vm.push(bytecode.NewInt(int64(len(arrVal.AsArray()))))
 
 		// Map 操作
 		case bytecode.OpNewMap:
@@ -656,7 +705,7 @@ func (vm *VM) execute() InterpretResult {
 		// 迭代器操作
 		case bytecode.OpIterInit:
 			v := vm.pop()
-			if v.Type != bytecode.ValArray && v.Type != bytecode.ValMap {
+			if v.Type != bytecode.ValArray && v.Type != bytecode.ValFixedArray && v.Type != bytecode.ValMap {
 				return vm.runtimeError("foreach requires array or map")
 			}
 			iter := bytecode.NewIterator(v)
@@ -937,6 +986,19 @@ func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 		return vm.call(callee.Data.(*bytecode.Closure), argCount)
 	case bytecode.ValFunc:
 		fn := callee.Data.(*bytecode.Function)
+		// 特殊处理内置函数
+		if fn.IsBuiltin && fn.BuiltinFn != nil {
+			// 收集参数
+			args := make([]bytecode.Value, argCount)
+			for i := argCount - 1; i >= 0; i-- {
+				args[i] = vm.pop()
+			}
+			vm.pop() // 弹出函数本身
+			// 调用内置函数
+			result := fn.BuiltinFn(args)
+			vm.push(result)
+			return InterpretOK
+		}
 		closure := &bytecode.Closure{Function: fn}
 		return vm.call(closure, argCount)
 	default:
@@ -1080,6 +1142,11 @@ func (vm *VM) DefineGlobal(name string, value bytecode.Value) {
 // DefineClass 定义类
 func (vm *VM) DefineClass(class *bytecode.Class) {
 	vm.classes[class.Name] = class
+}
+
+// GetClass 获取类定义
+func (vm *VM) GetClass(name string) *bytecode.Class {
+	return vm.classes[name]
 }
 
 // DefineEnum 注册枚举

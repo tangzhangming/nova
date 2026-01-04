@@ -86,10 +86,11 @@ const (
 	OpCallStatic // 调用静态方法 (classIndex: u16, nameIndex: u16, argCount: u8)
 
 	// 数组操作
-	OpNewArray   // 创建数组 (length: u16)
-	OpArrayGet   // 获取数组元素
-	OpArraySet   // 设置数组元素
-	OpArrayLen   // 获取数组长度
+	OpNewArray      // 创建数组 (length: u16)
+	OpNewFixedArray // 创建定长数组 (capacity: u16, initLength: u16)
+	OpArrayGet      // 获取数组元素
+	OpArraySet      // 设置数组元素
+	OpArrayLen      // 获取数组长度
 
 	// Map 操作
 	OpNewMap  // 创建 Map (size: u16)
@@ -179,8 +180,9 @@ var opNames = map[OpCode]string{
 	OpGetStatic:   "GET_STATIC",
 	OpSetStatic:   "SET_STATIC",
 	OpCallStatic:  "CALL_STATIC",
-	OpNewArray:    "NEW_ARRAY",
-	OpArrayGet:    "ARRAY_GET",
+	OpNewArray:      "NEW_ARRAY",
+	OpNewFixedArray: "NEW_FIXED_ARRAY",
+	OpArrayGet:      "ARRAY_GET",
 	OpArraySet:    "ARRAY_SET",
 	OpArrayLen:    "ARRAY_LEN",
 	OpNewMap:      "NEW_MAP",
@@ -313,7 +315,7 @@ func (c *Chunk) disassembleInstruction(result *string, offset int) int {
 	
 	switch op {
 	case OpPush, OpLoadLocal, OpStoreLocal, OpLoadGlobal, OpStoreGlobal,
-		OpNewObject, OpGetField, OpSetField, OpNewArray, OpNewMap,
+		OpNewObject, OpGetField, OpSetField, OpNewArray, OpNewFixedArray, OpNewMap,
 		OpCheckType, OpCast:
 		return c.constantInstruction(result, op, offset)
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
