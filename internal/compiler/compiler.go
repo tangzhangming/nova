@@ -704,6 +704,19 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	case *ast.StringLiteral:
 		c.emitConstant(bytecode.NewString(e.Value))
 
+	case *ast.InterpStringLiteral:
+		// 编译插值字符串的每个部分并拼接
+		if len(e.Parts) == 0 {
+			c.emitConstant(bytecode.NewString(""))
+		} else {
+			for i, part := range e.Parts {
+				c.compileExpr(part)
+				if i > 0 {
+					c.emit(bytecode.OpConcat)
+				}
+			}
+		}
+
 	case *ast.BoolLiteral:
 		if e.Value {
 			c.emit(bytecode.OpTrue)

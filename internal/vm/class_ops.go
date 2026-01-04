@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"fmt"
+	
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
@@ -95,6 +97,45 @@ func (vm *VM) isInstanceOf(obj *bytecode.Object, className string) bool {
 		class = class.Parent
 	}
 	return false
+}
+
+// resolveClassName 解析类名，处理 self 和 parent
+func (vm *VM) resolveClassName(className string) (*bytecode.Class, error) {
+	if className == "self" || className == "parent" {
+		// 从当前帧获取 $this 对象来确定当前类
+		if vm.frameCount == 0 {
+			return nil, vm.makeError("cannot use '%s' outside of a class", className)
+		}
+		
+		frame := &vm.frames[vm.frameCount-1]
+		thisValue := vm.stack[frame.BaseSlot]
+		
+		if thisValue.Type != bytecode.ValObject {
+			return nil, vm.makeError("cannot use '%s' outside of a class method", className)
+		}
+		
+		obj := thisValue.AsObject()
+		if className == "self" {
+			return obj.Class, nil
+		}
+		// parent
+		if obj.Class.Parent == nil {
+			return nil, vm.makeError("class '%s' has no parent class", obj.Class.Name)
+		}
+		return obj.Class.Parent, nil
+	}
+	
+	// 普通类名
+	class, ok := vm.classes[className]
+	if !ok {
+		return nil, vm.makeError("undefined class '%s'", className)
+	}
+	return class, nil
+}
+
+// makeError 创建错误（不设置 VM 状态）
+func (vm *VM) makeError(format string, args ...interface{}) error {
+	return fmt.Errorf(format, args...)
 }
 
 // resolveParentClass 解析父类引用

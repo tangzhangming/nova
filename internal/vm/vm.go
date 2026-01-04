@@ -240,6 +240,36 @@ func (vm *VM) execute() InterpretResult {
 		case bytecode.OpNot:
 			vm.push(bytecode.NewBool(!vm.pop().IsTruthy()))
 
+		// 位运算
+		case bytecode.OpBitAnd:
+			b := vm.pop()
+			a := vm.pop()
+			vm.push(bytecode.NewInt(a.AsInt() & b.AsInt()))
+
+		case bytecode.OpBitOr:
+			b := vm.pop()
+			a := vm.pop()
+			vm.push(bytecode.NewInt(a.AsInt() | b.AsInt()))
+
+		case bytecode.OpBitXor:
+			b := vm.pop()
+			a := vm.pop()
+			vm.push(bytecode.NewInt(a.AsInt() ^ b.AsInt()))
+
+		case bytecode.OpBitNot:
+			a := vm.pop()
+			vm.push(bytecode.NewInt(^a.AsInt()))
+
+		case bytecode.OpShl:
+			b := vm.pop()
+			a := vm.pop()
+			vm.push(bytecode.NewInt(a.AsInt() << uint(b.AsInt())))
+
+		case bytecode.OpShr:
+			b := vm.pop()
+			a := vm.pop()
+			vm.push(bytecode.NewInt(a.AsInt() >> uint(b.AsInt())))
+
 		// 字符串拼接
 		case bytecode.OpConcat:
 			b := vm.pop()
@@ -401,9 +431,9 @@ func (vm *VM) execute() InterpretResult {
 			className := chunk.Constants[classIdx].AsString()
 			name := chunk.Constants[nameIdx].AsString()
 			
-			class, ok := vm.classes[className]
-			if !ok {
-				return vm.runtimeError("undefined class '%s'", className)
+			class, err := vm.resolveClassName(className)
+			if err != nil {
+				return vm.runtimeError("%v", err)
 			}
 			
 			// 先尝试常量
@@ -425,9 +455,9 @@ func (vm *VM) execute() InterpretResult {
 			name := chunk.Constants[nameIdx].AsString()
 			value := vm.pop()
 			
-			class, ok := vm.classes[className]
-			if !ok {
-				return vm.runtimeError("undefined class '%s'", className)
+			class, err := vm.resolveClassName(className)
+			if err != nil {
+				return vm.runtimeError("%v", err)
 			}
 			
 			vm.setStaticVar(class, name, value)
@@ -443,14 +473,14 @@ func (vm *VM) execute() InterpretResult {
 			className := chunk.Constants[classIdx].AsString()
 			methodName := chunk.Constants[nameIdx].AsString()
 			
-			class, ok := vm.classes[className]
-			if !ok {
-				return vm.runtimeError("undefined class '%s'", className)
+			class, err := vm.resolveClassName(className)
+			if err != nil {
+				return vm.runtimeError("%v", err)
 			}
 			
 			method := vm.lookupMethod(class, methodName)
 			if method == nil {
-				return vm.runtimeError("undefined static method '%s::%s'", className, methodName)
+				return vm.runtimeError("undefined static method '%s::%s'", class.Name, methodName)
 			}
 			
 			// 创建方法的闭包并调用

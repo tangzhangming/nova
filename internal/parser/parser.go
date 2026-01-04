@@ -32,7 +32,7 @@ func (e Error) Error() string {
 func New(source, filename string) *Parser {
 	l := lexer.New(source, filename)
 	tokens := l.ScanTokens()
-	
+
 	return &Parser{
 		lexer:    l,
 		tokens:   tokens,
@@ -59,7 +59,7 @@ func (p *Parser) Parse() *ast.File {
 
 	// 解析声明和语句
 	for !p.isAtEnd() {
-		if p.checkAny(token.CLASS, token.INTERFACE, token.ABSTRACT, token.PUBLIC, 
+		if p.checkAny(token.CLASS, token.INTERFACE, token.ABSTRACT, token.PUBLIC,
 			token.PROTECTED, token.PRIVATE, token.AT) {
 			decl := p.parseDeclaration()
 			if decl != nil {
@@ -250,7 +250,7 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 func (p *Parser) parseFuncType() *ast.FuncType {
 	funcToken := p.previous()
 	p.consume(token.LPAREN, "expected '(' after 'func'")
-	
+
 	var params []ast.TypeNode
 	if !p.check(token.RPAREN) {
 		params = append(params, p.parseType())
@@ -373,7 +373,7 @@ func (p *Parser) parsePrecedence(precedence int) ast.Expression {
 	for precedence <= p.getPrecedence(p.peek().Type) {
 		left = p.parseInfixExpr(left)
 		if left == nil {
-		return nil
+			return nil
 		}
 	}
 
@@ -402,8 +402,10 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 		}
 	case token.INTERP_STRING:
 		tok := p.advance()
+		parts := p.parseInterpStringParts(tok)
 		return &ast.InterpStringLiteral{
 			Token: tok,
+			Parts: parts,
 		}
 	case token.TRUE:
 		tok := p.advance()
@@ -543,14 +545,14 @@ func (p *Parser) parsePostfixIncDec(left ast.Expression) ast.Expression {
 
 func (p *Parser) parseGroupOrArrowFunc() ast.Expression {
 	lparen := p.advance() // 消费 (
-	
+
 	// 尝试判断是否是箭头函数
 	// 箭头函数格式: (type $param, ...) : returnType => expr
 	// 或: (type $param, ...) => expr
-	
+
 	// 保存当前位置用于回溯
 	savedCurrent := p.current
-	
+
 	// 尝试解析为箭头函数参数
 	if p.tryParseArrowFuncParams() {
 		// 成功解析参数，检查是否有 =>
@@ -560,10 +562,10 @@ func (p *Parser) parseGroupOrArrowFunc() ast.Expression {
 			return p.parseArrowFuncFromParams(lparen)
 		}
 	}
-	
+
 	// 不是箭头函数，回溯并解析为分组表达式
 	p.current = savedCurrent
-	
+
 	expr := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
 	return expr
@@ -590,14 +592,14 @@ func (p *Parser) tryParseArrowFuncParams() bool {
 				}
 			}
 		}
-		
+
 		// 检查变量名
 		if p.check(token.VARIABLE) {
 			p.advance()
 		} else {
 			return false
 		}
-		
+
 		// 检查默认值
 		if p.check(token.ASSIGN) {
 			p.advance()
@@ -617,12 +619,12 @@ func (p *Parser) tryParseArrowFuncParams() bool {
 				p.advance()
 			}
 		}
-		
+
 		if !p.match(token.COMMA) {
 			break
 		}
 	}
-	
+
 	if !p.check(token.RPAREN) {
 		return false
 	}
@@ -632,24 +634,24 @@ func (p *Parser) tryParseArrowFuncParams() bool {
 
 func (p *Parser) parseArrowFuncFromParams(lparen token.Token) ast.Expression {
 	var params []*ast.Parameter
-	
+
 	if !p.check(token.RPAREN) {
 		params = append(params, p.parseParameter())
 		for p.match(token.COMMA) {
 			params = append(params, p.parseParameter())
 		}
 	}
-	
+
 	rparen := p.consume(token.RPAREN, "expected ')'")
-	
+
 	var returnType ast.TypeNode
 	if p.match(token.COLON) {
 		returnType = p.parseReturnType()
 	}
-	
+
 	arrow := p.consume(token.DOUBLE_ARROW, "expected '=>'")
 	body := p.parseExpression()
-	
+
 	return &ast.ArrowFuncExpr{
 		LParen:     lparen,
 		Parameters: params,
@@ -662,7 +664,7 @@ func (p *Parser) parseArrowFuncFromParams(lparen token.Token) ast.Expression {
 
 func (p *Parser) parseArrayOrMapLiteral() ast.Expression {
 	lbracket := p.advance() // 消费 [
-	
+
 	if p.check(token.RBRACKET) {
 		// 空数组
 		rbracket := p.advance()
@@ -671,15 +673,15 @@ func (p *Parser) parseArrayOrMapLiteral() ast.Expression {
 			RBracket: rbracket,
 		}
 	}
-	
+
 	// 解析第一个元素
 	first := p.parseExpression()
-	
+
 	// 检查是否是 map (key => value)
 	if p.check(token.DOUBLE_ARROW) {
 		return p.parseMapLiteralRest(lbracket, first)
 	}
-	
+
 	// 普通数组
 	elements := []ast.Expression{first}
 	for p.match(token.COMMA) {
@@ -688,7 +690,7 @@ func (p *Parser) parseArrayOrMapLiteral() ast.Expression {
 		}
 		elements = append(elements, p.parseExpression())
 	}
-	
+
 	rbracket := p.consume(token.RBRACKET, "expected ']'")
 	return &ast.ArrayLiteral{
 		LBracket: lbracket,
@@ -700,13 +702,13 @@ func (p *Parser) parseArrayOrMapLiteral() ast.Expression {
 func (p *Parser) parseMapLiteralRest(lbracket token.Token, firstKey ast.Expression) ast.Expression {
 	arrow := p.advance() // 消费 =>
 	firstValue := p.parseExpression()
-	
+
 	pairs := []ast.MapPair{{
 		Key:   firstKey,
 		Arrow: arrow,
 		Value: firstValue,
 	}}
-	
+
 	for p.match(token.COMMA) {
 		if p.check(token.RBRACKET) {
 			break // 允许尾逗号
@@ -720,7 +722,7 @@ func (p *Parser) parseMapLiteralRest(lbracket token.Token, firstKey ast.Expressi
 			Value: value,
 		})
 	}
-	
+
 	rbracket := p.consume(token.RBRACKET, "expected ']'")
 	return &ast.MapLiteral{
 		LBracket: lbracket,
@@ -744,7 +746,7 @@ func (p *Parser) parseIndexExpr(left ast.Expression) ast.Expression {
 func (p *Parser) parsePropertyOrMethodAccess(left ast.Expression) ast.Expression {
 	arrow := p.advance()
 	property := p.consume(token.IDENT, "expected property name")
-	
+
 	if p.check(token.LPAREN) {
 		// 方法调用
 		lparen := p.advance()
@@ -765,7 +767,7 @@ func (p *Parser) parsePropertyOrMethodAccess(left ast.Expression) ast.Expression
 			RParen:    rparen,
 		}
 	}
-	
+
 	// 属性访问
 	return &ast.PropertyAccess{
 		Object:   left,
@@ -777,7 +779,7 @@ func (p *Parser) parsePropertyOrMethodAccess(left ast.Expression) ast.Expression
 func (p *Parser) parseDotAccess(left ast.Expression) ast.Expression {
 	p.advance() // 消费 .
 	property := p.consume(token.IDENT, "expected property name after '.'")
-	
+
 	// 目前 . 只用于属性访问（如 $arr.length, $map.has()）
 	if p.check(token.LPAREN) {
 		// 方法调用
@@ -799,7 +801,7 @@ func (p *Parser) parseDotAccess(left ast.Expression) ast.Expression {
 			RParen:    rparen,
 		}
 	}
-	
+
 	return &ast.PropertyAccess{
 		Object:   left,
 		Arrow:    token.Token{Type: token.DOT},
@@ -809,7 +811,7 @@ func (p *Parser) parseDotAccess(left ast.Expression) ast.Expression {
 
 func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 	doubleColon := p.advance()
-	
+
 	// 检查是否是 ::class
 	if p.check(token.CLASS) {
 		classToken := p.advance()
@@ -819,7 +821,7 @@ func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 			Class:       classToken,
 		}
 	}
-	
+
 	// 静态成员访问
 	var member ast.Expression
 	if p.check(token.VARIABLE) {
@@ -828,7 +830,7 @@ func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 	} else if p.check(token.IDENT) {
 		tok := p.advance()
 		member = &ast.Identifier{Token: tok, Name: tok.Literal}
-		
+
 		// 检查是否是方法调用
 		if p.check(token.LPAREN) {
 			lparen := p.advance()
@@ -851,7 +853,7 @@ func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 		p.error("expected static member name")
 		return left
 	}
-	
+
 	return &ast.StaticAccess{
 		Class:       left,
 		DoubleColon: doubleColon,
@@ -880,7 +882,7 @@ func (p *Parser) parseCallExpr(left ast.Expression) ast.Expression {
 func (p *Parser) parseNewExpr() ast.Expression {
 	newToken := p.advance()
 	className := p.consume(token.IDENT, "expected class name after 'new'")
-	
+
 	lparen := p.consume(token.LPAREN, "expected '(' after class name")
 	var args []ast.Expression
 	if !p.check(token.RPAREN) {
@@ -890,7 +892,7 @@ func (p *Parser) parseNewExpr() ast.Expression {
 		}
 	}
 	rparen := p.consume(token.RPAREN, "expected ')'")
-	
+
 	return &ast.NewExpr{
 		NewToken:  newToken,
 		ClassName: &ast.Identifier{Token: className, Name: className.Literal},
@@ -903,16 +905,16 @@ func (p *Parser) parseNewExpr() ast.Expression {
 func (p *Parser) parseClosureExpr() ast.Expression {
 	funcToken := p.advance()
 	lparen := p.consume(token.LPAREN, "expected '(' after 'function'")
-	
+
 	var params []*ast.Parameter
 	if !p.check(token.RPAREN) {
 		params = append(params, p.parseParameter())
 		for p.match(token.COMMA) {
-		params = append(params, p.parseParameter())
-	}
+			params = append(params, p.parseParameter())
+		}
 	}
 	rparen := p.consume(token.RPAREN, "expected ')'")
-	
+
 	// 解析 use 子句：use ($a, $b)
 	var useVars []*ast.Variable
 	if p.match(token.USE) {
@@ -927,14 +929,14 @@ func (p *Parser) parseClosureExpr() ast.Expression {
 		}
 		p.consume(token.RPAREN, "expected ')' after use variables")
 	}
-	
+
 	var returnType ast.TypeNode
 	if p.match(token.COLON) {
 		returnType = p.parseReturnType()
 	}
-	
+
 	body := p.parseBlock()
-	
+
 	return &ast.ClosureExpr{
 		FuncToken:  funcToken,
 		LParen:     lparen,
@@ -953,7 +955,7 @@ func (p *Parser) parseParameter() *ast.Parameter {
 	if !p.check(token.VARIABLE) && !p.check(token.ELLIPSIS) {
 		param.Type = p.parseType()
 	}
-	
+
 	// 可变参数
 	if p.match(token.ELLIPSIS) {
 		param.Variadic = true
@@ -1013,17 +1015,17 @@ func (p *Parser) parseExprOrVarDeclStmt() ast.Statement {
 	// 形式1: type $var = expr;
 	// 形式2: $var := expr;
 	// 形式3: $var1, $var2 := expr;
-	
+
 	// 检查是否以类型开始
 	if p.isTypeStart() {
 		return p.parseVarDeclWithType()
 	}
-	
+
 	// 检查是否是变量开始（可能是多变量声明或表达式）
 	if p.check(token.VARIABLE) {
 		return p.parseVarDeclOrExprStmt()
 	}
-	
+
 	// 普通表达式语句
 	expr := p.parseExpression()
 	semicolon := p.consume(token.SEMICOLON, "expected ';' after expression")
@@ -1053,15 +1055,15 @@ func (p *Parser) parseVarDeclWithType() ast.Statement {
 	varType := p.parseType()
 	varToken := p.consume(token.VARIABLE, "expected variable name")
 	varName := &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
-	
+
 	var value ast.Expression
 	op := p.consume(token.ASSIGN, "expected '=' after variable name")
 	if !p.check(token.SEMICOLON) {
 		value = p.parseExpression()
 	}
-	
+
 	semicolon := p.consume(token.SEMICOLON, "expected ';' after variable declaration")
-	
+
 	return &ast.VarDeclStmt{
 		Type:      varType,
 		Name:      varName,
@@ -1076,7 +1078,7 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 	var vars []*ast.Variable
 	firstVar := p.advance()
 	vars = append(vars, &ast.Variable{Token: firstVar, Name: firstVar.Literal[1:]})
-	
+
 	// 检查是否是多变量
 	for p.match(token.COMMA) {
 		if !p.check(token.VARIABLE) {
@@ -1088,13 +1090,13 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 		varToken := p.advance()
 		vars = append(vars, &ast.Variable{Token: varToken, Name: varToken.Literal[1:]})
 	}
-	
+
 	// 检查是 := 还是 = 还是其他
 	if p.check(token.DECLARE) {
 		op := p.advance()
 		value := p.parseExpression()
 		semicolon := p.consume(token.SEMICOLON, "expected ';'")
-		
+
 		if len(vars) > 1 {
 			return &ast.MultiVarDeclStmt{
 				Names:     vars,
@@ -1110,22 +1112,22 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 			Semicolon: semicolon,
 		}
 	}
-	
+
 	// 不是声明，是表达式语句
 	// 需要重新解析
 	if len(vars) > 1 {
 		// 多变量但不是 :=，这是错误
 		p.error("expected ':=' for multi-variable declaration")
 	}
-	
+
 	// 将第一个变量作为表达式的开始
 	left := ast.Expression(vars[0])
-	
+
 	// 继续解析中缀表达式
 	for p.getPrecedence(p.peek().Type) > PREC_NONE {
 		left = p.parseInfixExpr(left)
 	}
-	
+
 	semicolon := p.consume(token.SEMICOLON, "expected ';' after expression")
 	return &ast.ExprStmt{
 		Expr:      left,
@@ -1135,14 +1137,14 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 
 func (p *Parser) parseBlock() *ast.BlockStmt {
 	lbrace := p.consume(token.LBRACE, "expected '{'")
-	
+
 	var stmts []ast.Statement
 	for !p.check(token.RBRACE) && !p.isAtEnd() {
 		stmts = append(stmts, p.parseStatement())
 	}
-	
+
 	rbrace := p.consume(token.RBRACE, "expected '}'")
-	
+
 	return &ast.BlockStmt{
 		LBrace:     lbrace,
 		Statements: stmts,
@@ -1156,10 +1158,10 @@ func (p *Parser) parseIfStmt() *ast.IfStmt {
 	condition := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
 	then := p.parseBlock()
-	
+
 	var elseIfs []*ast.ElseIfClause
 	var elseBlock *ast.BlockStmt
-	
+
 	for p.check(token.ELSEIF) {
 		elseIfToken := p.advance()
 		p.consume(token.LPAREN, "expected '(' after 'elseif'")
@@ -1172,11 +1174,11 @@ func (p *Parser) parseIfStmt() *ast.IfStmt {
 			Body:        elseIfBody,
 		})
 	}
-	
+
 	if p.match(token.ELSE) {
 		elseBlock = p.parseBlock()
 	}
-	
+
 	return &ast.IfStmt{
 		IfToken:   ifToken,
 		Condition: condition,
@@ -1192,21 +1194,21 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 	expr := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
 	lbrace := p.consume(token.LBRACE, "expected '{'")
-	
+
 	var cases []*ast.CaseClause
 	var defaultClause *ast.DefaultClause
-	
+
 	for !p.check(token.RBRACE) && !p.isAtEnd() {
 		if p.check(token.CASE) {
 			caseToken := p.advance()
 			value := p.parseExpression()
 			colon := p.consume(token.COLON, "expected ':'")
-			
+
 			var body []ast.Statement
 			for !p.checkAny(token.CASE, token.DEFAULT, token.RBRACE) && !p.isAtEnd() {
 				body = append(body, p.parseStatement())
 			}
-			
+
 			cases = append(cases, &ast.CaseClause{
 				CaseToken: caseToken,
 				Value:     value,
@@ -1216,12 +1218,12 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 		} else if p.check(token.DEFAULT) {
 			defaultToken := p.advance()
 			colon := p.consume(token.COLON, "expected ':'")
-			
+
 			var body []ast.Statement
 			for !p.checkAny(token.CASE, token.RBRACE) && !p.isAtEnd() {
 				body = append(body, p.parseStatement())
 			}
-			
+
 			defaultClause = &ast.DefaultClause{
 				DefaultToken: defaultToken,
 				Colon:        colon,
@@ -1232,9 +1234,9 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 			break
 		}
 	}
-	
+
 	rbrace := p.consume(token.RBRACE, "expected '}'")
-	
+
 	return &ast.SwitchStmt{
 		SwitchToken: switchToken,
 		Expr:        expr,
@@ -1248,7 +1250,7 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 func (p *Parser) parseForStmt() *ast.ForStmt {
 	forToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'for'")
-	
+
 	// 初始化
 	var init ast.Statement
 	if !p.check(token.SEMICOLON) {
@@ -1256,23 +1258,23 @@ func (p *Parser) parseForStmt() *ast.ForStmt {
 	} else {
 		p.advance() // 消费 ;
 	}
-	
+
 	// 条件
 	var condition ast.Expression
 	if !p.check(token.SEMICOLON) {
 		condition = p.parseExpression()
 	}
 	p.consume(token.SEMICOLON, "expected ';' after for condition")
-	
+
 	// 后置表达式
 	var post ast.Expression
 	if !p.check(token.RPAREN) {
 		post = p.parseExpression()
 	}
 	p.consume(token.RPAREN, "expected ')'")
-	
+
 	body := p.parseBlock()
-	
+
 	return &ast.ForStmt{
 		ForToken:  forToken,
 		Init:      init,
@@ -1285,24 +1287,24 @@ func (p *Parser) parseForStmt() *ast.ForStmt {
 func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 	foreachToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'foreach'")
-	
+
 	iterable := p.parseExpression()
 	asToken := p.consume(token.AS, "expected 'as'")
-	
+
 	var key *ast.Variable
 	valueToken := p.consume(token.VARIABLE, "expected variable")
 	value := &ast.Variable{Token: valueToken, Name: valueToken.Literal[1:]}
-	
+
 	// 检查是否有 key => value 形式
 	if p.match(token.DOUBLE_ARROW) {
 		key = value
 		valueToken = p.consume(token.VARIABLE, "expected variable after '=>'")
 		value = &ast.Variable{Token: valueToken, Name: valueToken.Literal[1:]}
 	}
-	
+
 	p.consume(token.RPAREN, "expected ')'")
 	body := p.parseBlock()
-	
+
 	return &ast.ForeachStmt{
 		ForeachToken: foreachToken,
 		Iterable:     iterable,
@@ -1319,7 +1321,7 @@ func (p *Parser) parseWhileStmt() *ast.WhileStmt {
 	condition := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
 	body := p.parseBlock()
-	
+
 	return &ast.WhileStmt{
 		WhileToken: whileToken,
 		Condition:  condition,
@@ -1335,7 +1337,7 @@ func (p *Parser) parseDoWhileStmt() *ast.DoWhileStmt {
 	condition := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.DoWhileStmt{
 		DoToken:    doToken,
 		Body:       body,
@@ -1365,7 +1367,7 @@ func (p *Parser) parseContinueStmt() *ast.ContinueStmt {
 
 func (p *Parser) parseReturnStmt() *ast.ReturnStmt {
 	returnToken := p.advance()
-	
+
 	var values []ast.Expression
 	if !p.check(token.SEMICOLON) {
 		values = append(values, p.parseExpression())
@@ -1373,9 +1375,9 @@ func (p *Parser) parseReturnStmt() *ast.ReturnStmt {
 			values = append(values, p.parseExpression())
 		}
 	}
-	
+
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.ReturnStmt{
 		ReturnToken: returnToken,
 		Values:      values,
@@ -1386,7 +1388,7 @@ func (p *Parser) parseReturnStmt() *ast.ReturnStmt {
 func (p *Parser) parseTryStmt() *ast.TryStmt {
 	tryToken := p.advance()
 	tryBlock := p.parseBlock()
-	
+
 	var catches []*ast.CatchClause
 	for p.check(token.CATCH) {
 		catchToken := p.advance()
@@ -1396,7 +1398,7 @@ func (p *Parser) parseTryStmt() *ast.TryStmt {
 		varName := &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
 		p.consume(token.RPAREN, "expected ')'")
 		body := p.parseBlock()
-		
+
 		catches = append(catches, &ast.CatchClause{
 			CatchToken: catchToken,
 			Type:       exType,
@@ -1404,7 +1406,7 @@ func (p *Parser) parseTryStmt() *ast.TryStmt {
 			Body:       body,
 		})
 	}
-	
+
 	var finally *ast.FinallyClause
 	if p.check(token.FINALLY) {
 		finallyToken := p.advance()
@@ -1414,7 +1416,7 @@ func (p *Parser) parseTryStmt() *ast.TryStmt {
 			Body:         body,
 		}
 	}
-	
+
 	return &ast.TryStmt{
 		TryToken: tryToken,
 		Try:      tryBlock,
@@ -1427,7 +1429,7 @@ func (p *Parser) parseThrowStmt() *ast.ThrowStmt {
 	throwToken := p.advance()
 	exception := p.parseExpression()
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.ThrowStmt{
 		ThrowToken: throwToken,
 		Exception:  exception,
@@ -1439,7 +1441,7 @@ func (p *Parser) parseEchoStmt() *ast.EchoStmt {
 	echoToken := p.advance()
 	value := p.parseExpression()
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.EchoStmt{
 		EchoToken: echoToken,
 		Value:     value,
@@ -1457,7 +1459,7 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 	for p.check(token.AT) {
 		annotations = append(annotations, p.parseAnnotation())
 	}
-	
+
 	// 解析访问修饰符
 	visibility := ast.VisibilityDefault
 	if p.match(token.PUBLIC) {
@@ -1467,10 +1469,10 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 	} else if p.match(token.PRIVATE) {
 		visibility = ast.VisibilityPrivate
 	}
-	
+
 	// 检查是否是抽象类
 	isAbstract := p.match(token.ABSTRACT)
-	
+
 	switch p.peek().Type {
 	case token.CLASS:
 		return p.parseClass(annotations, visibility, isAbstract)
@@ -1486,10 +1488,10 @@ func (p *Parser) parseAnnotation() *ast.Annotation {
 	atToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected annotation name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
-	
+
 	var lparen, rparen token.Token
 	var args []ast.Expression
-	
+
 	if p.check(token.LPAREN) {
 		lparen = p.advance()
 		if !p.check(token.RPAREN) {
@@ -1500,7 +1502,7 @@ func (p *Parser) parseAnnotation() *ast.Annotation {
 		}
 		rparen = p.consume(token.RPAREN, "expected ')'")
 	}
-	
+
 	return &ast.Annotation{
 		AtToken: atToken,
 		Name:    name,
@@ -1514,14 +1516,14 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 	classToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected class name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
-	
+
 	// extends
 	var extends *ast.Identifier
 	if p.match(token.EXTENDS) {
 		extendsToken := p.consume(token.IDENT, "expected parent class name")
 		extends = &ast.Identifier{Token: extendsToken, Name: extendsToken.Literal}
 	}
-	
+
 	// implements
 	var implements []*ast.Identifier
 	if p.match(token.IMPLEMENTS) {
@@ -1532,13 +1534,13 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 			implements = append(implements, &ast.Identifier{Token: implToken, Name: implToken.Literal})
 		}
 	}
-	
+
 	lbrace := p.consume(token.LBRACE, "expected '{'")
-	
+
 	var constants []*ast.ConstDecl
 	var properties []*ast.PropertyDecl
 	var methods []*ast.MethodDecl
-	
+
 	for !p.check(token.RBRACE) && !p.isAtEnd() {
 		member := p.parseClassMember()
 		switch m := member.(type) {
@@ -1550,9 +1552,9 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 			methods = append(methods, m)
 		}
 	}
-	
+
 	rbrace := p.consume(token.RBRACE, "expected '}'")
-	
+
 	return &ast.ClassDecl{
 		Annotations: annotations,
 		Visibility:  visibility,
@@ -1575,7 +1577,7 @@ func (p *Parser) parseClassMember() ast.Declaration {
 	for p.check(token.AT) {
 		annotations = append(annotations, p.parseAnnotation())
 	}
-	
+
 	// 解析访问修饰符
 	visibility := ast.VisibilityDefault
 	if p.match(token.PUBLIC) {
@@ -1585,25 +1587,25 @@ func (p *Parser) parseClassMember() ast.Declaration {
 	} else if p.match(token.PRIVATE) {
 		visibility = ast.VisibilityPrivate
 	}
-	
+
 	isAbstract := p.match(token.ABSTRACT)
 	isStatic := p.match(token.STATIC)
-	
+
 	// 如果之前匹配了 static，再检查 abstract
 	if !isAbstract {
 		isAbstract = p.match(token.ABSTRACT)
 	}
-	
+
 	// const
 	if p.check(token.CONST) {
 		return p.parseConstDecl(annotations, visibility)
 	}
-	
+
 	// function
 	if p.check(token.FUNCTION) {
 		return p.parseMethodDecl(annotations, visibility, isStatic, isAbstract)
 	}
-	
+
 	// property (类型 $变量名)
 	return p.parsePropertyDecl(annotations, visibility, isStatic)
 }
@@ -1616,7 +1618,7 @@ func (p *Parser) parseConstDecl(annotations []*ast.Annotation, visibility ast.Vi
 	assign := p.consume(token.ASSIGN, "expected '='")
 	value := p.parseExpression()
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.ConstDecl{
 		Annotations: annotations,
 		Visibility:  visibility,
@@ -1633,16 +1635,16 @@ func (p *Parser) parsePropertyDecl(annotations []*ast.Annotation, visibility ast
 	varType := p.parseType()
 	varToken := p.consume(token.VARIABLE, "expected variable name")
 	name := &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
-	
+
 	var assign token.Token
 	var value ast.Expression
 	if p.check(token.ASSIGN) {
 		assign = p.advance()
 		value = p.parseExpression()
 	}
-	
+
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.PropertyDecl{
 		Annotations: annotations,
 		Visibility:  visibility,
@@ -1659,7 +1661,7 @@ func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.V
 	funcToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected method name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
-	
+
 	lparen := p.consume(token.LPAREN, "expected '('")
 	var params []*ast.Parameter
 	if !p.check(token.RPAREN) {
@@ -1669,19 +1671,19 @@ func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.V
 		}
 	}
 	rparen := p.consume(token.RPAREN, "expected ')'")
-	
+
 	var returnType ast.TypeNode
 	if p.match(token.COLON) {
 		returnType = p.parseReturnType()
 	}
-	
+
 	var body *ast.BlockStmt
 	if isAbstract {
 		p.consume(token.SEMICOLON, "expected ';' after abstract method")
 	} else {
 		body = p.parseBlock()
 	}
-	
+
 	return &ast.MethodDecl{
 		Annotations: annotations,
 		Visibility:  visibility,
@@ -1701,7 +1703,7 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 	interfaceToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected interface name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
-	
+
 	// extends (接口可以继承多个接口)
 	var extends []*ast.Identifier
 	if p.match(token.EXTENDS) {
@@ -1712,9 +1714,9 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 			extends = append(extends, &ast.Identifier{Token: extToken, Name: extToken.Literal})
 		}
 	}
-	
+
 	lbrace := p.consume(token.LBRACE, "expected '{'")
-	
+
 	var methods []*ast.MethodDecl
 	for !p.check(token.RBRACE) && !p.isAtEnd() {
 		// 接口中的方法都是抽象的
@@ -1722,11 +1724,11 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 		if p.match(token.PUBLIC) {
 			visibility = ast.VisibilityPublic
 		}
-		
+
 		funcToken := p.consume(token.FUNCTION, "expected 'function'")
 		nameToken := p.consume(token.IDENT, "expected method name")
 		methodName := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
-		
+
 		lparen := p.consume(token.LPAREN, "expected '('")
 		var params []*ast.Parameter
 		if !p.check(token.RPAREN) {
@@ -1736,28 +1738,28 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 			}
 		}
 		rparen := p.consume(token.RPAREN, "expected ')'")
-		
+
 		var returnType ast.TypeNode
 		if p.match(token.COLON) {
 			returnType = p.parseReturnType()
 		}
-		
+
 		p.consume(token.SEMICOLON, "expected ';'")
-		
+
 		methods = append(methods, &ast.MethodDecl{
-			Visibility:  visibility,
-			Abstract:    true,
-			FuncToken:   funcToken,
-			Name:        methodName,
-			LParen:      lparen,
-			Parameters:  params,
-			RParen:      rparen,
-			ReturnType:  returnType,
+			Visibility: visibility,
+			Abstract:   true,
+			FuncToken:  funcToken,
+			Name:       methodName,
+			LParen:     lparen,
+			Parameters: params,
+			RParen:     rparen,
+			ReturnType: returnType,
 		})
 	}
-	
+
 	rbrace := p.consume(token.RBRACE, "expected '}'")
-	
+
 	return &ast.InterfaceDecl{
 		Annotations:    annotations,
 		Visibility:     visibility,
@@ -1772,13 +1774,13 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 
 func (p *Parser) parseNamespace() *ast.NamespaceDecl {
 	nsToken := p.advance()
-	
+
 	var parts []string
 	parts = append(parts, p.consume(token.IDENT, "expected namespace name").Literal)
 	for p.match(token.DOT) {
 		parts = append(parts, p.consume(token.IDENT, "expected namespace name").Literal)
 	}
-	
+
 	return &ast.NamespaceDecl{
 		NamespaceToken: nsToken,
 		Name:           strings.Join(parts, "."),
@@ -1787,24 +1789,73 @@ func (p *Parser) parseNamespace() *ast.NamespaceDecl {
 
 func (p *Parser) parseUse() *ast.UseDecl {
 	useToken := p.advance()
-	
+
 	var parts []string
 	parts = append(parts, p.consume(token.IDENT, "expected import path").Literal)
 	for p.match(token.DOT) {
 		parts = append(parts, p.consume(token.IDENT, "expected import path").Literal)
 	}
-	
+
 	var alias *ast.Identifier
 	if p.match(token.AS) {
 		aliasToken := p.consume(token.IDENT, "expected alias name")
 		alias = &ast.Identifier{Token: aliasToken, Name: aliasToken.Literal}
 	}
-	
+
 	p.consume(token.SEMICOLON, "expected ';'")
-	
+
 	return &ast.UseDecl{
 		UseToken: useToken,
 		Path:     strings.Join(parts, "."),
 		Alias:    alias,
 	}
+}
+
+// parseInterpStringParts 解析插值字符串的各个部分
+func (p *Parser) parseInterpStringParts(tok token.Token) []ast.Expression {
+	var parts []ast.Expression
+	str := tok.Value.(string)
+
+	i := 0
+	start := 0
+	for i < len(str) {
+		if str[i] == '{' && i+1 < len(str) && str[i+1] == '$' {
+			// 保存前面的普通文本部分
+			if i > start {
+				parts = append(parts, &ast.StringLiteral{
+					Token: tok,
+					Value: str[start:i],
+				})
+			}
+
+			// 解析变量名 {$name}
+			i += 2 // 跳过 {$
+			varStart := i
+			for i < len(str) && str[i] != '}' {
+				i++
+			}
+			varName := str[varStart:i]
+			if i < len(str) {
+				i++ // 跳过 }
+			}
+
+			parts = append(parts, &ast.Variable{
+				Token: tok,
+				Name:  varName,
+			})
+			start = i
+		} else {
+			i++
+		}
+	}
+
+	// 保存最后的普通文本部分
+	if start < len(str) {
+		parts = append(parts, &ast.StringLiteral{
+			Token: tok,
+			Value: str[start:],
+		})
+	}
+
+	return parts
 }

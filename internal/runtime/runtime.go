@@ -243,7 +243,7 @@ func builtinPrint(args []bytecode.Value) bytecode.Value {
 
 func builtinPrintR(args []bytecode.Value) bytecode.Value {
 	for _, arg := range args {
-		fmt.Printf("%s: %s\n", arg.Type, arg.String())
+		fmt.Printf("%v: %s\n", arg.Type, arg.String())
 	}
 	return bytecode.NullValue
 }
