@@ -28,6 +28,10 @@ type Compiler struct {
 	
 	// 闭包上下文 - 禁止直接访问全局变量
 	inClosure bool
+	
+	// 返回值类型检查
+	returnType       ast.TypeNode // 当前函数的返回类型
+	expectedReturns  int          // 预期返回值数量 (0=void, 1=单值, >1=多值)
 
 	errors []Error
 }
@@ -103,12 +107,14 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	return c.function, c.errors
 }
 
-// CompileFunction 编译函数
+// CompileFunction 编译函数（允许隐式返回值，用于箭头函数等）
 func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *ast.BlockStmt) *bytecode.Function {
 	// 保存当前状态
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
+	prevReturnType := c.returnType
+	prevExpectedReturns := c.expectedReturns
 
 	// 创建新函数
 	c.function = bytecode.NewFunction(name)
@@ -116,6 +122,10 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.locals = make([]Local, 256)
 	c.localCount = 0
 	c.scopeDepth = 0
+	
+	// 对于 CompileFunction，不检查返回类型（允许隐式返回值，用于箭头函数）
+	c.returnType = nil
+	c.expectedReturns = -1 // -1 表示不检查
 
 	// 计算最小参数数量和处理可变参数
 	minArity := len(params)
@@ -171,6 +181,8 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.function = prevFn
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
+	c.returnType = prevReturnType
+	c.expectedReturns = prevExpectedReturns
 
 	return fn
 }
@@ -200,13 +212,20 @@ func (c *Compiler) evaluateConstExpr(expr ast.Expression) bytecode.Value {
 	}
 }
 
-// CompileClosure 编译带 use 的闭包
+// CompileClosure 编译带 use 的闭包（无返回类型检查）
 func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars []*ast.Variable, body *ast.BlockStmt) *bytecode.Function {
+	return c.CompileClosureWithReturnType(name, params, useVars, body, nil)
+}
+
+// CompileClosureWithReturnType 编译带 use 的闭包（带返回类型检查）
+func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Parameter, useVars []*ast.Variable, body *ast.BlockStmt, returnType ast.TypeNode) *bytecode.Function {
 	// 保存当前状态
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
 	prevInClosure := c.inClosure
+	prevReturnType := c.returnType
+	prevExpectedReturns := c.expectedReturns
 
 	// 创建新函数
 	c.function = bytecode.NewFunction(name)
@@ -216,6 +235,10 @@ func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars 
 	c.localCount = 0
 	c.scopeDepth = 0
 	c.inClosure = true // 标记在闭包中，禁止访问全局变量
+	
+	// 设置返回类型检查
+	c.returnType = returnType
+	c.expectedReturns = c.countExpectedReturns(returnType)
 
 	// 计算最小参数数量和处理可变参数
 	minArity := len(params)
@@ -276,6 +299,8 @@ func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars 
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
 	c.inClosure = prevInClosure
+	c.returnType = prevReturnType
+	c.expectedReturns = prevExpectedReturns
 
 	return fn
 }
@@ -696,9 +721,43 @@ func (c *Compiler) compileContinueStmt() {
 }
 
 func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
-	if len(s.Values) == 0 {
+	actualReturns := len(s.Values)
+	
+	// expectedReturns == -1 表示不检查（用于箭头函数等）
+	if c.expectedReturns >= 0 {
+		// 检查返回值数量
+		if c.expectedReturns == 0 {
+			// 预期无返回值 (void 或省略)
+			if actualReturns > 0 {
+				c.error(s.Pos(), "function declared without return type but returns %d value(s)", actualReturns)
+			}
+			c.emit(bytecode.OpReturnNull)
+			return
+		}
+		
+		if c.expectedReturns > 0 && actualReturns != c.expectedReturns {
+			c.error(s.Pos(), "function expects %d return value(s) but got %d", c.expectedReturns, actualReturns)
+		}
+		
+		// 检查返回值类型
+		if c.returnType != nil && actualReturns > 0 {
+			if tuple, ok := c.returnType.(*ast.TupleType); ok {
+				// 多返回值类型检查
+				for i, val := range s.Values {
+					if i < len(tuple.Types) {
+						c.checkReturnType(val.Pos(), val, tuple.Types[i])
+					}
+				}
+			} else if actualReturns == 1 {
+				// 单返回值类型检查
+				c.checkReturnType(s.Values[0].Pos(), s.Values[0], c.returnType)
+			}
+		}
+	}
+	
+	if actualReturns == 0 {
 		c.emit(bytecode.OpReturnNull)
-	} else if len(s.Values) == 1 {
+	} else if actualReturns == 1 {
 		// 单返回值
 		c.compileExpr(s.Values[0])
 		c.emit(bytecode.OpReturn)
@@ -1242,8 +1301,8 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 }
 
 func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) {
-	// 编译闭包函数，传入 use 变量
-	fn := c.CompileClosure("<closure>", e.Parameters, e.UseVars, e.Body)
+	// 编译闭包函数，传入 use 变量和返回类型
+	fn := c.CompileClosureWithReturnType("<closure>", e.Parameters, e.UseVars, e.Body, e.ReturnType)
 	
 	// 如果有 use 变量，需要创建闭包并捕获值
 	if len(e.UseVars) > 0 {
@@ -1391,6 +1450,133 @@ func (c *Compiler) emitLoop(loopStart int) {
 
 func (c *Compiler) error(pos token.Position, message string, args ...interface{}) {
 	c.errors = append(c.errors, Error{Pos: pos, Message: fmt.Sprintf(message, args...)})
+}
+
+// inferExprType 推断表达式的类型名
+func (c *Compiler) inferExprType(expr ast.Expression) string {
+	switch e := expr.(type) {
+	case *ast.IntegerLiteral:
+		return "int"
+	case *ast.FloatLiteral:
+		return "float"
+	case *ast.StringLiteral, *ast.InterpStringLiteral:
+		return "string"
+	case *ast.BoolLiteral:
+		return "bool"
+	case *ast.NullLiteral:
+		return "null"
+	case *ast.ArrayLiteral:
+		return "array"
+	case *ast.MapLiteral:
+		return "map"
+	case *ast.BinaryExpr:
+		leftType := c.inferExprType(e.Left)
+		rightType := c.inferExprType(e.Right)
+		
+		// 如果任一侧是 unknown，整个表达式也是 unknown
+		if leftType == "unknown" || rightType == "unknown" {
+			return "unknown"
+		}
+		
+		// 字符串拼接
+		if e.Operator.Type == token.PLUS {
+			if leftType == "string" || rightType == "string" {
+				return "string"
+			}
+		}
+		// 比较运算符返回 bool
+		switch e.Operator.Type {
+		case token.EQ, token.NE, token.LT, token.LE, token.GT, token.GE:
+			return "bool"
+		case token.AND, token.OR:
+			return "bool"
+		}
+		// 算术运算
+		if leftType == "float" || rightType == "float" {
+			return "float"
+		}
+		return "int"
+	case *ast.UnaryExpr:
+		if e.Operator.Type == token.NOT {
+			return "bool"
+		}
+		return c.inferExprType(e.Operand)
+	case *ast.Variable:
+		// 变量类型需要从上下文获取，暂时返回 unknown
+		return "unknown"
+	case *ast.CallExpr, *ast.MethodCall, *ast.StaticAccess:
+		// 函数调用的返回类型需要查表，暂时返回 unknown
+		return "unknown"
+	case *ast.NewExpr:
+		return e.ClassName.Name
+	case *ast.TernaryExpr:
+		return c.inferExprType(e.Then)
+	default:
+		return "unknown"
+	}
+}
+
+// checkReturnType 检查返回值类型是否匹配
+func (c *Compiler) checkReturnType(pos token.Position, expr ast.Expression, expectedType ast.TypeNode) {
+	if expectedType == nil {
+		return
+	}
+	
+	actualType := c.inferExprType(expr)
+	if actualType == "unknown" {
+		return // 无法推断类型时跳过检查
+	}
+	
+	expectedTypeName := c.getTypeName(expectedType)
+	if expectedTypeName == "" || expectedTypeName == "unknown" {
+		return
+	}
+	
+	// 类型兼容性检查
+	if !c.isTypeCompatible(actualType, expectedTypeName) {
+		c.error(pos, "type mismatch: expected %s but got %s", expectedTypeName, actualType)
+	}
+}
+
+// getTypeName 从 TypeNode 获取类型名
+func (c *Compiler) getTypeName(t ast.TypeNode) string {
+	switch typ := t.(type) {
+	case *ast.SimpleType:
+		return typ.Name
+	case *ast.ClassType:
+		return typ.Name.Literal
+	case *ast.ArrayType:
+		return "array"
+	case *ast.MapType:
+		return "map"
+	case *ast.NullableType:
+		return c.getTypeName(typ.Inner)
+	case *ast.TupleType:
+		return "tuple"
+	default:
+		return "unknown"
+	}
+}
+
+// isTypeCompatible 检查类型兼容性
+func (c *Compiler) isTypeCompatible(actual, expected string) bool {
+	if actual == expected {
+		return true
+	}
+	// null 可以赋值给任何可空类型
+	if actual == "null" {
+		return true
+	}
+	// int 可以隐式转换为 float
+	if actual == "int" && expected == "float" {
+		return true
+	}
+	// 整数类型兼容
+	intTypes := map[string]bool{"int": true, "i8": true, "i16": true, "i32": true, "i64": true}
+	if intTypes[actual] && intTypes[expected] {
+		return true
+	}
+	return false
 }
 
 // evalConstInt 在编译时计算常量整数表达式

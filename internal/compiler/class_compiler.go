@@ -135,6 +135,8 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
 	prevScopeDepth := c.scopeDepth
+	prevReturnType := c.returnType
+	prevExpectedReturns := c.expectedReturns
 
 	// 创建方法的编译环境
 	c.function = &bytecode.Function{
@@ -145,6 +147,10 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.locals = make([]Local, 256)
 	c.localCount = 0
 	c.scopeDepth = 0
+	
+	// 设置返回类型检查
+	c.returnType = decl.ReturnType
+	c.expectedReturns = c.countExpectedReturns(decl.ReturnType)
 
 	// 添加隐式 this 参数 (slot 0)
 	// 非静态方法有 $this，静态方法用空字符串占位
@@ -183,8 +189,32 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
 	c.scopeDepth = prevScopeDepth
+	c.returnType = prevReturnType
+	c.expectedReturns = prevExpectedReturns
 
 	return method
+}
+
+// countExpectedReturns 计算预期返回值数量
+func (c *Compiler) countExpectedReturns(returnType ast.TypeNode) int {
+	if returnType == nil {
+		return 0 // 无返回类型 = void
+	}
+	
+	// 检查是否是 void 类型
+	if simple, ok := returnType.(*ast.SimpleType); ok {
+		if simple.Name == "void" {
+			return 0
+		}
+	}
+	
+	// 检查是否是多返回值类型 (TupleType)
+	if tuple, ok := returnType.(*ast.TupleType); ok {
+		return len(tuple.Types)
+	}
+	
+	// 单返回值
+	return 1
 }
 
 // evaluateConstant 编译时求值常量表达式

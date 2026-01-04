@@ -273,6 +273,13 @@ func (p *Parser) parseFuncType() *ast.FuncType {
 }
 
 func (p *Parser) parseReturnType() ast.TypeNode {
+	// 检查是否是 void，如果是则报错
+	if p.check(token.VOID) {
+		p.error("'void' is not allowed as return type; omit the return type instead")
+		p.advance() // 跳过 void
+		return nil
+	}
+
 	// 多返回值类型 (int, string)
 	if p.match(token.LPAREN) {
 		lparen := p.previous()
