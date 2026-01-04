@@ -70,6 +70,12 @@ func (r *Runtime) Run(source, filename string) error {
 		}
 	}
 
+	// 注册编译的枚举
+	enums := c.Enums()
+	for _, enum := range enums {
+		r.vm.DefineEnum(enum)
+	}
+
 	// 注册内置函数
 	r.registerBuiltinsToVM()
 

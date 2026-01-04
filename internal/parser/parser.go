@@ -59,7 +59,7 @@ func (p *Parser) Parse() *ast.File {
 
 	// 解析声明和语句
 	for !p.isAtEnd() {
-		if p.checkAny(token.CLASS, token.INTERFACE, token.ABSTRACT, token.PUBLIC,
+		if p.checkAny(token.CLASS, token.INTERFACE, token.ENUM, token.ABSTRACT, token.PUBLIC,
 			token.PROTECTED, token.PRIVATE, token.AT) {
 			decl := p.parseDeclaration()
 			if decl != nil {
@@ -1478,8 +1478,10 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 		return p.parseClass(annotations, visibility, isAbstract)
 	case token.INTERFACE:
 		return p.parseInterface(annotations, visibility)
+	case token.ENUM:
+		return p.parseEnum()
 	default:
-		p.error("expected class or interface declaration")
+		p.error("expected class, interface or enum declaration")
 		return nil
 	}
 }
@@ -1769,6 +1771,52 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 		LBrace:         lbrace,
 		Methods:        methods,
 		RBrace:         rbrace,
+	}
+}
+
+func (p *Parser) parseEnum() *ast.EnumDecl {
+	enumToken := p.advance()
+	nameToken := p.consume(token.IDENT, "expected enum name")
+	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
+
+	// 可选的基础类型 (: int 或 : string)
+	var baseType ast.TypeNode
+	if p.match(token.COLON) {
+		baseType = p.parseType()
+	}
+
+	lbrace := p.consume(token.LBRACE, "expected '{'")
+
+	var cases []*ast.EnumCase
+	for !p.check(token.RBRACE) && !p.isAtEnd() {
+		// 解析 case CaseName 或 case CaseName = value
+		p.consume(token.CASE, "expected 'case'")
+		caseNameToken := p.consume(token.IDENT, "expected case name")
+		caseName := &ast.Identifier{Token: caseNameToken, Name: caseNameToken.Literal}
+
+		var value ast.Expression
+		if p.match(token.ASSIGN) {
+			value = p.parseExpression()
+		}
+
+		cases = append(cases, &ast.EnumCase{
+			Name:  caseName,
+			Value: value,
+		})
+
+		// 分号是可选的
+		p.match(token.SEMICOLON)
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}'")
+
+	return &ast.EnumDecl{
+		EnumToken: enumToken,
+		Name:      name,
+		Type:      baseType,
+		LBrace:    lbrace,
+		Cases:     cases,
+		RBrace:    rbrace,
 	}
 }
 

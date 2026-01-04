@@ -46,6 +46,7 @@ type VM struct {
 
 	globals map[string]bytecode.Value
 	classes map[string]*bytecode.Class
+	enums   map[string]*bytecode.Enum
 
 	// 异常处理
 	tryStack    []TryContext
@@ -62,6 +63,7 @@ func New() *VM {
 	return &VM{
 		globals: make(map[string]bytecode.Value),
 		classes: make(map[string]*bytecode.Class),
+		enums:   make(map[string]*bytecode.Enum),
 	}
 }
 
@@ -381,6 +383,12 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("only objects have fields")
 			}
 			obj := objVal.AsObject()
+			
+			// 检查访问权限
+			if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+				return vm.runtimeError("%v", err)
+			}
+			
 			if value, ok := obj.GetField(name); ok {
 				vm.push(value)
 			} else {
@@ -399,6 +407,12 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("only objects have fields")
 			}
 			obj := objVal.AsObject()
+			
+			// 检查访问权限
+			if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+				return vm.runtimeError("%v", err)
+			}
+			
 			obj.SetField(name, value)
 			vm.push(value)
 
@@ -434,6 +448,15 @@ func (vm *VM) execute() InterpretResult {
 			frame.IP += 2
 			className := chunk.Constants[classIdx].AsString()
 			name := chunk.Constants[nameIdx].AsString()
+			
+			// 先检查是否是枚举
+			if enum, ok := vm.enums[className]; ok {
+				if val, ok := enum.Cases[name]; ok {
+					vm.push(bytecode.NewEnumValue(className, name, val))
+					continue
+				}
+				return vm.runtimeError("undefined enum case '%s::%s'", className, name)
+			}
 			
 			class, err := vm.resolveClassName(className)
 			if err != nil {
@@ -980,6 +1003,11 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 		return vm.runtimeError("undefined method '%s'", name)
 	}
 
+	// 检查方法访问权限
+	if err := vm.checkMethodAccess(obj.Class, method); err != nil {
+		return vm.runtimeError("%v", err)
+	}
+
 	// 创建方法的闭包
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
@@ -1018,6 +1046,11 @@ func (vm *VM) DefineGlobal(name string, value bytecode.Value) {
 // DefineClass 定义类
 func (vm *VM) DefineClass(class *bytecode.Class) {
 	vm.classes[class.Name] = class
+}
+
+// DefineEnum 注册枚举
+func (vm *VM) DefineEnum(enum *bytecode.Enum) {
+	vm.enums[enum.Name] = enum
 }
 
 // GetError 获取错误信息

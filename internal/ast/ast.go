@@ -1002,6 +1002,31 @@ func (d *InterfaceDecl) End() token.Position { return d.RBrace.Pos }
 func (d *InterfaceDecl) String() string      { return "interface " + d.Name.String() }
 func (d *InterfaceDecl) declNode()           {}
 
+// EnumDecl 枚举声明
+type EnumDecl struct {
+	EnumToken token.Token
+	Name      *Identifier
+	Type      TypeNode    // 可选的基础类型 (int/string)
+	LBrace    token.Token
+	Cases     []*EnumCase
+	RBrace    token.Token
+}
+
+func (d *EnumDecl) Pos() token.Position { return d.EnumToken.Pos }
+func (d *EnumDecl) End() token.Position { return d.RBrace.Pos }
+func (d *EnumDecl) String() string      { return "enum " + d.Name.String() }
+func (d *EnumDecl) declNode()           {}
+
+// EnumCase 枚举成员
+type EnumCase struct {
+	Name  *Identifier
+	Value Expression // 可选的值
+}
+
+func (c *EnumCase) Pos() token.Position { return c.Name.Pos() }
+func (c *EnumCase) End() token.Position { return c.Name.End() }
+func (c *EnumCase) String() string      { return c.Name.String() }
+
 // NamespaceDecl 命名空间声明
 type NamespaceDecl struct {
 	NamespaceToken token.Token

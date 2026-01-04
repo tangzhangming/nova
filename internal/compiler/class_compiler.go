@@ -45,10 +45,14 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 			value = bytecode.NullValue
 		}
 		
+		// 保存属性可见性
+		vis := toByteVisibility(prop.Visibility)
+		
 		if prop.Static {
 			class.StaticVars[prop.Name.Name] = value
 		} else {
 			class.Properties[prop.Name.Name] = value
+			class.PropVisibility[prop.Name.Name] = vis
 		}
 	}
 
@@ -61,13 +65,28 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	return class
 }
 
+// toByteVisibility 转换 AST 可见性到字节码可见性
+func toByteVisibility(v ast.Visibility) bytecode.Visibility {
+	switch v {
+	case ast.VisibilityPublic:
+		return bytecode.VisPublic
+	case ast.VisibilityProtected:
+		return bytecode.VisProtected
+	case ast.VisibilityPrivate:
+		return bytecode.VisPrivate
+	default:
+		return bytecode.VisPublic
+	}
+}
+
 // compileMethod 编译方法
 func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *bytecode.Method {
 	method := &bytecode.Method{
-		Name:     decl.Name.Name,
-		Arity:    len(decl.Parameters),
-		IsStatic: decl.Static,
-		Chunk:    bytecode.NewChunk(),
+		Name:       decl.Name.Name,
+		Arity:      len(decl.Parameters),
+		IsStatic:   decl.Static,
+		Visibility: toByteVisibility(decl.Visibility),
+		Chunk:      bytecode.NewChunk(),
 	}
 
 	// 如果是抽象方法，不编译方法体
@@ -224,5 +243,25 @@ func (c *Compiler) CompileInterface(decl *ast.InterfaceDecl) *bytecode.Class {
 	}
 
 	return class
+}
+
+// CompileEnum 编译枚举声明
+func (c *Compiler) CompileEnum(decl *ast.EnumDecl) *bytecode.Enum {
+	enum := bytecode.NewEnum(decl.Name.Name)
+	
+	// 编译每个枚举成员
+	for i, enumCase := range decl.Cases {
+		var value bytecode.Value
+		if enumCase.Value != nil {
+			// 有显式值
+			value = c.evaluateConstant(enumCase.Value)
+		} else {
+			// 默认值为索引
+			value = bytecode.NewInt(int64(i))
+		}
+		enum.Cases[enumCase.Name.Name] = value
+	}
+	
+	return enum
 }
 

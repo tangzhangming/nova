@@ -23,6 +23,9 @@ type Compiler struct {
 	// 类
 	classes map[string]*bytecode.Class
 	
+	// 枚举
+	enums map[string]*bytecode.Enum
+	
 	// 闭包上下文 - 禁止直接访问全局变量
 	inClosure bool
 
@@ -53,6 +56,7 @@ func New() *Compiler {
 		function: fn,
 		locals:   make([]Local, 256),
 		classes:  make(map[string]*bytecode.Class),
+		enums:    make(map[string]*bytecode.Enum),
 	}
 }
 
@@ -61,12 +65,17 @@ func (c *Compiler) Classes() map[string]*bytecode.Class {
 	return c.classes
 }
 
+// Enums 返回编译的枚举
+func (c *Compiler) Enums() map[string]*bytecode.Enum {
+	return c.enums
+}
+
 // Compile 编译 AST
 func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	// 预留 slot 0 给调用者（与 CompileFunction 保持一致）
 	c.addLocal("")
 
-	// 编译类和接口声明
+	// 编译类、接口和枚举声明
 	for _, decl := range file.Declarations {
 		switch d := decl.(type) {
 		case *ast.ClassDecl:
@@ -75,6 +84,9 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 		case *ast.InterfaceDecl:
 			iface := c.CompileInterface(d)
 			c.classes[d.Name.Name] = iface
+		case *ast.EnumDecl:
+			enum := c.CompileEnum(d)
+			c.enums[d.Name.Name] = enum
 		}
 	}
 

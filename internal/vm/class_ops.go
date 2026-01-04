@@ -221,3 +221,115 @@ func (vm *VM) validateClass(class *bytecode.Class) error {
 	return nil
 }
 
+// getCurrentClass 获取当前上下文的类（如果在方法中）
+func (vm *VM) getCurrentClass() *bytecode.Class {
+	if vm.frameCount == 0 {
+		return nil
+	}
+	frame := &vm.frames[vm.frameCount-1]
+	thisValue := vm.stack[frame.BaseSlot]
+	if thisValue.Type == bytecode.ValObject {
+		return thisValue.AsObject().Class
+	}
+	return nil
+}
+
+// checkPropertyAccess 检查属性访问权限
+func (vm *VM) checkPropertyAccess(targetClass *bytecode.Class, propName string) error {
+	vis, ok := targetClass.PropVisibility[propName]
+	if !ok {
+		// 没有可见性信息，默认 public
+		return nil
+	}
+	
+	if vis == bytecode.VisPublic {
+		return nil
+	}
+	
+	currentClass := vm.getCurrentClass()
+	if currentClass == nil {
+		// 不在类方法中，只能访问 public
+		if vis != bytecode.VisPublic {
+			return vm.makeError("cannot access %s property '%s' from outside class", 
+				visibilityName(vis), propName)
+		}
+		return nil
+	}
+	
+	// private: 只能在同一个类中访问
+	if vis == bytecode.VisPrivate {
+		if currentClass.Name != targetClass.Name {
+			return vm.makeError("cannot access private property '%s' of class '%s'", 
+				propName, targetClass.Name)
+		}
+		return nil
+	}
+	
+	// protected: 可以在同一个类或子类中访问
+	if vis == bytecode.VisProtected {
+		if !vm.isClassOrSubclass(currentClass, targetClass) {
+			return vm.makeError("cannot access protected property '%s' of class '%s'", 
+				propName, targetClass.Name)
+		}
+	}
+	
+	return nil
+}
+
+// checkMethodAccess 检查方法访问权限
+func (vm *VM) checkMethodAccess(targetClass *bytecode.Class, method *bytecode.Method) error {
+	if method.Visibility == bytecode.VisPublic {
+		return nil
+	}
+	
+	currentClass := vm.getCurrentClass()
+	if currentClass == nil {
+		// 不在类方法中，只能访问 public
+		return vm.makeError("cannot access %s method '%s' from outside class", 
+			visibilityName(method.Visibility), method.Name)
+	}
+	
+	// private: 只能在同一个类中访问
+	if method.Visibility == bytecode.VisPrivate {
+		if currentClass.Name != targetClass.Name {
+			return vm.makeError("cannot access private method '%s' of class '%s'", 
+				method.Name, targetClass.Name)
+		}
+		return nil
+	}
+	
+	// protected: 可以在同一个类或子类中访问
+	if method.Visibility == bytecode.VisProtected {
+		if !vm.isClassOrSubclass(currentClass, targetClass) {
+			return vm.makeError("cannot access protected method '%s' of class '%s'", 
+				method.Name, targetClass.Name)
+		}
+	}
+	
+	return nil
+}
+
+// isClassOrSubclass 检查 current 是否是 target 或其子类
+func (vm *VM) isClassOrSubclass(current, target *bytecode.Class) bool {
+	for c := current; c != nil; c = c.Parent {
+		if c.Name == target.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// visibilityName 返回可见性名称
+func visibilityName(v bytecode.Visibility) string {
+	switch v {
+	case bytecode.VisPublic:
+		return "public"
+	case bytecode.VisProtected:
+		return "protected"
+	case bytecode.VisPrivate:
+		return "private"
+	default:
+		return "unknown"
+	}
+}
+

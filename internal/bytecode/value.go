@@ -22,6 +22,7 @@ const (
 	ValClass
 	ValMethod
 	ValIterator
+	ValEnum // 枚举值
 )
 
 // Value 运行时值
@@ -227,6 +228,9 @@ func (v Value) String() string {
 	case ValClosure:
 		closure := v.Data.(*Closure)
 		return fmt.Sprintf("<closure %s>", closure.Function.Name)
+	case ValEnum:
+		ev := v.Data.(*EnumValue)
+		return fmt.Sprintf("%s::%s", ev.EnumName, ev.CaseName)
 	default:
 		return "<unknown>"
 	}
@@ -328,25 +332,27 @@ func (o *Object) SetField(name string, value Value) {
 
 // Class 类定义
 type Class struct {
-	Name       string
-	ParentName string   // 父类名（用于运行时解析）
-	Parent     *Class
-	Implements []string // 实现的接口名
-	IsAbstract bool     // 是否是抽象类
-	Constants  map[string]Value
-	StaticVars map[string]Value
-	Methods    map[string]*Method
-	Properties map[string]Value // 属性默认值
+	Name           string
+	ParentName     string   // 父类名（用于运行时解析）
+	Parent         *Class
+	Implements     []string // 实现的接口名
+	IsAbstract     bool     // 是否是抽象类
+	Constants      map[string]Value
+	StaticVars     map[string]Value
+	Methods        map[string]*Method
+	Properties     map[string]Value      // 属性默认值
+	PropVisibility map[string]Visibility // 属性可见性
 }
 
 // NewClass 创建类定义
 func NewClass(name string) *Class {
 	return &Class{
-		Name:       name,
-		Constants:  make(map[string]Value),
-		StaticVars: make(map[string]Value),
-		Methods:    make(map[string]*Method),
-		Properties: make(map[string]Value),
+		Name:           name,
+		Constants:      make(map[string]Value),
+		StaticVars:     make(map[string]Value),
+		Methods:        make(map[string]*Method),
+		Properties:     make(map[string]Value),
+		PropVisibility: make(map[string]Visibility),
 	}
 }
 
@@ -362,10 +368,20 @@ func (c *Class) GetMethod(name string) *Method {
 }
 
 // Method 方法定义
+// Visibility 访问修饰符
+type Visibility int
+
+const (
+	VisPublic    Visibility = 0
+	VisProtected Visibility = 1
+	VisPrivate   Visibility = 2
+)
+
 type Method struct {
 	Name       string
 	Arity      int // 参数数量
 	IsStatic   bool
+	Visibility Visibility // 访问修饰符
 	Chunk      *Chunk
 	LocalCount int // 局部变量数量
 }
@@ -473,6 +489,47 @@ func NewIteratorValue(iter *Iterator) Value {
 func (v Value) AsIterator() *Iterator {
 	if v.Type == ValIterator {
 		return v.Data.(*Iterator)
+	}
+	return nil
+}
+
+// Enum 枚举定义
+type Enum struct {
+	Name   string
+	Cases  map[string]Value // 枚举成员名 -> 值
+}
+
+// NewEnum 创建枚举定义
+func NewEnum(name string) *Enum {
+	return &Enum{
+		Name:  name,
+		Cases: make(map[string]Value),
+	}
+}
+
+// EnumValue 枚举值（运行时）
+type EnumValue struct {
+	EnumName  string // 枚举类型名
+	CaseName  string // 成员名
+	Value     Value  // 实际值
+}
+
+// NewEnumValue 创建枚举值
+func NewEnumValue(enumName, caseName string, value Value) Value {
+	return Value{
+		Type: ValEnum,
+		Data: &EnumValue{
+			EnumName: enumName,
+			CaseName: caseName,
+			Value:    value,
+		},
+	}
+}
+
+// AsEnumValue 获取枚举值
+func (v Value) AsEnumValue() *EnumValue {
+	if v.Type == ValEnum {
+		return v.Data.(*EnumValue)
 	}
 	return nil
 }
