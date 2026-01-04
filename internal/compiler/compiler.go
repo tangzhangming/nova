@@ -968,28 +968,36 @@ func (c *Compiler) compileUnaryExpr(e *ast.UnaryExpr) {
 	case token.INCREMENT:
 		if e.Prefix {
 			// ++$x: 先加1，再使用
+			// 栈: [value] -> [value+1] -> [value+1, value+1] -> 存储 -> [value+1]
 			c.emit(bytecode.OpOne)
 			c.emit(bytecode.OpAdd)
 			c.emit(bytecode.OpDup)
 			c.compileAssignTarget(e.Operand)
+			c.emit(bytecode.OpPop) // 弹出存储后的多余值
 		} else {
-			// $x++: 先使用，再加1
-			c.emit(bytecode.OpDup)
+			// $x++: 先使用旧值，再加1
+			// 栈: [value] -> [value, value] -> [value, value+1] -> 存储 -> [value, value+1] -> pop -> [value]
+			c.emit(bytecode.OpDup)    // 复制旧值用于返回
 			c.emit(bytecode.OpOne)
 			c.emit(bytecode.OpAdd)
 			c.compileAssignTarget(e.Operand)
+			c.emit(bytecode.OpPop) // 弹出新值，保留旧值作为表达式结果
 		}
 	case token.DECREMENT:
 		if e.Prefix {
+			// --$x: 先减1，再使用
 			c.emit(bytecode.OpOne)
 			c.emit(bytecode.OpSub)
 			c.emit(bytecode.OpDup)
 			c.compileAssignTarget(e.Operand)
+			c.emit(bytecode.OpPop)
 		} else {
+			// $x--: 先使用旧值，再减1
 			c.emit(bytecode.OpDup)
 			c.emit(bytecode.OpOne)
 			c.emit(bytecode.OpSub)
 			c.compileAssignTarget(e.Operand)
+			c.emit(bytecode.OpPop)
 		}
 	}
 }

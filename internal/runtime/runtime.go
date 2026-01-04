@@ -3,11 +3,13 @@ package runtime
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/compiler"
+	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
 	"github.com/tangzhangming/nova/internal/vm"
 )
@@ -16,6 +18,9 @@ import (
 type Runtime struct {
 	vm       *vm.VM
 	builtins map[string]BuiltinFunc
+	loader   *loader.Loader
+	classes  map[string]*bytecode.Class
+	enums    map[string]*bytecode.Enum
 }
 
 // BuiltinFunc 内置函数类型
@@ -26,6 +31,8 @@ func New() *Runtime {
 	r := &Runtime{
 		vm:       vm.New(),
 		builtins: make(map[string]BuiltinFunc),
+		classes:  make(map[string]*bytecode.Class),
+		enums:    make(map[string]*bytecode.Enum),
 	}
 	r.registerBuiltins()
 	return r
@@ -33,7 +40,14 @@ func New() *Runtime {
 
 // Run 运行源代码
 func (r *Runtime) Run(source, filename string) error {
-	// 解析
+	// 创建加载器
+	var err error
+	r.loader, err = loader.New(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create loader: %w", err)
+	}
+
+	// 解析入口文件
 	p := parser.New(source, filename)
 	file := p.Parse()
 
@@ -44,7 +58,14 @@ func (r *Runtime) Run(source, filename string) error {
 		return fmt.Errorf("parse failed")
 	}
 
-	// 编译
+	// 处理 use 声明，加载依赖
+	for _, use := range file.Uses {
+		if err := r.loadDependency(use.Path); err != nil {
+			return fmt.Errorf("failed to load %s: %w", use.Path, err)
+		}
+	}
+
+	// 编译入口文件
 	c := compiler.New()
 	fn, errs := c.Compile(file)
 
@@ -57,14 +78,15 @@ func (r *Runtime) Run(source, filename string) error {
 
 	// 注册编译的类
 	classes := c.Classes()
-	for _, class := range classes {
+	for name, class := range classes {
+		r.classes[name] = class
 		r.vm.DefineClass(class)
 	}
 	
-	// 解析父类引用
-	for _, class := range classes {
+	// 解析父类引用（包括导入的类）
+	for _, class := range r.classes {
 		if class.ParentName != "" && class.Parent == nil {
-			if parent, ok := classes[class.ParentName]; ok {
+			if parent, ok := r.classes[class.ParentName]; ok {
 				class.Parent = parent
 			}
 		}
@@ -72,7 +94,8 @@ func (r *Runtime) Run(source, filename string) error {
 
 	// 注册编译的枚举
 	enums := c.Enums()
-	for _, enum := range enums {
+	for name, enum := range enums {
+		r.enums[name] = enum
 		r.vm.DefineEnum(enum)
 	}
 
@@ -85,6 +108,74 @@ func (r *Runtime) Run(source, filename string) error {
 		return fmt.Errorf("runtime error: %s", r.vm.GetError())
 	}
 
+	return nil
+}
+
+// loadDependency 加载依赖
+func (r *Runtime) loadDependency(importPath string) error {
+	// 解析导入路径
+	filePath, err := r.loader.ResolveImport(importPath)
+	if err != nil {
+		return err
+	}
+	
+	// 检查是否已加载
+	if r.loader.IsLoaded(filePath) {
+		return nil
+	}
+	r.loader.MarkLoaded(filePath)
+	
+	// 加载文件内容
+	source, err := r.loader.LoadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", filePath, err)
+	}
+	
+	// 解析
+	p := parser.New(source, filepath.Base(filePath))
+	file := p.Parse()
+	if p.HasErrors() {
+		for _, e := range p.Errors() {
+			fmt.Printf("Parse error: %s\n", e)
+		}
+		return fmt.Errorf("parse failed for %s", importPath)
+	}
+	
+	// 递归加载依赖
+	for _, use := range file.Uses {
+		if err := r.loadDependency(use.Path); err != nil {
+			return err
+		}
+	}
+	
+	// 编译
+	c := compiler.New()
+	_, errs := c.Compile(file)
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Printf("Compile error: %s\n", e)
+		}
+		return fmt.Errorf("compile failed for %s", importPath)
+	}
+	
+	// 注册类
+	for name, class := range c.Classes() {
+		// 使用完整路径作为类名（命名空间.类名）
+		fullName := name
+		if file.Namespace != nil {
+			fullName = file.Namespace.Name + "." + name
+		}
+		r.classes[fullName] = class
+		r.classes[name] = class // 也用短名注册
+		r.vm.DefineClass(class)
+	}
+	
+	// 注册枚举
+	for name, enum := range c.Enums() {
+		r.enums[name] = enum
+		r.vm.DefineEnum(enum)
+	}
+	
 	return nil
 }
 

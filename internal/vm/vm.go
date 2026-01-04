@@ -778,6 +778,10 @@ func (vm *VM) execute() InterpretResult {
 		// 异常处理
 		case bytecode.OpThrow:
 			exception := vm.pop()
+			// 如果抛出的是字符串，自动转换为 Exception 对象
+			if exception.Type == bytecode.ValString {
+				exception = bytecode.NewException("Exception", exception.AsString(), 0)
+			}
 			if !vm.handleException(exception) {
 				return vm.runtimeError("uncaught exception: %s", exception.String())
 			}

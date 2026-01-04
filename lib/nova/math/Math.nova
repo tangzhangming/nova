@@ -1,0 +1,49 @@
+// Nova 标准库 - 数学函数
+namespace nova.math
+
+public class Math {
+    // 常量
+    public const float PI = 3.141592653589793;
+    public const float E = 2.718281828459045;
+    
+    // 绝对值
+    public static function abs(int $x): int {
+        if ($x < 0) {
+            return -$x;
+        }
+        return $x;
+    }
+    
+    // 浮点数绝对值
+    public static function absf(float $x): float {
+        if ($x < 0.0) {
+            return -$x;
+        }
+        return $x;
+    }
+    
+    // 最大值
+    public static function max(int $a, int $b): int {
+        if ($a > $b) {
+            return $a;
+        }
+        return $b;
+    }
+    
+    // 最小值
+    public static function min(int $a, int $b): int {
+        if ($a < $b) {
+            return $a;
+        }
+        return $b;
+    }
+    
+    // 幂运算
+    public static function pow(int $base, int $exp): int {
+        $result := 1;
+        for ($i := 0; $i < $exp; $i++) {
+            $result = $result * $base;
+        }
+        return $result;
+    }
+}

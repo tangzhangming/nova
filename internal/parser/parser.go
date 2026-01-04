@@ -360,7 +360,8 @@ func (p *Parser) getPrecedence(t token.TokenType) int {
 		return PREC_TERM
 	case token.STAR, token.SLASH, token.PERCENT:
 		return PREC_FACTOR
-	case token.LBRACKET, token.ARROW, token.DOUBLE_COLON, token.LPAREN, token.DOT:
+	case token.LBRACKET, token.ARROW, token.DOUBLE_COLON, token.LPAREN, token.DOT,
+		token.INCREMENT, token.DECREMENT:
 		return PREC_POSTFIX
 	default:
 		return PREC_NONE

@@ -23,13 +23,33 @@ const (
 	ValClass
 	ValMethod
 	ValIterator
-	ValEnum // 枚举值
+	ValEnum      // 枚举值
+	ValException // 异常值
 )
 
 // FixedArray 定长数组
 type FixedArray struct {
 	Elements []Value
 	Capacity int
+}
+
+// Exception 异常对象
+type Exception struct {
+	Type    string // 异常类型名 (如 "Exception", "RuntimeException")
+	Message string // 异常消息
+	Code    int64  // 异常代码
+}
+
+// NewException 创建异常值
+func NewException(typeName, message string, code int64) Value {
+	return Value{
+		Type: ValException,
+		Data: &Exception{
+			Type:    typeName,
+			Message: message,
+			Code:    code,
+		},
+	}
 }
 
 // Value 运行时值
@@ -278,6 +298,9 @@ func (v Value) String() string {
 	case ValEnum:
 		ev := v.Data.(*EnumValue)
 		return fmt.Sprintf("%s::%s", ev.EnumName, ev.CaseName)
+	case ValException:
+		ex := v.Data.(*Exception)
+		return fmt.Sprintf("%s: %s", ex.Type, ex.Message)
 	default:
 		return "<unknown>"
 	}
@@ -646,5 +669,18 @@ func (v Value) AsEnumValue() *EnumValue {
 		return v.Data.(*EnumValue)
 	}
 	return nil
+}
+
+// AsException 获取异常值
+func (v Value) AsException() *Exception {
+	if v.Type == ValException {
+		return v.Data.(*Exception)
+	}
+	return nil
+}
+
+// IsException 检查是否是异常值
+func (v Value) IsException() bool {
+	return v.Type == ValException
 }
 
