@@ -1043,6 +1043,17 @@ func (c *Compiler) compileAssignTarget(target ast.Expression) {
 }
 
 func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
+	// 特殊处理 unset() 函数
+	if ident, ok := e.Function.(*ast.Identifier); ok && ident.Name == "unset" {
+		if len(e.Arguments) != 1 {
+			c.error(e.Pos(), "unset() requires exactly 1 argument")
+			return
+		}
+		c.compileExpr(e.Arguments[0])
+		c.emit(bytecode.OpUnset)
+		return
+	}
+	
 	c.compileExpr(e.Function)
 	for _, arg := range e.Arguments {
 		c.compileExpr(arg)

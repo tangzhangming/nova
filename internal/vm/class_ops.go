@@ -24,16 +24,39 @@ func (vm *VM) initObjectProperties(obj *bytecode.Object, class *bytecode.Class) 
 	vm.initializeObject(obj, class)
 }
 
-// lookupMethod 查找方法（包括继承链）
+// lookupMethod 查找方法（包括继承链），返回第一个匹配的方法
 func (vm *VM) lookupMethod(class *bytecode.Class, name string) *bytecode.Method {
 	// 当前类
-	if method, ok := class.Methods[name]; ok {
-		return method
+	if methods, ok := class.Methods[name]; ok && len(methods) > 0 {
+		return methods[0]
 	}
 	
 	// 父类
 	if class.Parent != nil {
 		return vm.lookupMethod(class.Parent, name)
+	}
+	
+	return nil
+}
+
+// lookupMethodByArity 根据参数数量查找方法（支持方法重载）
+func (vm *VM) lookupMethodByArity(class *bytecode.Class, name string, arity int) *bytecode.Method {
+	// 当前类
+	if methods, ok := class.Methods[name]; ok {
+		for _, m := range methods {
+			if m.Arity == arity {
+				return m
+			}
+		}
+		// 没有精确匹配，返回第一个
+		if len(methods) > 0 {
+			return methods[0]
+		}
+	}
+	
+	// 父类
+	if class.Parent != nil {
+		return vm.lookupMethodByArity(class.Parent, name, arity)
 	}
 	
 	return nil
@@ -193,6 +216,22 @@ func (vm *VM) callConstructor(obj *bytecode.Object, argCount int) InterpretResul
 	}
 	
 	return vm.call(closure, argCount)
+}
+
+// invokeDestructor 调用析构函数
+func (vm *VM) invokeDestructor(obj *bytecode.Object, method *bytecode.Method) InterpretResult {
+	// 创建方法的闭包
+	closure := &bytecode.Closure{
+		Function: &bytecode.Function{
+			Name:       method.Name,
+			Arity:      method.Arity,
+			Chunk:      method.Chunk,
+			LocalCount: method.LocalCount,
+		},
+	}
+	
+	// 析构函数没有参数
+	return vm.call(closure, 0)
 }
 
 // validateClass 验证类的接口实现和抽象类约束

@@ -146,9 +146,17 @@ func (r *Runtime) Disassemble(source, filename string) (string, error) {
 	// 也输出类方法的字节码
 	for _, class := range c.Classes() {
 		result += fmt.Sprintf("\n=== Class %s ===\n", class.Name)
-		for name, method := range class.Methods {
-			result += fmt.Sprintf("\n-- Method %s (arity=%d, locals=%d) --\n", name, method.Arity, method.LocalCount)
-			result += method.Chunk.Disassemble(name)
+		for name, methods := range class.Methods {
+			for i, method := range methods {
+				suffix := ""
+				if len(methods) > 1 {
+					suffix = fmt.Sprintf("#%d", i)
+				}
+				result += fmt.Sprintf("\n-- Method %s%s (arity=%d, locals=%d) --\n", name, suffix, method.Arity, method.LocalCount)
+				if method.Chunk != nil {
+					result += method.Chunk.Disassemble(name)
+				}
+			}
 		}
 	}
 	

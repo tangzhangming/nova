@@ -339,7 +339,7 @@ type Class struct {
 	IsAbstract     bool     // 是否是抽象类
 	Constants      map[string]Value
 	StaticVars     map[string]Value
-	Methods        map[string]*Method
+	Methods        map[string][]*Method  // 方法重载：同名不同参数数量
 	Properties     map[string]Value      // 属性默认值
 	PropVisibility map[string]Visibility // 属性可见性
 }
@@ -350,19 +350,54 @@ func NewClass(name string) *Class {
 		Name:           name,
 		Constants:      make(map[string]Value),
 		StaticVars:     make(map[string]Value),
-		Methods:        make(map[string]*Method),
+		Methods:        make(map[string][]*Method),
 		Properties:     make(map[string]Value),
 		PropVisibility: make(map[string]Visibility),
 	}
 }
 
-// GetMethod 获取方法 (包括继承的)
+// AddMethod 添加方法（支持重载）
+func (c *Class) AddMethod(method *Method) {
+	c.Methods[method.Name] = append(c.Methods[method.Name], method)
+}
+
+// GetMethod 获取方法（不区分参数数量，返回第一个）
 func (c *Class) GetMethod(name string) *Method {
-	if m, ok := c.Methods[name]; ok {
-		return m
+	if methods, ok := c.Methods[name]; ok && len(methods) > 0 {
+		return methods[0]
 	}
 	if c.Parent != nil {
 		return c.Parent.GetMethod(name)
+	}
+	return nil
+}
+
+// GetMethodByArity 根据参数数量获取方法（支持方法重载）
+func (c *Class) GetMethodByArity(name string, arity int) *Method {
+	if methods, ok := c.Methods[name]; ok {
+		for _, m := range methods {
+			if m.Arity == arity {
+				return m
+			}
+		}
+		// 如果没有精确匹配，返回第一个（可能有默认参数）
+		if len(methods) > 0 {
+			return methods[0]
+		}
+	}
+	if c.Parent != nil {
+		return c.Parent.GetMethodByArity(name, arity)
+	}
+	return nil
+}
+
+// GetAllMethods 获取指定名称的所有方法
+func (c *Class) GetAllMethods(name string) []*Method {
+	if methods, ok := c.Methods[name]; ok {
+		return methods
+	}
+	if c.Parent != nil {
+		return c.Parent.GetAllMethods(name)
 	}
 	return nil
 }

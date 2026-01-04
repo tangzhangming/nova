@@ -59,7 +59,7 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	// 编译方法
 	for _, method := range decl.Methods {
 		m := c.compileMethod(class, method)
-		class.Methods[method.Name.Name] = m
+		class.AddMethod(m)
 	}
 
 	return class
@@ -110,9 +110,12 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.localCount = 0
 	c.scopeDepth = 0
 
-	// 添加隐式 this 参数 (非静态方法)
+	// 添加隐式 this 参数 (slot 0)
+	// 非静态方法有 $this，静态方法用空字符串占位
 	if !decl.Static {
 		c.addLocal("this")
+	} else {
+		c.addLocal("") // 静态方法 slot 0 占位符
 	}
 
 	// 添加参数作为局部变量 (直接使用 addLocal，因为方法参数始终是局部的)
@@ -239,7 +242,7 @@ func (c *Compiler) CompileInterface(decl *ast.InterfaceDecl) *bytecode.Class {
 			Arity:    len(method.Parameters),
 			IsStatic: false,
 		}
-		class.Methods[method.Name.Name] = m
+		class.AddMethod(m)
 	}
 
 	return class

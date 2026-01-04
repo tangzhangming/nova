@@ -963,7 +963,11 @@ func (p *Parser) parseParameter() *ast.Parameter {
 
 	// 变量名
 	varToken := p.consume(token.VARIABLE, "expected parameter name")
-	param.Name = &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
+	varName := ""
+	if len(varToken.Literal) > 1 {
+		varName = varToken.Literal[1:]
+	}
+	param.Name = &ast.Variable{Token: varToken, Name: varName}
 
 	// 默认值
 	if p.match(token.ASSIGN) {

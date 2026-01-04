@@ -505,9 +505,9 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("%v", err)
 			}
 			
-			method := vm.lookupMethod(class, methodName)
+			method := vm.lookupMethodByArity(class, methodName, argCount)
 			if method == nil {
-				return vm.runtimeError("undefined static method '%s::%s'", class.Name, methodName)
+				return vm.runtimeError("undefined static method '%s::%s' with %d arguments", class.Name, methodName, argCount)
 			}
 			
 			// 创建方法的闭包并调用
@@ -521,11 +521,26 @@ func (vm *VM) execute() InterpretResult {
 				},
 			}
 			
-			// 静态方法没有 $this，压入 null 作为占位
-			vm.stackTop -= argCount
-			vm.push(bytecode.NullValue) // 静态方法的 slot 0
+			// 保存原始参数
+			args := make([]bytecode.Value, argCount)
+			for i := argCount - 1; i >= 0; i-- {
+				args[i] = vm.pop()
+			}
+			
+			// 对于 parent:: 和 self:: 调用非静态方法，需要传递当前的 $this
+			// 对于真正的静态方法调用，使用 null
+			if (className == "parent" || className == "self") && !method.IsStatic {
+				// 传递当前的 $this
+				thisValue := vm.stack[frame.BaseSlot]
+				vm.push(thisValue)
+			} else {
+				// 静态方法，使用 null 作为占位符
+				vm.push(bytecode.NullValue)
+			}
+			
+			// 重新压入参数
 			for i := 0; i < argCount; i++ {
-				vm.push(vm.stack[vm.stackTop-argCount+i-1])
+				vm.push(args[i])
 			}
 			
 			if result := vm.call(closure, argCount); result != InterpretOK {
@@ -692,6 +707,24 @@ func (vm *VM) execute() InterpretResult {
 			arr := arrVal.AsArray()
 			i := int(idx.AsInt())
 			vm.push(bytecode.NewBool(i >= 0 && i < len(arr)))
+
+		case bytecode.OpUnset:
+			objVal := vm.pop()
+			if objVal.Type == bytecode.ValObject {
+				obj := objVal.AsObject()
+				// 调用析构函数 __destruct
+				if method := obj.Class.GetMethod("__destruct"); method != nil {
+					// 压入对象作为 receiver
+					vm.push(objVal)
+					if result := vm.invokeDestructor(obj, method); result != InterpretOK {
+						return result
+					}
+					// 恢复帧引用
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+				}
+			}
+			vm.push(bytecode.NullValue)
 
 		// 异常处理
 		case bytecode.OpThrow:
@@ -998,9 +1031,10 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	}
 	
 	obj := receiver.AsObject()
-	method := obj.Class.GetMethod(name)
+	// 使用参数数量查找重载方法
+	method := obj.Class.GetMethodByArity(name, argCount)
 	if method == nil {
-		return vm.runtimeError("undefined method '%s'", name)
+		return vm.runtimeError("undefined method '%s' with %d arguments", name, argCount)
 	}
 
 	// 检查方法访问权限

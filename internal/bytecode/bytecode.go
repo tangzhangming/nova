@@ -108,6 +108,9 @@ const (
 	OpArrayPush    // 追加元素到数组
 	OpArrayHas     // 检查索引/值是否存在
 
+	// 对象销毁
+	OpUnset        // 销毁对象并调用析构函数
+
 	// 类型操作
 	OpCheckType // 类型检查 (typeIndex: u16)
 	OpCast      // 类型转换 (typeIndex: u16)
@@ -191,6 +194,7 @@ var opNames = map[OpCode]string{
 	OpIterValue:   "ITER_VALUE",
 	OpArrayPush:   "ARRAY_PUSH",
 	OpArrayHas:    "ARRAY_HAS",
+	OpUnset:       "UNSET",
 	OpCheckType:   "CHECK_TYPE",
 	OpCast:        "CAST",
 	OpThrow:       "THROW",
