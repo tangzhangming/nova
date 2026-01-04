@@ -21,6 +21,7 @@ const (
 	ValClosure
 	ValClass
 	ValMethod
+	ValIterator
 )
 
 // Value 运行时值
@@ -369,11 +370,14 @@ type Method struct {
 
 // Function 函数定义
 type Function struct {
-	Name         string
-	Arity        int
-	Chunk        *Chunk
-	LocalCount   int
-	UpvalueCount int // 捕获的外部变量数量
+	Name          string
+	Arity         int
+	MinArity      int      // 最小参数数量（考虑默认参数后）
+	Chunk         *Chunk
+	LocalCount    int
+	UpvalueCount  int      // 捕获的外部变量数量
+	IsVariadic    bool     // 是否是可变参数函数
+	DefaultValues []Value  // 默认参数值（从第 MinArity 个参数开始）
 }
 
 // NewFunction 创建函数
@@ -395,5 +399,79 @@ type Upvalue struct {
 	Location *Value // 指向栈上的变量
 	Closed   Value  // 闭包关闭后的值
 	IsClosed bool
+}
+
+// Iterator 迭代器
+type Iterator struct {
+	Type     string // "array" 或 "map"
+	Array    []Value
+	MapKeys  []Value
+	Map      map[Value]Value
+	Index    int
+	HasValue bool
+}
+
+// NewIterator 创建迭代器
+func NewIterator(v Value) *Iterator {
+	iter := &Iterator{Index: -1}
+	switch v.Type {
+	case ValArray:
+		iter.Type = "array"
+		iter.Array = v.AsArray()
+	case ValMap:
+		iter.Type = "map"
+		iter.Map = v.AsMap()
+		iter.MapKeys = make([]Value, 0, len(iter.Map))
+		for k := range iter.Map {
+			iter.MapKeys = append(iter.MapKeys, k)
+		}
+	}
+	return iter
+}
+
+// Next 移动到下一个元素，返回是否成功
+func (it *Iterator) Next() bool {
+	it.Index++
+	if it.Type == "array" {
+		it.HasValue = it.Index < len(it.Array)
+	} else {
+		it.HasValue = it.Index < len(it.MapKeys)
+	}
+	return it.HasValue
+}
+
+// Key 获取当前 key
+func (it *Iterator) Key() Value {
+	if !it.HasValue {
+		return NullValue
+	}
+	if it.Type == "array" {
+		return NewInt(int64(it.Index))
+	}
+	return it.MapKeys[it.Index]
+}
+
+// Value 获取当前 value
+func (it *Iterator) CurrentValue() Value {
+	if !it.HasValue {
+		return NullValue
+	}
+	if it.Type == "array" {
+		return it.Array[it.Index]
+	}
+	return it.Map[it.MapKeys[it.Index]]
+}
+
+// NewIteratorValue 创建迭代器值
+func NewIteratorValue(iter *Iterator) Value {
+	return Value{Type: ValIterator, Data: iter}
+}
+
+// AsIterator 获取迭代器
+func (v Value) AsIterator() *Iterator {
+	if v.Type == ValIterator {
+		return v.Data.(*Iterator)
+	}
+	return nil
 }
 

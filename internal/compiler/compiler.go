@@ -63,6 +63,9 @@ func (c *Compiler) Classes() map[string]*bytecode.Class {
 
 // Compile 编译 AST
 func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
+	// 预留 slot 0 给调用者（与 CompileFunction 保持一致）
+	c.addLocal("")
+
 	// 编译类和接口声明
 	for _, decl := range file.Declarations {
 		switch d := decl.(type) {
@@ -102,6 +105,25 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.localCount = 0
 	c.scopeDepth = 0
 
+	// 计算最小参数数量和处理可变参数
+	minArity := len(params)
+	isVariadic := false
+	var defaultValues []bytecode.Value
+	
+	for i, param := range params {
+		if param.Variadic {
+			isVariadic = true
+			minArity = i // 可变参数之前的参数是必需的
+			break
+		}
+		if param.Default != nil && minArity == len(params) {
+			minArity = i
+		}
+	}
+	
+	c.function.MinArity = minArity
+	c.function.IsVariadic = isVariadic
+
 	// 预留 slot 0 给调用者（与方法的 this 对应）
 	c.addLocal("")
 	
@@ -109,6 +131,16 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	for _, param := range params {
 		c.addLocal(param.Name.Name)
 	}
+
+	// 为有默认值的参数生成检查代码
+	for _, param := range params {
+		if param.Default != nil && !param.Variadic {
+			// 计算并存储默认值
+			defaultVal := c.evaluateConstExpr(param.Default)
+			defaultValues = append(defaultValues, defaultVal)
+		}
+	}
+	c.function.DefaultValues = defaultValues
 
 	// 编译函数体
 	c.beginScope()
@@ -131,6 +163,31 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	return fn
 }
 
+// evaluateConstExpr 计算常量表达式的值（用于默认参数）
+func (c *Compiler) evaluateConstExpr(expr ast.Expression) bytecode.Value {
+	switch e := expr.(type) {
+	case *ast.IntegerLiteral:
+		return bytecode.NewInt(e.Value)
+	case *ast.FloatLiteral:
+		return bytecode.NewFloat(e.Value)
+	case *ast.StringLiteral:
+		return bytecode.NewString(e.Value)
+	case *ast.BoolLiteral:
+		return bytecode.NewBool(e.Value)
+	case *ast.NullLiteral:
+		return bytecode.NullValue
+	case *ast.ArrayLiteral:
+		arr := make([]bytecode.Value, len(e.Elements))
+		for i, elem := range e.Elements {
+			arr[i] = c.evaluateConstExpr(elem)
+		}
+		return bytecode.NewArray(arr)
+	default:
+		// 非常量表达式，返回 null
+		return bytecode.NullValue
+	}
+}
+
 // CompileClosure 编译带 use 的闭包
 func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars []*ast.Variable, body *ast.BlockStmt) *bytecode.Function {
 	// 保存当前状态
@@ -148,6 +205,25 @@ func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars 
 	c.scopeDepth = 0
 	c.inClosure = true // 标记在闭包中，禁止访问全局变量
 
+	// 计算最小参数数量和处理可变参数
+	minArity := len(params)
+	isVariadic := false
+	var defaultValues []bytecode.Value
+	
+	for i, param := range params {
+		if param.Variadic {
+			isVariadic = true
+			minArity = i
+			break
+		}
+		if param.Default != nil && minArity == len(params) {
+			minArity = i
+		}
+	}
+	
+	c.function.MinArity = minArity
+	c.function.IsVariadic = isVariadic
+
 	// 预留 slot 0 给调用者
 	c.addLocal("")
 	
@@ -155,6 +231,15 @@ func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars 
 	for _, param := range params {
 		c.addLocal(param.Name.Name)
 	}
+	
+	// 为有默认值的参数计算默认值
+	for _, param := range params {
+		if param.Default != nil && !param.Variadic {
+			defaultVal := c.evaluateConstExpr(param.Default)
+			defaultValues = append(defaultValues, defaultVal)
+		}
+	}
+	c.function.DefaultValues = defaultValues
 	
 	// 添加 use 变量作为局部变量（它们会通过 upvalue 机制获取）
 	for _, v := range useVars {
@@ -406,22 +491,81 @@ func (c *Compiler) compileForStmt(s *ast.ForStmt) {
 func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 	c.beginScope()
 
-	// 编译迭代对象
+	// 编译迭代对象并创建迭代器
 	c.compileExpr(s.Iterable)
-
-	// 声明迭代变量
-	// TODO: 完整的迭代器实现
-	c.declareVariable(s.Value.Name)
-	c.defineVariable()
-
+	c.emit(bytecode.OpIterInit) // 栈上: [iterator]
+	
+	// 迭代器变量（内部使用）- 迭代器已经在栈顶
+	iterSlot := c.localCount
+	c.addLocal("$__iter__")
+	// 不需要 StoreLocal，迭代器已经在正确的栈位置
+	
+	// 声明 key 变量 (如果有)
+	keySlot := -1
 	if s.Key != nil {
-		c.declareVariable(s.Key.Name)
-		c.defineVariable()
+		c.emit(bytecode.OpNull)
+		keySlot = c.localCount
+		c.addLocal(s.Key.Name)
 	}
+	
+	// 声明 value 变量
+	c.emit(bytecode.OpNull)
+	valueSlot := c.localCount
+	c.addLocal(s.Value.Name)
+
+	// 循环开始
+	loopStart := c.currentChunk().Len()
+	prevLoopStart := c.loopStart
+	prevBreakJumps := c.breakJumps
+	c.loopStart = loopStart
+	c.breakJumps = nil
+	c.loopDepth++
+
+	// 检查迭代器是否还有元素
+	// 迭代器在 stack[iterSlot]，ITER_NEXT 使用 peek(0) 读取它
+	c.emitU16(bytecode.OpLoadLocal, uint16(iterSlot))
+	c.emit(bytecode.OpIterNext)
+	// 栈: [iterator, bool]
+	exitJump := c.emitJump(bytecode.OpJumpIfFalse)
+	c.emit(bytecode.OpPop) // 弹出 bool
+	c.emit(bytecode.OpPop) // 弹出 iterator (从 LOAD_LOCAL 加载的)
+
+	// 获取 key 和 value
+	if s.Key != nil {
+		c.emitU16(bytecode.OpLoadLocal, uint16(iterSlot))
+		c.emit(bytecode.OpIterKey)
+		// 栈: [iterator, key]
+		c.emitU16(bytecode.OpStoreLocal, uint16(keySlot))
+		c.emit(bytecode.OpPop) // 弹出 key
+		c.emit(bytecode.OpPop) // 弹出 iterator
+	}
+	
+	c.emitU16(bytecode.OpLoadLocal, uint16(iterSlot))
+	c.emit(bytecode.OpIterValue)
+	// 栈: [iterator, value]
+	c.emitU16(bytecode.OpStoreLocal, uint16(valueSlot))
+	c.emit(bytecode.OpPop) // 弹出 value
+	c.emit(bytecode.OpPop) // 弹出 iterator
 
 	// 循环体
 	c.compileStmt(s.Body)
 
+	// 跳回循环开始
+	c.emitLoop(loopStart)
+
+	// 修补退出跳转
+	c.patchJump(exitJump)
+	c.emit(bytecode.OpPop) // 弹出 bool
+	c.emit(bytecode.OpPop) // 弹出 iterator
+
+	// 修补所有 break
+	for _, jump := range c.breakJumps {
+		c.patchJump(jump)
+	}
+
+	c.loopStart = prevLoopStart
+	c.breakJumps = prevBreakJumps
+	c.loopDepth--
 	c.endScope()
 }
 
@@ -492,9 +636,57 @@ func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
 }
 
 func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
-	// TODO: 完整的异常处理实现
-	// 目前只编译 try 块
+	// 发出进入 try 块指令
+	c.emit(bytecode.OpEnterTry)
+	catchJump := c.currentChunk().Len()
+	c.currentChunk().WriteI16(0, 0) // catch 偏移量占位
+	c.currentChunk().WriteI16(0, 0) // finally 偏移量占位（暂不支持）
+	
+	// 编译 try 块
 	c.compileStmt(s.Try)
+	
+	// 离开 try 块
+	c.emit(bytecode.OpLeaveTry)
+	
+	// 跳过 catch 块
+	afterCatchJump := c.emitJump(bytecode.OpJump)
+	
+	// catch 块开始位置
+	catchStart := c.currentChunk().Len()
+	
+	// 修补 catch 偏移量：从 catchJump 位置开始计算
+	catchOffset := catchStart - catchJump
+	c.currentChunk().Code[catchJump] = byte(int16(catchOffset) >> 8)
+	c.currentChunk().Code[catchJump+1] = byte(int16(catchOffset))
+	
+	// 编译 catch 块
+	if len(s.Catches) > 0 {
+		c.emit(bytecode.OpEnterCatch)
+		
+		for _, catch := range s.Catches {
+			c.beginScope()
+			
+			// 异常值已经在栈上
+			if catch.Variable != nil {
+				// 直接添加局部变量，异常值已经在栈上
+				c.addLocal(catch.Variable.Name)
+			} else {
+				c.emit(bytecode.OpPop) // 丢弃异常值
+			}
+			
+			// 编译 catch 体
+			c.compileStmt(catch.Body)
+			c.endScope()
+		}
+	}
+	
+	// 修补 after-catch 跳转
+	c.patchJump(afterCatchJump)
+	
+	// finally 块暂不支持
+	if s.Finally != nil {
+		c.compileStmt(s.Finally.Body)
+	}
 }
 
 // ============================================================================
@@ -747,8 +939,15 @@ func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
 		c.compileExpr(e.Right)
 	}
 
-	c.emit(bytecode.OpDup) // 保留值用于表达式结果
-	c.compileAssignTarget(e.Left)
+	// 对于静态变量赋值，需要先 dup 然后特殊处理
+	if _, ok := e.Left.(*ast.StaticAccess); ok {
+		c.emit(bytecode.OpDup) // 保留值用于表达式结果
+		c.compileAssignTarget(e.Left)
+		c.emit(bytecode.OpPop) // 弹出 OpSetStatic 返回的值
+	} else {
+		c.emit(bytecode.OpDup) // 保留值用于表达式结果
+		c.compileAssignTarget(e.Left)
+	}
 }
 
 func (c *Compiler) compileAssignTarget(target ast.Expression) {
@@ -768,6 +967,23 @@ func (c *Compiler) compileAssignTarget(target ast.Expression) {
 		c.compileExpr(t.Object)
 		idx := c.makeConstant(bytecode.NewString(t.Property.Name))
 		c.emitU16(bytecode.OpSetField, idx)
+	case *ast.StaticAccess:
+		// 静态变量赋值
+		var className string
+		switch cls := t.Class.(type) {
+		case *ast.Identifier:
+			className = cls.Name
+		case *ast.SelfExpr:
+			className = "self"
+		default:
+			return
+		}
+		classIdx := c.makeConstant(bytecode.NewString(className))
+		if v, ok := t.Member.(*ast.Variable); ok {
+			nameIdx := c.makeConstant(bytecode.NewString(v.Name))
+			c.emitU16(bytecode.OpSetStatic, classIdx)
+			c.currentChunk().WriteU16(nameIdx, 0)
+		}
 	}
 }
 
@@ -802,12 +1018,29 @@ func (c *Compiler) compilePropertyAccess(e *ast.PropertyAccess) {
 
 func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 	// 特殊方法处理
-	if e.Method.Name == "has" {
+	switch e.Method.Name {
+	case "has":
+		// 数组/Map 的 has() 方法
+		c.compileExpr(e.Object)
+		if len(e.Arguments) > 0 {
+			c.compileExpr(e.Arguments[0])
+		} else {
+			c.emit(bytecode.OpNull)
+		}
+		c.emit(bytecode.OpMapHas) // 通用的 has 检查（在 VM 中同时处理数组和 Map）
+		return
+	case "push":
+		// 数组的 push() 方法
 		c.compileExpr(e.Object)
 		if len(e.Arguments) > 0 {
 			c.compileExpr(e.Arguments[0])
 		}
-		c.emit(bytecode.OpMapHas)
+		c.emit(bytecode.OpArrayPush)
+		return
+	case "length", "len":
+		// 获取长度
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpArrayLen)
 		return
 	}
 
@@ -821,8 +1054,51 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 }
 
 func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
-	// TODO: 完整的静态访问实现
-	c.compileExpr(e.Member)
+	// 获取类名
+	var className string
+	switch cls := e.Class.(type) {
+	case *ast.Identifier:
+		className = cls.Name
+	case *ast.SelfExpr:
+		className = "self" // 特殊处理
+	case *ast.ParentExpr:
+		className = "parent" // 特殊处理
+	default:
+		c.error(e.Pos(), "invalid static access")
+		return
+	}
+	
+	classIdx := c.makeConstant(bytecode.NewString(className))
+	
+	// 处理成员访问
+	switch member := e.Member.(type) {
+	case *ast.Variable:
+		// 静态属性访问: Class::$prop
+		nameIdx := c.makeConstant(bytecode.NewString(member.Name))
+		c.emitU16(bytecode.OpGetStatic, classIdx)
+		c.currentChunk().WriteU16(nameIdx, 0)
+		
+	case *ast.Identifier:
+		// 类常量访问: Class::CONST
+		nameIdx := c.makeConstant(bytecode.NewString(member.Name))
+		c.emitU16(bytecode.OpGetStatic, classIdx)
+		c.currentChunk().WriteU16(nameIdx, 0)
+		
+	case *ast.CallExpr:
+		// 静态方法调用: Class::method()
+		if fn, ok := member.Function.(*ast.Identifier); ok {
+			nameIdx := c.makeConstant(bytecode.NewString(fn.Name))
+			// 编译参数
+			for _, arg := range member.Arguments {
+				c.compileExpr(arg)
+			}
+			c.emitU16(bytecode.OpCallStatic, classIdx)
+			c.currentChunk().WriteU16(nameIdx, 0)
+			c.currentChunk().WriteU8(byte(len(member.Arguments)), 0)
+		}
+	default:
+		c.error(e.Pos(), "invalid static member")
+	}
 }
 
 func (c *Compiler) compileNewExpr(e *ast.NewExpr) {

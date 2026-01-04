@@ -27,6 +27,15 @@ type CallFrame struct {
 	BaseSlot int               // 栈基址
 }
 
+// TryContext 异常处理上下文
+type TryContext struct {
+	CatchIP      int  // catch 块的 IP
+	FinallyIP    int  // finally 块的 IP (-1 表示没有)
+	FrameCount   int  // 进入 try 时的帧数
+	StackTop     int  // 进入 try 时的栈顶
+	ExceptionVar int  // 异常变量的 slot
+}
+
 // VM 虚拟机
 type VM struct {
 	frames     [FramesMax]CallFrame
@@ -37,6 +46,11 @@ type VM struct {
 
 	globals map[string]bytecode.Value
 	classes map[string]*bytecode.Class
+
+	// 异常处理
+	tryStack    []TryContext
+	exception   bytecode.Value
+	hasException bool
 
 	// 错误信息
 	hadError     bool
@@ -378,6 +392,91 @@ func (vm *VM) execute() InterpretResult {
 			frame = &vm.frames[vm.frameCount-1]
 			chunk = frame.Closure.Function.Chunk
 
+		// 静态成员访问
+		case bytecode.OpGetStatic:
+			classIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			nameIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			className := chunk.Constants[classIdx].AsString()
+			name := chunk.Constants[nameIdx].AsString()
+			
+			class, ok := vm.classes[className]
+			if !ok {
+				return vm.runtimeError("undefined class '%s'", className)
+			}
+			
+			// 先尝试常量
+			if val, ok := vm.lookupConstant(class, name); ok {
+				vm.push(val)
+			} else if val, ok := vm.lookupStaticVar(class, name); ok {
+				// 再尝试静态变量
+				vm.push(val)
+			} else {
+				vm.push(bytecode.NullValue)
+			}
+
+		case bytecode.OpSetStatic:
+			classIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			nameIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			className := chunk.Constants[classIdx].AsString()
+			name := chunk.Constants[nameIdx].AsString()
+			value := vm.pop()
+			
+			class, ok := vm.classes[className]
+			if !ok {
+				return vm.runtimeError("undefined class '%s'", className)
+			}
+			
+			vm.setStaticVar(class, name, value)
+			vm.push(value)
+
+		case bytecode.OpCallStatic:
+			classIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			nameIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			argCount := int(chunk.Code[frame.IP])
+			frame.IP++
+			className := chunk.Constants[classIdx].AsString()
+			methodName := chunk.Constants[nameIdx].AsString()
+			
+			class, ok := vm.classes[className]
+			if !ok {
+				return vm.runtimeError("undefined class '%s'", className)
+			}
+			
+			method := vm.lookupMethod(class, methodName)
+			if method == nil {
+				return vm.runtimeError("undefined static method '%s::%s'", className, methodName)
+			}
+			
+			// 创建方法的闭包并调用
+			closure := &bytecode.Closure{
+				Function: &bytecode.Function{
+					Name:       method.Name,
+					Arity:      method.Arity,
+					MinArity:   method.Arity, // 静态方法暂不支持默认参数
+					Chunk:      method.Chunk,
+					LocalCount: method.LocalCount,
+				},
+			}
+			
+			// 静态方法没有 $this，压入 null 作为占位
+			vm.stackTop -= argCount
+			vm.push(bytecode.NullValue) // 静态方法的 slot 0
+			for i := 0; i < argCount; i++ {
+				vm.push(vm.stack[vm.stackTop-argCount+i-1])
+			}
+			
+			if result := vm.call(closure, argCount); result != InterpretOK {
+				return result
+			}
+			frame = &vm.frames[vm.frameCount-1]
+			chunk = frame.Closure.Function.Chunk
+
 		// 数组操作
 		case bytecode.OpNewArray:
 			length := int(chunk.ReadU16(frame.IP))
@@ -461,13 +560,19 @@ func (vm *VM) execute() InterpretResult {
 
 		case bytecode.OpMapHas:
 			key := vm.pop()
-			mapVal := vm.pop()
-			if mapVal.Type != bytecode.ValMap {
-				return vm.runtimeError("has() requires map")
+			container := vm.pop()
+			switch container.Type {
+			case bytecode.ValMap:
+				m := container.AsMap()
+				_, ok := m[key]
+				vm.push(bytecode.NewBool(ok))
+			case bytecode.ValArray:
+				arr := container.AsArray()
+				idx := int(key.AsInt())
+				vm.push(bytecode.NewBool(idx >= 0 && idx < len(arr)))
+			default:
+				return vm.runtimeError("has() requires array or map")
 			}
-			m := mapVal.AsMap()
-			_, ok := m[key]
-			vm.push(bytecode.NewBool(ok))
 
 		case bytecode.OpMapLen:
 			mapVal := vm.pop()
@@ -475,6 +580,99 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("length requires map")
 			}
 			vm.push(bytecode.NewInt(int64(len(mapVal.AsMap()))))
+
+		// 迭代器操作
+		case bytecode.OpIterInit:
+			v := vm.pop()
+			if v.Type != bytecode.ValArray && v.Type != bytecode.ValMap {
+				return vm.runtimeError("foreach requires array or map")
+			}
+			iter := bytecode.NewIterator(v)
+			vm.push(bytecode.NewIteratorValue(iter))
+
+		case bytecode.OpIterNext:
+			iterVal := vm.peek(0) // 只读取，不弹出
+			iter := iterVal.AsIterator()
+			if iter == nil {
+				return vm.runtimeError("expected iterator")
+			}
+			hasNext := iter.Next()
+			vm.push(bytecode.NewBool(hasNext))
+
+		case bytecode.OpIterKey:
+			iterVal := vm.peek(0) // 只读取，不弹出
+			iter := iterVal.AsIterator()
+			if iter == nil {
+				return vm.runtimeError("expected iterator")
+			}
+			vm.push(iter.Key())
+
+		case bytecode.OpIterValue:
+			iterVal := vm.peek(0) // 只读取，不弹出
+			iter := iterVal.AsIterator()
+			if iter == nil {
+				return vm.runtimeError("expected iterator")
+			}
+			vm.push(iter.CurrentValue())
+
+		// 数组操作扩展
+		case bytecode.OpArrayPush:
+			value := vm.pop()
+			arrVal := vm.pop()
+			if arrVal.Type != bytecode.ValArray {
+				return vm.runtimeError("push requires array")
+			}
+			arr := arrVal.AsArray()
+			arr = append(arr, value)
+			vm.push(bytecode.NewArray(arr))
+
+		case bytecode.OpArrayHas:
+			idx := vm.pop()
+			arrVal := vm.pop()
+			if arrVal.Type != bytecode.ValArray {
+				return vm.runtimeError("has requires array")
+			}
+			arr := arrVal.AsArray()
+			i := int(idx.AsInt())
+			vm.push(bytecode.NewBool(i >= 0 && i < len(arr)))
+
+		// 异常处理
+		case bytecode.OpThrow:
+			exception := vm.pop()
+			if !vm.handleException(exception) {
+				return vm.runtimeError("uncaught exception: %s", exception.String())
+			}
+			// 更新 frame 和 chunk 引用
+			frame = &vm.frames[vm.frameCount-1]
+			chunk = frame.Closure.Function.Chunk
+
+		case bytecode.OpEnterTry:
+			// 记录偏移量开始的位置
+			offsetStart := frame.IP
+			catchOffset := chunk.ReadI16(frame.IP)
+			frame.IP += 2
+			_ = chunk.ReadI16(frame.IP) // finally 偏移量（暂不使用）
+			frame.IP += 2
+			
+			// 计算 catch 块的绝对地址
+			catchIP := offsetStart + int(catchOffset)
+			
+			vm.tryStack = append(vm.tryStack, TryContext{
+				CatchIP:    catchIP,
+				FinallyIP:  -1, // 暂时不支持 finally
+				FrameCount: vm.frameCount,
+				StackTop:   vm.stackTop,
+			})
+
+		case bytecode.OpLeaveTry:
+			if len(vm.tryStack) > 0 {
+				vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+			}
+
+		case bytecode.OpEnterCatch:
+			// 异常值已经在栈上
+			// 清除异常状态
+			vm.hasException = false
 
 		// 调试
 		case bytecode.OpDebugPrint:
@@ -487,6 +685,39 @@ func (vm *VM) execute() InterpretResult {
 			return vm.runtimeError("unknown opcode: %d", instruction)
 		}
 	}
+}
+
+// handleException 处理异常，返回是否成功处理
+func (vm *VM) handleException(exception bytecode.Value) bool {
+	vm.exception = exception
+	vm.hasException = true
+	
+	// 查找最近的 try 块
+	for len(vm.tryStack) > 0 {
+		tryCtx := vm.tryStack[len(vm.tryStack)-1]
+		vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+		
+		// 展开调用栈到 try 块所在的帧
+		for vm.frameCount > tryCtx.FrameCount {
+			vm.frameCount--
+		}
+		
+		if vm.frameCount > 0 {
+			frame := &vm.frames[vm.frameCount-1]
+			
+			// 恢复栈状态：保持基础栈帧，只重置到 try 块开始时的状态
+			// 但异常值需要作为一个新的局部变量
+			vm.stackTop = tryCtx.StackTop
+			
+			frame.IP = tryCtx.CatchIP
+			vm.push(exception) // 将异常值压入栈，它将成为 catch 块的第一个局部变量
+			vm.hasException = false
+			return true
+		}
+	}
+	
+	// 没有找到处理程序
+	return false
 }
 
 // 栈操作
@@ -625,13 +856,62 @@ func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 
 // 调用闭包
 func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
-	if argCount != closure.Function.Arity {
-		return vm.runtimeError("expected %d arguments but got %d",
-			closure.Function.Arity, argCount)
+	fn := closure.Function
+	
+	// 检查参数数量
+	if fn.IsVariadic {
+		// 可变参数函数：至少需要 MinArity 个参数
+		if argCount < fn.MinArity {
+			return vm.runtimeError("expected at least %d arguments but got %d",
+				fn.MinArity, argCount)
+		}
+	} else {
+		// 普通函数：检查参数数量范围
+		if argCount < fn.MinArity {
+			return vm.runtimeError("expected at least %d arguments but got %d",
+				fn.MinArity, argCount)
+		}
+		if argCount > fn.Arity {
+			return vm.runtimeError("expected at most %d arguments but got %d",
+				fn.Arity, argCount)
+		}
 	}
 
 	if vm.frameCount == FramesMax {
 		return vm.runtimeError("stack overflow")
+	}
+
+	// 处理默认参数：填充缺失的参数
+	if !fn.IsVariadic && argCount < fn.Arity {
+		defaultStart := fn.MinArity
+		for i := argCount; i < fn.Arity; i++ {
+			defaultIdx := i - defaultStart
+			if defaultIdx >= 0 && defaultIdx < len(fn.DefaultValues) {
+				vm.push(fn.DefaultValues[defaultIdx])
+			} else {
+				vm.push(bytecode.NullValue)
+			}
+		}
+		argCount = fn.Arity
+	}
+
+	// 处理可变参数：将多余参数打包成数组
+	if fn.IsVariadic {
+		variadicCount := argCount - fn.MinArity
+		if variadicCount > 0 {
+			// 收集可变参数到数组
+			varArgs := make([]bytecode.Value, variadicCount)
+			for i := variadicCount - 1; i >= 0; i-- {
+				varArgs[i] = vm.pop()
+			}
+			argCount = fn.MinArity
+			vm.push(bytecode.NewArray(varArgs))
+			argCount++ // 可变参数数组占一个 slot
+		} else {
+			// 没有可变参数，推入空数组
+			vm.push(bytecode.NewArray([]bytecode.Value{}))
+			argCount++
+		}
 	}
 
 	frame := &vm.frames[vm.frameCount]

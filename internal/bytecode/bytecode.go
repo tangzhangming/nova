@@ -98,6 +98,16 @@ const (
 	OpMapHas  // 检查 key 是否存在
 	OpMapLen  // 获取 Map 大小
 
+	// 迭代器操作
+	OpIterInit  // 初始化迭代器
+	OpIterNext  // 获取下一个元素 (返回 true/false)
+	OpIterKey   // 获取当前 key
+	OpIterValue // 获取当前 value
+
+	// 数组追加操作
+	OpArrayPush    // 追加元素到数组
+	OpArrayHas     // 检查索引/值是否存在
+
 	// 类型操作
 	OpCheckType // 类型检查 (typeIndex: u16)
 	OpCast      // 类型转换 (typeIndex: u16)
@@ -175,6 +185,12 @@ var opNames = map[OpCode]string{
 	OpMapSet:      "MAP_SET",
 	OpMapHas:      "MAP_HAS",
 	OpMapLen:      "MAP_LEN",
+	OpIterInit:    "ITER_INIT",
+	OpIterNext:    "ITER_NEXT",
+	OpIterKey:     "ITER_KEY",
+	OpIterValue:   "ITER_VALUE",
+	OpArrayPush:   "ARRAY_PUSH",
+	OpArrayHas:    "ARRAY_HAS",
 	OpCheckType:   "CHECK_TYPE",
 	OpCast:        "CAST",
 	OpThrow:       "THROW",
