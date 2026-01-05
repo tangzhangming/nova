@@ -17,6 +17,11 @@ type ClassCompiler struct {
 func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	class := bytecode.NewClass(decl.Name.Name)
 	
+	// 保存并设置当前类名（用于类型推导）
+	prevClassName := c.currentClassName
+	c.currentClassName = decl.Name.Name
+	defer func() { c.currentClassName = prevClassName }()
+	
 	// 设置命名空间
 	class.Namespace = c.currentNamespace
 
@@ -198,21 +203,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 		c.addLocalWithType(param.Name.Name, typeName)
 	}
 	
-	// 生成参数类型检查代码
-	for i, param := range decl.Parameters {
-		if param.Type != nil {
-			typeName := c.getTypeName(param.Type)
-			if typeName != "" && typeName != "unknown" && typeName != "mixed" && typeName != "any" {
-				// 加载参数值
-				c.emitU16(bytecode.OpLoadLocal, uint16(i+1)) // +1 因为 slot 0 是 this 或占位符
-				// 发出类型检查指令
-				typeIdx := c.makeConstant(bytecode.NewString(typeName))
-				c.emitU16(bytecode.OpCheckType, typeIdx)
-				// 弹出检查后的值（类型检查不消耗值）
-				c.emit(bytecode.OpPop)
-			}
-		}
-	}
+	// 静态类型检查：参数类型在调用点检查，方法体内不需要运行时检查
 
 	// 编译方法体
 	c.beginScope()

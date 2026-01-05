@@ -37,6 +37,12 @@ type Compiler struct {
 	
 	// 类型检查
 	globalTypes map[string]string // 全局变量类型表
+	
+	// 符号表 - 用于静态类型检查
+	symbolTable *SymbolTable
+	
+	// 当前编译的类名（用于方法内类型推导）
+	currentClassName string
 
 	// 源文件信息
 	sourceFile       string // 当前编译的源文件路径
@@ -73,7 +79,26 @@ func New() *Compiler {
 		classes:     make(map[string]*bytecode.Class),
 		enums:       make(map[string]*bytecode.Enum),
 		globalTypes: make(map[string]string),
+		symbolTable: NewSymbolTable(),
 	}
+}
+
+// NewWithSymbolTable 创建带符号表的编译器（用于多文件编译）
+func NewWithSymbolTable(st *SymbolTable) *Compiler {
+	fn := bytecode.NewFunction("<script>")
+	return &Compiler{
+		function:    fn,
+		locals:      make([]Local, 256),
+		classes:     make(map[string]*bytecode.Class),
+		enums:       make(map[string]*bytecode.Enum),
+		globalTypes: make(map[string]string),
+		symbolTable: st,
+	}
+}
+
+// GetSymbolTable 获取符号表
+func (c *Compiler) GetSymbolTable() *SymbolTable {
+	return c.symbolTable
 }
 
 // Classes 返回编译的类
@@ -97,9 +122,14 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 		c.currentNamespace = file.Namespace.Name
 	}
 	
+	// ========== Phase 1: 符号收集 ==========
+	// 收集所有类、接口、方法签名，用于静态类型检查
+	c.symbolTable.CollectFromFile(file)
+	
 	// 预留 slot 0 给调用者（与 CompileFunction 保持一致）
 	c.addLocal("")
 
+	// ========== Phase 2: 编译 ==========
 	// 编译类、接口和枚举声明
 	for _, decl := range file.Declarations {
 		switch d := decl.(type) {
@@ -180,21 +210,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 		c.addLocalWithType(param.Name.Name, typeName)
 	}
 	
-	// 生成参数类型检查代码
-	for i, param := range params {
-		if param.Type != nil {
-			typeName := c.getTypeName(param.Type)
-			if typeName != "" && typeName != "unknown" && typeName != "mixed" && typeName != "any" {
-				// 加载参数值
-				c.emitU16(bytecode.OpLoadLocal, uint16(i+1)) // +1 因为 slot 0 是调用者
-				// 发出类型检查指令
-				typeIdx := c.makeConstant(bytecode.NewString(typeName))
-				c.emitU16(bytecode.OpCheckType, typeIdx)
-				// 弹出检查后的值（类型检查不消耗值）
-				c.emit(bytecode.OpPop)
-			}
-		}
-	}
+	// 静态类型检查：参数类型在调用点检查，函数体内不需要运行时检查
 
 	// 为有默认值的参数生成检查代码
 	for _, param := range params {
@@ -314,21 +330,7 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 		c.addLocalWithType(param.Name.Name, typeName)
 	}
 	
-	// 生成参数类型检查代码
-	for i, param := range params {
-		if param.Type != nil {
-			typeName := c.getTypeName(param.Type)
-			if typeName != "" && typeName != "unknown" && typeName != "mixed" && typeName != "any" {
-				// 加载参数值
-				c.emitU16(bytecode.OpLoadLocal, uint16(i+1)) // +1 因为 slot 0 是调用者
-				// 发出类型检查指令
-				typeIdx := c.makeConstant(bytecode.NewString(typeName))
-				c.emitU16(bytecode.OpCheckType, typeIdx)
-				// 弹出检查后的值
-				c.emit(bytecode.OpPop)
-			}
-		}
-	}
+	// 静态类型检查：参数类型在调用点检查，函数体内不需要运行时检查
 	
 	// 为有默认值的参数计算默认值
 	for _, param := range params {
@@ -441,10 +443,11 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 		declaredType = c.getTypeName(s.Type)
 	}
 	
-	// 类型检查：如果有显式类型和初始值，检查类型匹配
+	// 静态类型检查：如果有显式类型和初始值，检查类型匹配
 	if s.Type != nil && s.Value != nil {
 		actualType := c.inferExprType(s.Value)
-		if actualType != "unknown" && declaredType != "unknown" {
+		// 严格模式：类型必须兼容
+		if actualType != "" && declaredType != "" {
 			if !c.isTypeCompatible(actualType, declaredType) {
 				c.error(s.Value.Pos(), i18n.T(i18n.ErrCannotAssign, actualType, declaredType))
 			}
@@ -1070,15 +1073,15 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 				c.error(e.Pairs[0].Value.Pos(), i18n.T(i18n.ErrCannotInferInterface, firstValueType))
 			}
 			
-			// 检查后续元素类型一致性
+			// 检查后续元素类型一致性（只有当类型已知时才检查）
 			for i := 1; i < len(e.Pairs); i++ {
 				keyType := c.inferExprType(e.Pairs[i].Key)
 				valueType := c.inferExprType(e.Pairs[i].Value)
 				
-				if keyType != "unknown" && firstKeyType != "unknown" && keyType != firstKeyType {
+				if keyType != "" && firstKeyType != "" && keyType != firstKeyType {
 					c.error(e.Pairs[i].Key.Pos(), i18n.T(i18n.ErrMapKeyTypeMismatch, firstKeyType, keyType))
 				}
-				if valueType != "unknown" && firstValueType != "unknown" && valueType != firstValueType {
+				if valueType != "" && firstValueType != "" && valueType != firstValueType {
 					c.error(e.Pairs[i].Value.Pos(), i18n.T(i18n.ErrMapValueTypeMismatch, firstValueType, valueType))
 				}
 			}
@@ -1237,8 +1240,8 @@ func (c *Compiler) compileBinaryExpr(e *ast.BinaryExpr) {
 	leftType := c.inferExprType(e.Left)
 	rightType := c.inferExprType(e.Right)
 	
-	// 只有当两边类型都已知时才进行检查
-	if leftType != "unknown" && rightType != "unknown" {
+	// 只有当两边类型都已知时才进行检查（空字符串表示无法推断）
+	if leftType != "" && rightType != "" {
 		c.checkBinaryOpTypes(e.Operator, leftType, rightType)
 	}
 
@@ -1294,13 +1297,27 @@ func (c *Compiler) compileTernaryExpr(e *ast.TernaryExpr) {
 }
 
 func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
-	// 编译时类型检查
+	// 静态类型检查：变量赋值
 	if v, ok := e.Left.(*ast.Variable); ok {
 		varType := c.getVariableType(v.Name)
-		if varType != "" && varType != "unknown" {
+		if varType != "" {
 			rightType := c.inferExprType(e.Right)
-			if rightType != "unknown" && !c.isTypeCompatible(rightType, varType) {
+			if rightType != "" && !c.isTypeCompatible(rightType, varType) {
 				c.error(e.Right.Pos(), i18n.T(i18n.ErrCannotAssign, rightType, varType))
+			}
+		}
+	}
+	
+	// 静态类型检查：属性赋值
+	if prop, ok := e.Left.(*ast.PropertyAccess); ok {
+		objType := c.inferExprType(prop.Object)
+		if objType != "" {
+			propSig := c.symbolTable.GetProperty(objType, prop.Property.Name)
+			if propSig != nil && propSig.Type != "" && propSig.Type != "any" {
+				rightType := c.inferExprType(e.Right)
+				if rightType != "" && !c.isTypeCompatible(rightType, propSig.Type) {
+					c.error(e.Right.Pos(), i18n.T(i18n.ErrCannotAssign, rightType, propSig.Type))
+				}
 			}
 		}
 	}
@@ -1422,11 +1439,66 @@ func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 		}
 	}
 	
+	// 静态类型检查：检查参数类型
+	c.checkCallArgTypes(e)
+	
 	c.compileExpr(e.Function)
 	for _, arg := range e.Arguments {
 		c.compileExpr(arg)
 	}
 	c.emitByte(bytecode.OpCall, byte(len(e.Arguments)))
+}
+
+// checkCallArgTypes 检查函数调用参数类型
+func (c *Compiler) checkCallArgTypes(e *ast.CallExpr) {
+	var sig *FunctionSignature
+	
+	switch fn := e.Function.(type) {
+	case *ast.Identifier:
+		sig = c.symbolTable.GetFunction(fn.Name)
+	case *ast.Variable:
+		// 变量作为函数调用，尝试从变量类型推断
+		// 暂不严格检查
+		return
+	default:
+		return
+	}
+	
+	if sig == nil {
+		return // 未知函数，跳过检查（内置函数或动态调用）
+	}
+	
+	// 检查参数数量
+	if !sig.IsVariadic {
+		if len(e.Arguments) < sig.MinArity {
+			c.error(e.Pos(), i18n.T(i18n.ErrArgumentCountMin, sig.MinArity, len(e.Arguments)))
+			return
+		}
+		if len(e.Arguments) > len(sig.ParamTypes) {
+			c.error(e.Pos(), i18n.T(i18n.ErrArgumentCountMax, len(sig.ParamTypes), len(e.Arguments)))
+			return
+		}
+	}
+	
+	// 检查每个参数类型
+	for i, arg := range e.Arguments {
+		if i >= len(sig.ParamTypes) {
+			break // 可变参数情况
+		}
+		expectedType := sig.ParamTypes[i]
+		if expectedType == "any" || expectedType == "mixed" {
+			continue // any 类型接受任何值
+		}
+		
+		actualType := c.inferExprType(arg)
+		if actualType == "" {
+			continue // 无法推断类型时跳过
+		}
+		
+		if !c.isTypeCompatible(actualType, expectedType) {
+			c.error(arg.Pos(), i18n.T(i18n.ErrTypeMismatch, expectedType, actualType))
+		}
+	}
 }
 
 func (c *Compiler) compileIndexExpr(e *ast.IndexExpr) {
@@ -1478,6 +1550,9 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 		return
 	}
 
+	// 静态类型检查：检查方法参数类型
+	c.checkMethodCallArgTypes(e)
+
 	c.compileExpr(e.Object)
 	for _, arg := range e.Arguments {
 		c.compileExpr(arg)
@@ -1487,6 +1562,41 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine) // 参数数量
 }
 
+// checkMethodCallArgTypes 检查方法调用参数类型
+func (c *Compiler) checkMethodCallArgTypes(e *ast.MethodCall) {
+	// 获取对象类型
+	objType := c.inferExprType(e.Object)
+	if objType == "" {
+		return // 无法推断对象类型，跳过检查
+	}
+	
+	// 获取方法签名
+	sig := c.symbolTable.GetMethod(objType, e.Method.Name, len(e.Arguments))
+	if sig == nil {
+		return // 未找到方法签名，跳过检查
+	}
+	
+	// 检查每个参数类型
+	for i, arg := range e.Arguments {
+		if i >= len(sig.ParamTypes) {
+			break
+		}
+		expectedType := sig.ParamTypes[i]
+		if expectedType == "any" || expectedType == "mixed" {
+			continue
+		}
+		
+		actualType := c.inferExprType(arg)
+		if actualType == "" {
+			continue
+		}
+		
+		if !c.isTypeCompatible(actualType, expectedType) {
+			c.error(arg.Pos(), i18n.T(i18n.ErrTypeMismatch, expectedType, actualType))
+		}
+	}
+}
+
 func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	// 获取类名
 	var className string
@@ -1494,15 +1604,36 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.Identifier:
 		className = cls.Name
 	case *ast.SelfExpr:
-		className = "self" // 特殊处理
+		className = c.currentClassName // 使用当前类名
+		if className == "" {
+			className = "self"
+		}
 	case *ast.ParentExpr:
-		className = "parent" // 特殊处理
+		// 获取父类名
+		if c.currentClassName != "" {
+			if parent, ok := c.symbolTable.ClassParents[c.currentClassName]; ok {
+				className = parent
+			}
+		}
+		if className == "" {
+			className = "parent"
+		}
 	default:
 		c.error(e.Pos(), i18n.T(i18n.ErrInvalidStaticAccessC))
 		return
 	}
 	
-	classIdx := c.makeConstant(bytecode.NewString(className))
+	// 为字节码使用的类名（可能需要特殊处理 self/parent）
+	bytecodeClassName := className
+	if cls, ok := e.Class.(*ast.SelfExpr); ok {
+		_ = cls
+		bytecodeClassName = "self"
+	} else if cls, ok := e.Class.(*ast.ParentExpr); ok {
+		_ = cls
+		bytecodeClassName = "parent"
+	}
+	
+	classIdx := c.makeConstant(bytecode.NewString(bytecodeClassName))
 	
 	// 处理成员访问
 	switch member := e.Member.(type) {
@@ -1521,6 +1652,9 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.CallExpr:
 		// 静态方法调用: Class::method()
 		if fn, ok := member.Function.(*ast.Identifier); ok {
+			// 静态类型检查：检查静态方法参数类型
+			c.checkStaticMethodArgTypes(className, fn.Name, member.Arguments)
+			
 			nameIdx := c.makeConstant(bytecode.NewString(fn.Name))
 			// 编译参数
 			for _, arg := range member.Arguments {
@@ -1535,7 +1669,39 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	}
 }
 
+// checkStaticMethodArgTypes 检查静态方法参数类型
+func (c *Compiler) checkStaticMethodArgTypes(className, methodName string, args []ast.Expression) {
+	// 获取方法签名
+	sig := c.symbolTable.GetMethod(className, methodName, len(args))
+	if sig == nil {
+		return
+	}
+	
+	// 检查每个参数类型
+	for i, arg := range args {
+		if i >= len(sig.ParamTypes) {
+			break
+		}
+		expectedType := sig.ParamTypes[i]
+		if expectedType == "any" || expectedType == "mixed" {
+			continue
+		}
+		
+		actualType := c.inferExprType(arg)
+		if actualType == "" {
+			continue
+		}
+		
+		if !c.isTypeCompatible(actualType, expectedType) {
+			c.error(arg.Pos(), i18n.T(i18n.ErrTypeMismatch, expectedType, actualType))
+		}
+	}
+}
+
 func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
+	// 静态类型检查：检查构造函数参数类型
+	c.checkConstructorArgTypes(e)
+	
 	idx := c.makeConstant(bytecode.NewString(e.ClassName.Name))
 	c.emitU16(bytecode.OpNewObject, idx)
 
@@ -1546,6 +1712,37 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 	constructorIdx := c.makeConstant(bytecode.NewString("__construct"))
 	c.emitU16(bytecode.OpCallMethod, constructorIdx)
 	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine) // 参数数量
+}
+
+// checkConstructorArgTypes 检查构造函数参数类型
+func (c *Compiler) checkConstructorArgTypes(e *ast.NewExpr) {
+	className := e.ClassName.Name
+	
+	// 获取构造函数签名
+	sig := c.symbolTable.GetMethod(className, "__construct", len(e.Arguments))
+	if sig == nil {
+		return // 未找到构造函数，跳过检查
+	}
+	
+	// 检查每个参数类型
+	for i, arg := range e.Arguments {
+		if i >= len(sig.ParamTypes) {
+			break
+		}
+		expectedType := sig.ParamTypes[i]
+		if expectedType == "any" || expectedType == "mixed" {
+			continue
+		}
+		
+		actualType := c.inferExprType(arg)
+		if actualType == "" {
+			continue
+		}
+		
+		if !c.isTypeCompatible(actualType, expectedType) {
+			c.error(arg.Pos(), i18n.T(i18n.ErrTypeMismatch, expectedType, actualType))
+		}
+	}
 }
 
 func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) {
@@ -1783,17 +1980,27 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.NullLiteral:
 		return "null"
 	case *ast.ArrayLiteral:
+		// 尝试推断数组元素类型
+		if len(e.Elements) > 0 {
+			elemType := c.inferExprType(e.Elements[0])
+			if elemType != "" && elemType != "any" {
+				return elemType + "[]"
+			}
+		}
 		return "array"
 	case *ast.MapLiteral:
+		// 尝试推断 Map 键值类型
+		if len(e.Pairs) > 0 {
+			keyType := c.inferExprType(e.Pairs[0].Key)
+			valueType := c.inferExprType(e.Pairs[0].Value)
+			if keyType != "" && valueType != "" {
+				return "map[" + keyType + "]" + valueType
+			}
+		}
 		return "map"
 	case *ast.BinaryExpr:
 		leftType := c.inferExprType(e.Left)
 		rightType := c.inferExprType(e.Right)
-		
-		// 如果任一侧是 unknown，整个表达式也是 unknown
-		if leftType == "unknown" || rightType == "unknown" {
-			return "unknown"
-		}
 		
 		// 字符串拼接
 		if e.Operator.Type == token.PLUS {
@@ -1823,17 +2030,185 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		if t := c.getVariableType(e.Name); t != "" {
 			return t
 		}
-		return "unknown"
-	case *ast.CallExpr, *ast.MethodCall, *ast.StaticAccess:
-		// 函数调用的返回类型需要查表，暂时返回 unknown
-		return "unknown"
+		// 变量类型必须明确
+		return ""
+	case *ast.ThisExpr:
+		// $this 的类型是当前类
+		if c.currentClassName != "" {
+			return c.currentClassName
+		}
+		return "object"
+	case *ast.CallExpr:
+		// 从符号表查询函数返回类型
+		return c.inferCallExprType(e)
+	case *ast.MethodCall:
+		// 从符号表查询方法返回类型
+		return c.inferMethodCallType(e)
+	case *ast.StaticAccess:
+		// 从符号表查询静态成员类型
+		return c.inferStaticAccessType(e)
 	case *ast.NewExpr:
 		return e.ClassName.Name
 	case *ast.TernaryExpr:
-		return c.inferExprType(e.Then)
+		// 三元表达式：两个分支类型应该相同
+		thenType := c.inferExprType(e.Then)
+		elseType := c.inferExprType(e.Else)
+		if thenType == elseType {
+			return thenType
+		}
+		// 如果类型不同，返回联合类型
+		if thenType != "" && elseType != "" {
+			return thenType + "|" + elseType
+		}
+		return thenType
+	case *ast.IndexExpr:
+		// 数组/Map 索引访问
+		objType := c.inferExprType(e.Object)
+		if strings.HasSuffix(objType, "[]") {
+			// 数组元素类型
+			return strings.TrimSuffix(objType, "[]")
+		}
+		if strings.HasPrefix(objType, "map[") {
+			// Map 值类型
+			if idx := strings.Index(objType, "]"); idx != -1 {
+				return objType[idx+1:]
+			}
+		}
+		return "any"
+	case *ast.PropertyAccess:
+		// 属性访问：从符号表获取属性类型
+		return c.inferPropertyAccessType(e)
+	case *ast.TypeCastExpr:
+		// 类型转换：返回目标类型
+		return c.getTypeName(e.TargetType)
+	case *ast.ClosureExpr:
+		// 闭包表达式
+		if e.ReturnType != nil {
+			return "func(): " + c.getTypeName(e.ReturnType)
+		}
+		return "func"
+	case *ast.ArrowFuncExpr:
+		// 箭头函数
+		bodyType := c.inferExprType(e.Body)
+		return "func(): " + bodyType
+	case *ast.Identifier:
+		// 可能是类名、枚举等
+		return e.Name
 	default:
-		return "unknown"
+		return ""
 	}
+}
+
+// inferCallExprType 推断函数调用的返回类型
+func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
+	switch fn := e.Function.(type) {
+	case *ast.Identifier:
+		// 普通函数调用
+		if sig := c.symbolTable.GetFunction(fn.Name); sig != nil {
+			return sig.ReturnType
+		}
+		// 可能是变量保存的闭包
+		if t := c.getVariableType(fn.Name); t != "" {
+			// 如果是 func 类型，尝试解析返回类型
+			if strings.HasPrefix(t, "func") {
+				if idx := strings.LastIndex(t, ": "); idx != -1 {
+					return t[idx+2:]
+				}
+			}
+			return t
+		}
+		return ""
+	case *ast.Variable:
+		// 变量作为函数调用
+		if t := c.getVariableType(fn.Name); t != "" {
+			if strings.HasPrefix(t, "func") {
+				if idx := strings.LastIndex(t, ": "); idx != -1 {
+					return t[idx+2:]
+				}
+			}
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+// inferMethodCallType 推断方法调用的返回类型
+func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
+	objType := c.inferExprType(e.Object)
+	if objType == "" {
+		return ""
+	}
+	
+	// 获取方法签名
+	if sig := c.symbolTable.GetMethod(objType, e.Method.Name, len(e.Arguments)); sig != nil {
+		return sig.ReturnType
+	}
+	
+	return ""
+}
+
+// inferStaticAccessType 推断静态访问的类型
+func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
+	var className string
+	switch cls := e.Class.(type) {
+	case *ast.Identifier:
+		className = cls.Name
+	case *ast.SelfExpr:
+		className = c.currentClassName
+	case *ast.ParentExpr:
+		if c.currentClassName != "" {
+			if parent, ok := c.symbolTable.ClassParents[c.currentClassName]; ok {
+				className = parent
+			}
+		}
+	default:
+		return ""
+	}
+	
+	if className == "" {
+		return ""
+	}
+	
+	switch member := e.Member.(type) {
+	case *ast.Variable:
+		// 静态属性
+		if sig := c.symbolTable.GetProperty(className, member.Name); sig != nil {
+			return sig.Type
+		}
+	case *ast.Identifier:
+		// 类常量
+		return "any" // 常量类型可能需要额外推断
+	case *ast.CallExpr:
+		// 静态方法调用
+		if fn, ok := member.Function.(*ast.Identifier); ok {
+			if sig := c.symbolTable.GetMethod(className, fn.Name, len(member.Arguments)); sig != nil {
+				return sig.ReturnType
+			}
+		}
+	}
+	
+	return ""
+}
+
+// inferPropertyAccessType 推断属性访问的类型
+func (c *Compiler) inferPropertyAccessType(e *ast.PropertyAccess) string {
+	objType := c.inferExprType(e.Object)
+	if objType == "" {
+		return ""
+	}
+	
+	// 特殊属性
+	if e.Property.Name == "length" {
+		return "int"
+	}
+	
+	// 从符号表获取属性类型
+	if sig := c.symbolTable.GetProperty(objType, e.Property.Name); sig != nil {
+		return sig.Type
+	}
+	
+	return ""
 }
 
 // isInterfaceType 检查类型名是否为已声明的接口
@@ -1866,9 +2241,9 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 
 	switch op.Type {
 	case token.PLUS:
-		// + 运算符：两边都是数字，或者两边都是字符串
-		if leftType == "string" && rightType == "string" {
-			return // 字符串拼接是合法的
+		// + 运算符：两边都是数字，或者一边是字符串（字符串拼接会自动转换）
+		if leftType == "string" || rightType == "string" {
+			return // 字符串拼接是合法的（VM 会自动转换非字符串类型）
 		}
 		if isNumeric(leftType) && isNumeric(rightType) {
 			return // 数字相加是合法的
@@ -1979,10 +2354,21 @@ func (c *Compiler) isBytesArrayType(t ast.TypeNode) bool {
 
 // isTypeCompatible 检查类型兼容性
 func (c *Compiler) isTypeCompatible(actual, expected string) bool {
+	// 空类型表示无法推断，暂时跳过检查
+	if actual == "" || expected == "" {
+		return true
+	}
+	
 	if actual == expected {
 		return true
 	}
-	// null 可以赋值给任何可空类型或包含 null 的联合类型
+	
+	// any/mixed 类型接受任何值
+	if expected == "any" || expected == "mixed" {
+		return true
+	}
+	
+	// null 可以赋值给可空类型或包含 null 的联合类型
 	if actual == "null" {
 		// 检查 expected 是否包含 null
 		if strings.Contains(expected, "|") {
@@ -1992,19 +2378,24 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 					return true
 				}
 			}
+			return false // 联合类型不包含 null，不允许赋值 null
 		}
-		return true
+		// 非联合类型，null 只能赋给 null 类型
+		return false
 	}
+	
 	// 检查 expected 是否是联合类型
 	if strings.Contains(expected, "|") {
 		expectedTypes := strings.Split(expected, "|")
 		for _, t := range expectedTypes {
-			if c.isTypeCompatible(actual, strings.TrimSpace(t)) {
+			trimmed := strings.TrimSpace(t)
+			if c.isTypeCompatible(actual, trimmed) {
 				return true
 			}
 		}
 		return false
 	}
+	
 	// 检查 actual 是否是联合类型（赋值给非联合类型时需要所有成员都兼容）
 	if strings.Contains(actual, "|") {
 		actualTypes := strings.Split(actual, "|")
@@ -2015,15 +2406,83 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 		}
 		return true
 	}
+	
 	// int 可以隐式转换为 float
 	if actual == "int" && expected == "float" {
 		return true
 	}
-	// 整数类型兼容
-	intTypes := map[string]bool{"int": true, "i8": true, "i16": true, "i32": true, "i64": true}
+	
+	// 数字类型兼容性
+	intTypes := map[string]bool{"int": true, "i8": true, "i16": true, "i32": true, "i64": true, "byte": true}
+	uintTypes := map[string]bool{"uint": true, "u8": true, "u16": true, "u32": true, "u64": true}
+	floatTypes := map[string]bool{"float": true, "f32": true, "f64": true}
+	
+	// 整数类型之间兼容
 	if intTypes[actual] && intTypes[expected] {
 		return true
 	}
+	// 无符号整数类型之间兼容
+	if uintTypes[actual] && uintTypes[expected] {
+		return true
+	}
+	// 浮点类型之间兼容
+	if floatTypes[actual] && floatTypes[expected] {
+		return true
+	}
+	// 任意整数可以赋给 float
+	if (intTypes[actual] || uintTypes[actual]) && floatTypes[expected] {
+		return true
+	}
+	
+	// 数组类型兼容性
+	if strings.HasSuffix(actual, "[]") && strings.HasSuffix(expected, "[]") {
+		actualElem := strings.TrimSuffix(actual, "[]")
+		expectedElem := strings.TrimSuffix(expected, "[]")
+		return c.isTypeCompatible(actualElem, expectedElem)
+	}
+	
+	// 通用数组类型
+	if expected == "array" && strings.HasSuffix(actual, "[]") {
+		return true
+	}
+	// 反向：具体数组类型接受通用 array（运行时可能出错，但编译期允许）
+	if actual == "array" && strings.HasSuffix(expected, "[]") {
+		return true
+	}
+	
+	// Map 类型兼容性
+	if expected == "map" && strings.HasPrefix(actual, "map[") {
+		return true
+	}
+	
+	// 对象类型兼容性（子类可以赋给父类）
+	if c.isSubclassOf(actual, expected) {
+		return true
+	}
+	
+	// object 类型可以接受任何对象
+	if expected == "object" {
+		if _, exists := c.symbolTable.ClassMethods[actual]; exists {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// isSubclassOf 检查 child 是否是 parent 的子类
+func (c *Compiler) isSubclassOf(child, parent string) bool {
+	current := child
+	visited := make(map[string]bool)
+	
+	for current != "" && !visited[current] {
+		visited[current] = true
+		if current == parent {
+			return true
+		}
+		current = c.symbolTable.ClassParents[current]
+	}
+	
 	return false
 }
 

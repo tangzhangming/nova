@@ -56,6 +56,13 @@ const (
 	ErrMapKeyTypeMismatch    = "compiler.map_key_type_mismatch"
 	ErrMapValueTypeMismatch  = "compiler.map_value_type_mismatch"
 	ErrCannotInferInterface  = "compiler.cannot_infer_interface"
+	
+	// 静态类型检查相关
+	ErrTypeCannotInfer       = "compiler.type_cannot_infer"
+	ErrFunctionNotFound      = "compiler.function_not_found"
+	ErrMethodNotFound        = "compiler.method_not_found"
+	ErrUnionTypeMismatch     = "compiler.union_type_mismatch"
+	ErrAllTypesMustBeKnown   = "compiler.all_types_must_be_known"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

@@ -55,6 +55,13 @@ var messagesEN = map[string]string{
 	ErrMapKeyTypeMismatch:   "map key type mismatch: expected %s but got %s",
 	ErrMapValueTypeMismatch: "map value type mismatch: expected %s but got %s",
 	ErrCannotInferInterface: "cannot infer type for interface '%s', explicit type declaration required",
+	
+	// Static type checking
+	ErrTypeCannotInfer:     "cannot infer type of expression",
+	ErrFunctionNotFound:    "undefined function '%s'",
+	ErrMethodNotFound:      "undefined method '%s' with %d arguments",
+	ErrUnionTypeMismatch:   "value type '%s' is not a member of union type '%s'",
+	ErrAllTypesMustBeKnown: "static type checking requires all types to be known at compile time",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

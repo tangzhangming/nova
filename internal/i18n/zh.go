@@ -55,6 +55,13 @@ var messagesZH = map[string]string{
 	ErrMapKeyTypeMismatch:   "Map 键类型不一致: 期望 %s 但得到 %s",
 	ErrMapValueTypeMismatch: "Map 值类型不一致: 期望 %s 但得到 %s",
 	ErrCannotInferInterface: "无法推断接口 '%s' 的类型，需要显式声明类型",
+	
+	// 静态类型检查相关
+	ErrTypeCannotInfer:     "无法推断表达式类型",
+	ErrFunctionNotFound:    "未定义的函数 '%s'",
+	ErrMethodNotFound:      "未定义的方法 '%s'（%d 个参数）",
+	ErrUnionTypeMismatch:   "值类型 '%s' 不在联合类型 '%s' 中",
+	ErrAllTypesMustBeKnown: "静态类型检查要求所有类型必须在编译期确定",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",
