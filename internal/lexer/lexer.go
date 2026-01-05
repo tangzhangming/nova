@@ -498,6 +498,13 @@ func (l *Lexer) identifier() {
 
 	text := l.source[l.start:l.current]
 	tokenType := token.LookupIdent(text)
+
+	// 特殊处理 as? (安全类型断言)
+	if tokenType == token.AS && l.peek() == '?' {
+		l.advance() // 消费 ?
+		tokenType = token.AS_SAFE
+	}
+
 	l.addToken(tokenType)
 }
 

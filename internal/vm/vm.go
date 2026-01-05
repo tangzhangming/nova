@@ -1120,6 +1120,20 @@ func (vm *VM) execute() InterpretResult {
 			}
 			vm.push(result)
 
+		case bytecode.OpCastSafe:
+			typeIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			targetType := chunk.Constants[typeIdx].AsString()
+			value := vm.pop()
+			
+			result, ok := vm.castValue(value, targetType)
+			if !ok {
+				// 安全类型转换失败时返回 null
+				vm.push(bytecode.NullValue)
+			} else {
+				vm.push(result)
+			}
+
 		// 调试
 		case bytecode.OpDebugPrint:
 			fmt.Println(vm.pop().String())

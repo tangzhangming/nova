@@ -29,6 +29,7 @@ var messagesEN = map[string]string{
 	ErrExpectedCaseDefault:  "expected 'case' or 'default'",
 	ErrInvalidStaticAccess:  "invalid static access",
 	ErrInvalidStaticMember:  "invalid static member",
+	ErrChainedTypeCast:      "chained type cast is not allowed",
 
 	// ========== Compiler ==========
 	ErrUnsupportedStmt:      "unsupported statement type",

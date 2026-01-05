@@ -29,6 +29,7 @@ var messagesZH = map[string]string{
 	ErrExpectedCaseDefault:  "需要 'case' 或 'default'",
 	ErrInvalidStaticAccess:  "无效的静态访问",
 	ErrInvalidStaticMember:  "无效的静态成员",
+	ErrChainedTypeCast:      "不允许链式类型断言",
 
 	// ========== 编译器 ==========
 	ErrUnsupportedStmt:      "不支持的语句类型",

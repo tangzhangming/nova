@@ -30,6 +30,7 @@ const (
 	ErrExpectedCaseDefault = "parser.expected_case_default"
 	ErrInvalidStaticAccess = "parser.invalid_static_access"
 	ErrInvalidStaticMember = "parser.invalid_static_member"
+	ErrChainedTypeCast     = "parser.chained_type_cast"
 
 	// ========== 编译器 ==========
 	ErrUnsupportedStmt       = "compiler.unsupported_stmt"

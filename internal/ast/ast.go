@@ -535,6 +535,24 @@ func (e *ClassAccessExpr) End() token.Position { return e.Class.Pos }
 func (e *ClassAccessExpr) String() string      { return e.Object.String() + "::class" }
 func (e *ClassAccessExpr) exprNode()           {}
 
+// TypeCastExpr 类型断言表达式 ($expr as Type / $expr as? Type)
+type TypeCastExpr struct {
+	Expr       Expression  // 被转换的表达式
+	AsToken    token.Token // as 或 as? token
+	Safe       bool        // true = as?, false = as
+	TargetType TypeNode    // 目标类型
+}
+
+func (e *TypeCastExpr) Pos() token.Position { return e.Expr.Pos() }
+func (e *TypeCastExpr) End() token.Position { return e.TargetType.End() }
+func (e *TypeCastExpr) String() string {
+	if e.Safe {
+		return "(" + e.Expr.String() + " as? " + e.TargetType.String() + ")"
+	}
+	return "(" + e.Expr.String() + " as " + e.TargetType.String() + ")"
+}
+func (e *TypeCastExpr) exprNode() {}
+
 // ============================================================================
 // 语句节点
 // ============================================================================

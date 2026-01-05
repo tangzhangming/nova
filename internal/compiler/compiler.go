@@ -1080,6 +1080,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	case *ast.ArrowFuncExpr:
 		c.compileArrowFuncExpr(e)
 
+	case *ast.TypeCastExpr:
+		c.compileTypeCastExpr(e)
+
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
 	}
@@ -1508,6 +1511,22 @@ func (c *Compiler) compileArrowFuncExpr(e *ast.ArrowFuncExpr) {
 	}
 	fn := c.CompileFunction("<arrow>", e.Parameters, body)
 	c.emitConstant(bytecode.NewFunc(fn))
+}
+
+func (c *Compiler) compileTypeCastExpr(e *ast.TypeCastExpr) {
+	// 编译被转换的表达式
+	c.compileExpr(e.Expr)
+
+	// 获取目标类型名称
+	typeName := e.TargetType.String()
+	typeIdx := c.makeConstant(bytecode.NewString(typeName))
+
+	// 根据是否是安全转换选择不同的操作码
+	if e.Safe {
+		c.emitU16(bytecode.OpCastSafe, typeIdx)
+	} else {
+		c.emitU16(bytecode.OpCast, typeIdx)
+	}
 }
 
 // ============================================================================

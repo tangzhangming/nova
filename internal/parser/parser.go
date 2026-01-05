@@ -325,6 +325,7 @@ const (
 	PREC_BIT_AND    // &
 	PREC_EQUALITY   // ==, !=
 	PREC_COMPARISON // <, >, <=, >=
+	PREC_CAST       // as, as?
 	PREC_SHIFT      // <<, >>
 	PREC_TERM       // +, -
 	PREC_FACTOR     // *, /, %
@@ -355,6 +356,8 @@ func (p *Parser) getPrecedence(t token.TokenType) int {
 		return PREC_EQUALITY
 	case token.LT, token.LE, token.GT, token.GE:
 		return PREC_COMPARISON
+	case token.AS, token.AS_SAFE:
+		return PREC_CAST
 	case token.LEFT_SHIFT, token.RIGHT_SHIFT:
 		return PREC_SHIFT
 	case token.PLUS, token.MINUS:
@@ -472,6 +475,8 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 		return p.parseAssignExpr(left)
 	case token.QUESTION:
 		return p.parseTernaryExpr(left)
+	case token.AS, token.AS_SAFE:
+		return p.parseTypeCastExpr(left)
 	case token.LBRACKET:
 		return p.parseIndexExpr(left)
 	case token.ARROW:
@@ -486,6 +491,25 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 		return p.parsePostfixIncDec(left)
 	default:
 		return left
+	}
+}
+
+func (p *Parser) parseTypeCastExpr(left ast.Expression) ast.Expression {
+	// 禁止链式类型断言: $x as A as B
+	if _, ok := left.(*ast.TypeCastExpr); ok {
+		p.error(i18n.T(i18n.ErrChainedTypeCast))
+		return left
+	}
+
+	asToken := p.advance()
+	safe := asToken.Type == token.AS_SAFE
+	targetType := p.parseType() // 支持所有类型，包括 string[], map[K]V 等
+
+	return &ast.TypeCastExpr{
+		Expr:       left,
+		AsToken:    asToken,
+		Safe:       safe,
+		TargetType: targetType,
 	}
 }
 

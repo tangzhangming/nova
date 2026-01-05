@@ -114,7 +114,8 @@ const (
 
 	// 类型操作
 	OpCheckType // 类型检查 (typeIndex: u16)
-	OpCast      // 类型转换 (typeIndex: u16)
+	OpCast      // 类型转换 (typeIndex: u16) - 失败抛出异常
+	OpCastSafe  // 安全类型转换 (typeIndex: u16) - 失败返回 null
 
 	// 异常处理
 	OpThrow        // 抛出异常
@@ -202,6 +203,7 @@ var opNames = map[OpCode]string{
 	OpUnset:       "UNSET",
 	OpCheckType:   "CHECK_TYPE",
 	OpCast:        "CAST",
+	OpCastSafe:    "CAST_SAFE",
 	OpThrow:        "THROW",
 	OpEnterTry:     "ENTER_TRY",
 	OpLeaveTry:     "LEAVE_TRY",
@@ -329,7 +331,7 @@ func (c *Chunk) disassembleInstruction(result *string, offset int) int {
 	switch op {
 	case OpPush, OpLoadLocal, OpStoreLocal, OpLoadGlobal, OpStoreGlobal,
 		OpNewObject, OpGetField, OpSetField, OpNewArray, OpNewFixedArray, OpNewMap,
-		OpCheckType, OpCast:
+		OpCheckType, OpCast, OpCastSafe:
 		return c.constantInstruction(result, op, offset)
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
 		return c.jumpInstruction(result, op, 1, offset)

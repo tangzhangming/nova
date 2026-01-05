@@ -144,6 +144,7 @@ const (
 	SELF      // self
 	PARENT    // parent
 	AS        // as
+	AS_SAFE   // as? (安全类型断言)
 	NAMESPACE // namespace
 	USE       // use
 	MAP       // map
@@ -262,6 +263,7 @@ var tokenNames = map[TokenType]string{
 	SELF:           "self",
 	PARENT:         "parent",
 	AS:             "as",
+	AS_SAFE:        "as?",
 	NAMESPACE:      "namespace",
 	USE:            "use",
 	MAP:            "map",
