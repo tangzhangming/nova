@@ -478,7 +478,10 @@ func (vm *VM) execute() InterpretResult {
 		case bytecode.OpReturnNull:
 			vm.frameCount--
 			if vm.frameCount == 0 {
-				vm.pop()
+				// 程序结束，清理栈上的闭包（如果有）
+				if vm.stackTop > 0 {
+					vm.pop()
+				}
 				return InterpretOK
 			}
 			vm.stackTop = frame.BaseSlot
@@ -1004,8 +1007,16 @@ func (vm *VM) execute() InterpretResult {
 			})
 
 		case bytecode.OpLeaveTry:
+			// 离开 try 块（正常流程）
+			// 如果没有 finally 块，移除 TryContext
+			// 如果有 finally 块，保留 TryContext 供 finally 使用
 			if len(vm.tryStack) > 0 {
-				vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+				tryCtx := &vm.tryStack[len(vm.tryStack)-1]
+				if tryCtx.FinallyIP < 0 {
+					// 没有 finally 块，移除 TryContext
+					vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+				}
+				// 有 finally 块，保留 TryContext，等待 OpLeaveFinally 时移除
 			}
 
 		case bytecode.OpEnterCatch:
@@ -1022,8 +1033,10 @@ func (vm *VM) execute() InterpretResult {
 
 		case bytecode.OpEnterFinally:
 			// 进入 finally 块
-			// 如果有挂起的异常或返回值，VM 会在 OpLeaveFinally 时处理
-			// finally 块开始时不需要特殊处理
+			// 设置 InFinally 标志，标记当前正在执行 finally 块
+			if len(vm.tryStack) > 0 {
+				vm.tryStack[len(vm.tryStack)-1].InFinally = true
+			}
 
 		case bytecode.OpLeaveFinally:
 			// 离开 finally 块，检查是否有挂起的异常或返回值
@@ -1057,6 +1070,7 @@ func (vm *VM) execute() InterpretResult {
 						chunk = frame.Closure.Function.Chunk
 						continue
 					}
+					// finally 块正常执行完毕，没有挂起的异常或返回值，继续执行后续代码
 				}
 			}
 
