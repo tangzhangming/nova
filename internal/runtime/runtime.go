@@ -353,6 +353,39 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_tcp_read_line"] = nativeTcpReadLine
 	r.builtins["native_tcp_close"] = nativeTcpClose
 	r.builtins["native_tcp_set_timeout"] = nativeTcpSetTimeout
+
+	// GC 控制函数
+	r.builtins["gc_collect"] = func(args []bytecode.Value) bytecode.Value {
+		freed := r.vm.CollectGarbage()
+		return bytecode.NewInt(int64(freed))
+	}
+	r.builtins["gc_enable"] = func(args []bytecode.Value) bytecode.Value {
+		r.vm.SetGCEnabled(true)
+		return bytecode.NullValue
+	}
+	r.builtins["gc_disable"] = func(args []bytecode.Value) bytecode.Value {
+		r.vm.SetGCEnabled(false)
+		return bytecode.NullValue
+	}
+	r.builtins["gc_stats"] = func(args []bytecode.Value) bytecode.Value {
+		stats := r.vm.GetGC().Stats()
+		m := make(map[bytecode.Value]bytecode.Value)
+		m[bytecode.NewString("heap_size")] = bytecode.NewInt(int64(stats.HeapSize))
+		m[bytecode.NewString("total_allocations")] = bytecode.NewInt(stats.TotalAllocations)
+		m[bytecode.NewString("total_collections")] = bytecode.NewInt(stats.TotalCollections)
+		m[bytecode.NewString("total_freed")] = bytecode.NewInt(stats.TotalFreed)
+		m[bytecode.NewString("next_threshold")] = bytecode.NewInt(int64(stats.NextThreshold))
+		return bytecode.NewMap(m)
+	}
+	r.builtins["gc_set_threshold"] = func(args []bytecode.Value) bytecode.Value {
+		if len(args) > 0 {
+			threshold := int(args[0].AsInt())
+			if threshold > 0 {
+				r.vm.SetGCThreshold(threshold)
+			}
+		}
+		return bytecode.NullValue
+	}
 }
 
 func (r *Runtime) registerBuiltinsToVM() {

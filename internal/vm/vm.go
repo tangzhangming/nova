@@ -53,6 +53,9 @@ type VM struct {
 	exception   bytecode.Value
 	hasException bool
 
+	// 垃圾回收
+	gc *GC
+
 	// 错误信息
 	hadError     bool
 	errorMessage string
@@ -64,6 +67,82 @@ func New() *VM {
 		globals: make(map[string]bytecode.Value),
 		classes: make(map[string]*bytecode.Class),
 		enums:   make(map[string]*bytecode.Enum),
+		gc:      NewGC(),
+	}
+}
+
+// GetGC 获取垃圾回收器
+func (vm *VM) GetGC() *GC {
+	return vm.gc
+}
+
+// SetGCEnabled 启用/禁用 GC
+func (vm *VM) SetGCEnabled(enabled bool) {
+	vm.gc.SetEnabled(enabled)
+}
+
+// SetGCDebug 设置 GC 调试模式
+func (vm *VM) SetGCDebug(debug bool) {
+	vm.gc.SetDebug(debug)
+}
+
+// SetGCThreshold 设置 GC 触发阈值
+func (vm *VM) SetGCThreshold(threshold int) {
+	vm.gc.SetThreshold(threshold)
+}
+
+// CollectGarbage 手动触发垃圾回收
+func (vm *VM) CollectGarbage() int {
+	roots := vm.collectRoots()
+	return vm.gc.Collect(roots)
+}
+
+// collectRoots 收集 GC 根对象
+func (vm *VM) collectRoots() []GCObject {
+	var roots []GCObject
+
+	// 1. 栈上的值
+	for i := 0; i < vm.stackTop; i++ {
+		if w := vm.gc.GetWrapper(vm.stack[i]); w != nil {
+			roots = append(roots, w)
+		}
+	}
+
+	// 2. 全局变量
+	for _, v := range vm.globals {
+		if w := vm.gc.GetWrapper(v); w != nil {
+			roots = append(roots, w)
+		}
+	}
+
+	// 3. 调用帧中的闭包
+	for i := 0; i < vm.frameCount; i++ {
+		closure := vm.frames[i].Closure
+		if closure != nil {
+			if w := vm.gc.GetWrapper(bytecode.NewClosure(closure)); w != nil {
+				roots = append(roots, w)
+			}
+		}
+	}
+
+	return roots
+}
+
+// trackAllocation 追踪堆分配，必要时触发 GC
+func (vm *VM) trackAllocation(v bytecode.Value) bytecode.Value {
+	w := vm.gc.TrackValue(v)
+	if w != nil && vm.gc.ShouldCollect() {
+		roots := vm.collectRoots()
+		vm.gc.Collect(roots)
+	}
+	return v
+}
+
+// maybeGC 检查并执行 GC（用于循环等热点路径）
+func (vm *VM) maybeGC() {
+	if vm.gc.ShouldCollect() {
+		roots := vm.collectRoots()
+		vm.gc.Collect(roots)
 	}
 }
 
@@ -73,7 +152,7 @@ func (vm *VM) Run(fn *bytecode.Function) InterpretResult {
 	closure := &bytecode.Closure{Function: fn}
 	
 	// 压入闭包
-	vm.push(bytecode.NewClosure(closure))
+	vm.push(vm.trackAllocation(bytecode.NewClosure(closure)))
 	
 	// 创建调用帧
 	vm.frames[0] = CallFrame{
@@ -94,6 +173,10 @@ func (vm *VM) execute() InterpretResult {
 	// 防止无限循环的安全计数器
 	maxInstructions := 10000000 // 1000万条指令上限
 	instructionCount := 0
+	
+	// GC 检查间隔（每执行 500 条指令检查一次）
+	const gcCheckInterval = 500
+	gcCheckCounter := 0
 
 	for {
 		// 安全检查：IP 越界
@@ -105,6 +188,13 @@ func (vm *VM) execute() InterpretResult {
 		instructionCount++
 		if instructionCount > maxInstructions {
 			return vm.runtimeError("execution limit exceeded (infinite loop?)")
+		}
+		
+		// 周期性 GC 检查
+		gcCheckCounter++
+		if gcCheckCounter >= gcCheckInterval {
+			gcCheckCounter = 0
+			vm.maybeGC()
 		}
 
 		// 读取指令
@@ -276,7 +366,9 @@ func (vm *VM) execute() InterpretResult {
 		case bytecode.OpConcat:
 			b := vm.pop()
 			a := vm.pop()
-			vm.push(bytecode.NewString(a.AsString() + b.AsString()))
+			// 字符串在 Go 中是不可变的，直接创建新字符串
+			result := bytecode.NewString(a.AsString() + b.AsString())
+			vm.push(result)
 
 		// 跳转
 		case bytecode.OpJump:
@@ -342,7 +434,7 @@ func (vm *VM) execute() InterpretResult {
 				Function: fn,
 				Upvalues: upvalues,
 			}
-			vm.push(bytecode.NewClosure(closure))
+			vm.push(vm.trackAllocation(bytecode.NewClosure(closure)))
 
 		case bytecode.OpReturnNull:
 			vm.frameCount--
@@ -371,7 +463,7 @@ func (vm *VM) execute() InterpretResult {
 			obj := bytecode.NewObjectInstance(class)
 			// 初始化属性默认值
 			vm.initObjectProperties(obj, class)
-			vm.push(bytecode.NewObject(obj))
+			vm.push(vm.trackAllocation(bytecode.NewObject(obj)))
 
 		case bytecode.OpGetField:
 			nameIdx := chunk.ReadU16(frame.IP)
@@ -557,7 +649,7 @@ func (vm *VM) execute() InterpretResult {
 			for i := length - 1; i >= 0; i-- {
 				arr[i] = vm.pop()
 			}
-			vm.push(bytecode.NewArray(arr))
+			vm.push(vm.trackAllocation(bytecode.NewArray(arr)))
 
 		case bytecode.OpNewFixedArray:
 			capacity := int(chunk.ReadU16(frame.IP))
@@ -568,7 +660,7 @@ func (vm *VM) execute() InterpretResult {
 			for i := initLength - 1; i >= 0; i-- {
 				elements[i] = vm.pop()
 			}
-			vm.push(bytecode.NewFixedArrayWithElements(elements, capacity))
+			vm.push(vm.trackAllocation(bytecode.NewFixedArrayWithElements(elements, capacity)))
 
 		case bytecode.OpArrayGet:
 			idx := vm.pop()
@@ -653,7 +745,7 @@ func (vm *VM) execute() InterpretResult {
 				key := vm.pop()
 				m[key] = value
 			}
-			vm.push(bytecode.NewMap(m))
+			vm.push(vm.trackAllocation(bytecode.NewMap(m)))
 
 		case bytecode.OpMapGet:
 			key := vm.pop()
@@ -709,7 +801,7 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("foreach requires array or map")
 			}
 			iter := bytecode.NewIterator(v)
-			vm.push(bytecode.NewIteratorValue(iter))
+			vm.push(vm.trackAllocation(bytecode.NewIteratorValue(iter)))
 
 		case bytecode.OpIterNext:
 			iterVal := vm.peek(0) // 只读取，不弹出
@@ -745,7 +837,7 @@ func (vm *VM) execute() InterpretResult {
 			}
 			arr := arrVal.AsArray()
 			arr = append(arr, value)
-			vm.push(bytecode.NewArray(arr))
+			vm.push(vm.trackAllocation(bytecode.NewArray(arr)))
 
 		case bytecode.OpArrayHas:
 			idx := vm.pop()

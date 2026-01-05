@@ -1114,13 +1114,13 @@ func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
 		c.compileExpr(e.Right)
 	}
 
-	// 对于静态变量赋值，需要先 dup 然后特殊处理
+	// 存储到目标 - OpStoreGlobal/OpStoreLocal 使用 peek 而不是 pop
+	// 所以值会留在栈上作为表达式结果，不需要额外 DUP
 	if _, ok := e.Left.(*ast.StaticAccess); ok {
-		c.emit(bytecode.OpDup) // 保留值用于表达式结果
+		c.emit(bytecode.OpDup) // 静态变量需要 dup 因为 OpSetStatic 会弹出
 		c.compileAssignTarget(e.Left)
 		c.emit(bytecode.OpPop) // 弹出 OpSetStatic 返回的值
 	} else {
-		c.emit(bytecode.OpDup) // 保留值用于表达式结果
 		c.compileAssignTarget(e.Left)
 	}
 }

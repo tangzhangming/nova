@@ -47,3 +47,4 @@ func getWindowsLocale() string {
 	return syscall.UTF16ToString(buf)
 }
 
+
