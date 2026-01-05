@@ -1094,6 +1094,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 		}
 		c.emitU16(bytecode.OpNewMap, uint16(len(e.Pairs)))
 
+	case *ast.SuperArrayLiteral:
+		c.compileSuperArrayLiteral(e)
+
 	case *ast.UnaryExpr:
 		c.compileUnaryExpr(e)
 
@@ -1294,6 +1297,34 @@ func (c *Compiler) compileTernaryExpr(e *ast.TernaryExpr) {
 	c.emit(bytecode.OpPop)
 	c.compileExpr(e.Else)
 	c.patchJump(endJump)
+}
+
+// compileSuperArrayLiteral 编译 PHP 风格万能数组字面量
+func (c *Compiler) compileSuperArrayLiteral(e *ast.SuperArrayLiteral) {
+	// 编译所有元素，标记键值对
+	// 对于每个元素：先编译 key（如果有），再编译 value
+	// 使用标志字节标记每个元素是否是键值对
+
+	elementCount := len(e.Elements)
+
+	// 编译每个元素
+	for _, elem := range e.Elements {
+		if elem.Key != nil {
+			// 键值对: 先 key 后 value
+			c.compileExpr(elem.Key)
+			c.compileExpr(elem.Value)
+			// 压入标志 1 表示是键值对
+			c.emitConstant(bytecode.NewInt(1))
+		} else {
+			// 仅值: 自动索引
+			c.compileExpr(elem.Value)
+			// 压入标志 0 表示非键值对
+			c.emitConstant(bytecode.NewInt(0))
+		}
+	}
+
+	// 发射创建万能数组指令，携带元素数量
+	c.emitU16(bytecode.OpSuperArrayNew, uint16(elementCount))
 }
 
 func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {

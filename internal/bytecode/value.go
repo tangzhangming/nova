@@ -15,9 +15,10 @@ const (
 	ValFloat
 	ValString
 	ValArray
-	ValFixedArray // 定长数组
-	ValBytes      // 字节数组类型
+	ValFixedArray  // 定长数组
+	ValBytes       // 字节数组类型
 	ValMap
+	ValSuperArray  // PHP风格万能数组
 	ValObject
 	ValFunc
 	ValClosure
@@ -32,6 +33,140 @@ const (
 type FixedArray struct {
 	Elements []Value
 	Capacity int
+}
+
+// SuperArray PHP风格万能数组
+// 特性: 有序存储、支持整数/字符串混合键、自动索引管理
+type SuperArray struct {
+	Entries []SuperArrayEntry // 保持插入顺序
+	Index   map[string]int    // key字符串表示 -> entries下标，O(1)查找
+	NextInt int64             // 下一个自动分配的整数索引
+}
+
+// SuperArrayEntry 万能数组条目
+type SuperArrayEntry struct {
+	Key   Value
+	Value Value
+}
+
+// NewSuperArray 创建空的万能数组
+func NewSuperArray() *SuperArray {
+	return &SuperArray{
+		Entries: make([]SuperArrayEntry, 0),
+		Index:   make(map[string]int),
+		NextInt: 0,
+	}
+}
+
+// keyToString 将 key 转换为字符串用于索引
+func (sa *SuperArray) keyToString(key Value) string {
+	switch key.Type {
+	case ValInt:
+		return fmt.Sprintf("i:%d", key.Data.(int64))
+	case ValString:
+		return fmt.Sprintf("s:%s", key.Data.(string))
+	default:
+		return fmt.Sprintf("o:%v", key.Data)
+	}
+}
+
+// Len 获取长度
+func (sa *SuperArray) Len() int {
+	return len(sa.Entries)
+}
+
+// Get 获取元素
+func (sa *SuperArray) Get(key Value) (Value, bool) {
+	keyStr := sa.keyToString(key)
+	if idx, ok := sa.Index[keyStr]; ok {
+		return sa.Entries[idx].Value, true
+	}
+	return NullValue, false
+}
+
+// Set 设置元素（如果存在则更新，否则追加）
+func (sa *SuperArray) Set(key Value, value Value) {
+	keyStr := sa.keyToString(key)
+	if idx, ok := sa.Index[keyStr]; ok {
+		// 更新现有元素
+		sa.Entries[idx].Value = value
+	} else {
+		// 追加新元素
+		sa.Index[keyStr] = len(sa.Entries)
+		sa.Entries = append(sa.Entries, SuperArrayEntry{Key: key, Value: value})
+		// 更新 nextInt
+		if key.Type == ValInt {
+			intKey := key.Data.(int64)
+			if intKey >= sa.NextInt {
+				sa.NextInt = intKey + 1
+			}
+		}
+	}
+}
+
+// Push 追加元素（使用自动索引）
+func (sa *SuperArray) Push(value Value) {
+	key := NewInt(sa.NextInt)
+	sa.Set(key, value)
+}
+
+// HasKey 检查 key 是否存在
+func (sa *SuperArray) HasKey(key Value) bool {
+	keyStr := sa.keyToString(key)
+	_, ok := sa.Index[keyStr]
+	return ok
+}
+
+// Remove 删除元素
+func (sa *SuperArray) Remove(key Value) bool {
+	keyStr := sa.keyToString(key)
+	idx, ok := sa.Index[keyStr]
+	if !ok {
+		return false
+	}
+
+	// 从 entries 中删除
+	sa.Entries = append(sa.Entries[:idx], sa.Entries[idx+1:]...)
+
+	// 重建索引
+	delete(sa.Index, keyStr)
+	for i := idx; i < len(sa.Entries); i++ {
+		sa.Index[sa.keyToString(sa.Entries[i].Key)] = i
+	}
+
+	return true
+}
+
+// Keys 获取所有 key
+func (sa *SuperArray) Keys() []Value {
+	keys := make([]Value, len(sa.Entries))
+	for i, entry := range sa.Entries {
+		keys[i] = entry.Key
+	}
+	return keys
+}
+
+// Values 获取所有 value
+func (sa *SuperArray) Values() []Value {
+	values := make([]Value, len(sa.Entries))
+	for i, entry := range sa.Entries {
+		values[i] = entry.Value
+	}
+	return values
+}
+
+// Copy 复制万能数组
+func (sa *SuperArray) Copy() *SuperArray {
+	newSa := &SuperArray{
+		Entries: make([]SuperArrayEntry, len(sa.Entries)),
+		Index:   make(map[string]int),
+		NextInt: sa.NextInt,
+	}
+	copy(newSa.Entries, sa.Entries)
+	for k, v := range sa.Index {
+		newSa.Index[k] = v
+	}
+	return newSa
 }
 
 // StackFrame 堆栈帧信息（用于堆栈跟踪）
@@ -291,6 +426,16 @@ func NewMap(m map[Value]Value) Value {
 	return Value{Type: ValMap, Data: m}
 }
 
+// NewSuperArrayValue 创建万能数组值
+func NewSuperArrayValue(sa *SuperArray) Value {
+	return Value{Type: ValSuperArray, Data: sa}
+}
+
+// NewEmptySuperArray 创建空万能数组值
+func NewEmptySuperArray() Value {
+	return Value{Type: ValSuperArray, Data: NewSuperArray()}
+}
+
 // NewBytes 创建字节数组值
 func NewBytes(b []byte) Value {
 	return Value{Type: ValBytes, Data: b}
@@ -335,6 +480,8 @@ func (v Value) IsTruthy() bool {
 		return v.Data.(*FixedArray).Capacity > 0
 	case ValMap:
 		return len(v.Data.(map[Value]Value)) > 0
+	case ValSuperArray:
+		return v.Data.(*SuperArray).Len() > 0
 	case ValBytes:
 		return len(v.Data.([]byte)) > 0
 	default:
@@ -411,6 +558,19 @@ func (v Value) AsMap() map[Value]Value {
 	return nil
 }
 
+// AsSuperArray 获取万能数组
+func (v Value) AsSuperArray() *SuperArray {
+	if v.Type == ValSuperArray {
+		return v.Data.(*SuperArray)
+	}
+	return nil
+}
+
+// IsSuperArray 检查是否为万能数组
+func (v Value) IsSuperArray() bool {
+	return v.Type == ValSuperArray
+}
+
 // AsBytes 获取字节数组
 func (v Value) AsBytes() []byte {
 	if v.Type == ValBytes {
@@ -467,6 +627,13 @@ func (v Value) String() string {
 		var parts []string
 		for k, val := range m {
 			parts = append(parts, k.String()+" => "+val.String())
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	case ValSuperArray:
+		sa := v.Data.(*SuperArray)
+		var parts []string
+		for _, entry := range sa.Entries {
+			parts = append(parts, entry.Key.String()+" => "+entry.Value.String())
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case ValBytes:
@@ -778,12 +945,13 @@ type Upvalue struct {
 
 // Iterator 迭代器
 type Iterator struct {
-	Type     string // "array" 或 "map"
-	Array    []Value
-	MapKeys  []Value
-	Map      map[Value]Value
-	Index    int
-	HasValue bool
+	Type       string // "array", "map" 或 "superarray"
+	Array      []Value
+	MapKeys    []Value
+	Map        map[Value]Value
+	SuperArray *SuperArray
+	Index      int
+	HasValue   bool
 }
 
 // NewIterator 创建迭代器
@@ -803,6 +971,9 @@ func NewIterator(v Value) *Iterator {
 		for k := range iter.Map {
 			iter.MapKeys = append(iter.MapKeys, k)
 		}
+	case ValSuperArray:
+		iter.Type = "superarray"
+		iter.SuperArray = v.AsSuperArray()
 	}
 	return iter
 }
@@ -810,10 +981,13 @@ func NewIterator(v Value) *Iterator {
 // Next 移动到下一个元素，返回是否成功
 func (it *Iterator) Next() bool {
 	it.Index++
-	if it.Type == "array" {
+	switch it.Type {
+	case "array":
 		it.HasValue = it.Index < len(it.Array)
-	} else {
+	case "map":
 		it.HasValue = it.Index < len(it.MapKeys)
+	case "superarray":
+		it.HasValue = it.Index < it.SuperArray.Len()
 	}
 	return it.HasValue
 }
@@ -823,10 +997,14 @@ func (it *Iterator) Key() Value {
 	if !it.HasValue {
 		return NullValue
 	}
-	if it.Type == "array" {
+	switch it.Type {
+	case "array":
 		return NewInt(int64(it.Index))
+	case "superarray":
+		return it.SuperArray.Entries[it.Index].Key
+	default:
+		return it.MapKeys[it.Index]
 	}
-	return it.MapKeys[it.Index]
 }
 
 // Value 获取当前 value
@@ -834,10 +1012,14 @@ func (it *Iterator) CurrentValue() Value {
 	if !it.HasValue {
 		return NullValue
 	}
-	if it.Type == "array" {
+	switch it.Type {
+	case "array":
 		return it.Array[it.Index]
+	case "superarray":
+		return it.SuperArray.Entries[it.Index].Value
+	default:
+		return it.Map[it.MapKeys[it.Index]]
 	}
-	return it.Map[it.MapKeys[it.Index]]
 }
 
 // NewIteratorValue 创建迭代器值

@@ -284,10 +284,10 @@ func (e *NullLiteral) exprNode()           {}
 
 // ArrayLiteral 数组字面量 int{1, 2, 3} 或 {1, 2, 3}（从上下文推断类型）
 type ArrayLiteral struct {
-	ElementType TypeNode     // 元素类型，可为 nil（从上下文推断）
-	LBrace      token.Token  // {
+	ElementType TypeNode    // 元素类型，可为 nil（从上下文推断）
+	LBrace      token.Token // {
 	Elements    []Expression
-	RBrace      token.Token  // }
+	RBrace      token.Token // }
 }
 
 func (e *ArrayLiteral) Pos() token.Position {
@@ -345,6 +345,35 @@ func (e *MapLiteral) String() string {
 	return typeStr + "{" + strings.Join(pairs, ", ") + "}"
 }
 func (e *MapLiteral) exprNode() {}
+
+// SuperArrayLiteral PHP风格万能数组字面量 [1, 2, "name" => "Sola"]
+type SuperArrayLiteral struct {
+	LBracket token.Token         // [
+	Elements []SuperArrayElement // 元素列表
+	RBracket token.Token         // ]
+}
+
+// SuperArrayElement 万能数组元素（可以是值或键值对）
+type SuperArrayElement struct {
+	Key   Expression  // 键，nil 表示自动索引
+	Arrow token.Token // => (仅键值对时有值)
+	Value Expression  // 值
+}
+
+func (e *SuperArrayLiteral) Pos() token.Position { return e.LBracket.Pos }
+func (e *SuperArrayLiteral) End() token.Position { return e.RBracket.Pos }
+func (e *SuperArrayLiteral) String() string {
+	var elems []string
+	for _, elem := range e.Elements {
+		if elem.Key != nil {
+			elems = append(elems, elem.Key.String()+" => "+elem.Value.String())
+		} else {
+			elems = append(elems, elem.Value.String())
+		}
+	}
+	return "[" + strings.Join(elems, ", ") + "]"
+}
+func (e *SuperArrayLiteral) exprNode() {}
 
 // UnaryExpr 一元表达式 (!x, -x, ++x, --x)
 type UnaryExpr struct {
@@ -1072,7 +1101,7 @@ func (d *InterfaceDecl) declNode()           {}
 type EnumDecl struct {
 	EnumToken token.Token
 	Name      *Identifier
-	Type      TypeNode    // 可选的基础类型 (int/string)
+	Type      TypeNode // 可选的基础类型 (int/string)
 	LBrace    token.Token
 	Cases     []*EnumCase
 	RBrace    token.Token

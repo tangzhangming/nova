@@ -482,10 +482,8 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 	case token.LPAREN:
 		return p.parseGroupOrArrowFunc()
 	case token.LBRACKET:
-		// 保留用于将来的万能数组，暂时报错
-		p.error("'[' syntax reserved for super array (use Type{...} for arrays)")
-		p.advance()
-		return nil
+		// PHP 风格万能数组: [1, 2, "name" => "Sola"]
+		return p.parseSuperArrayLiteral()
 	case token.NOT, token.MINUS, token.BIT_NOT:
 		return p.parseUnaryExpr()
 	case token.INCREMENT, token.DECREMENT:
@@ -765,6 +763,59 @@ func (p *Parser) parseArrowFuncFromParams(lparen token.Token) ast.Expression {
 }
 
 // parseTypedArrayLiteral 解析 Go 风格数组字面量: int{1, 2, 3}
+// parseSuperArrayLiteral 解析 PHP 风格万能数组: [1, 2, "name" => "Sola"]
+func (p *Parser) parseSuperArrayLiteral() ast.Expression {
+	lbracket := p.advance() // 消费 [
+
+	var elements []ast.SuperArrayElement
+
+	// 解析元素
+	if !p.check(token.RBRACKET) {
+		elem := p.parseSuperArrayElement()
+		elements = append(elements, elem)
+
+		for p.match(token.COMMA) {
+			if p.check(token.RBRACKET) {
+				break // 允许尾逗号
+			}
+			elem = p.parseSuperArrayElement()
+			elements = append(elements, elem)
+		}
+	}
+
+	rbracket := p.consume(token.RBRACKET, "expected ']'")
+
+	return &ast.SuperArrayLiteral{
+		LBracket: lbracket,
+		Elements: elements,
+		RBracket: rbracket,
+	}
+}
+
+// parseSuperArrayElement 解析万能数组元素（可能是值或键值对）
+func (p *Parser) parseSuperArrayElement() ast.SuperArrayElement {
+	// 先解析一个表达式
+	expr := p.parseExpression()
+
+	// 如果下一个是 =>，则这是一个键值对
+	if p.match(token.DOUBLE_ARROW) {
+		arrow := p.previous()
+		value := p.parseExpression()
+		return ast.SuperArrayElement{
+			Key:   expr,
+			Arrow: arrow,
+			Value: value,
+		}
+	}
+
+	// 否则是普通值（自动索引）
+	return ast.SuperArrayElement{
+		Key:   nil,
+		Arrow: token.Token{},
+		Value: expr,
+	}
+}
+
 func (p *Parser) parseTypedArrayLiteral() ast.Expression {
 	// 解析元素类型
 	elementType := p.parseType()

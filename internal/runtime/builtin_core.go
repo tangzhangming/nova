@@ -49,6 +49,8 @@ func builtinTypeof(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewString("array")
 	case bytecode.ValMap:
 		return bytecode.NewString("map")
+	case bytecode.ValSuperArray:
+		return bytecode.NewString("superarray")
 	case bytecode.ValObject:
 		return bytecode.NewString("object")
 	case bytecode.ValFunc, bytecode.ValClosure:
@@ -165,6 +167,8 @@ func builtinLen(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewInt(int64(len(v.AsBytes())))
 	case bytecode.ValMap:
 		return bytecode.NewInt(int64(len(v.AsMap())))
+	case bytecode.ValSuperArray:
+		return bytecode.NewInt(int64(v.AsSuperArray().Len()))
 	default:
 		return bytecode.ZeroValue
 	}

@@ -746,6 +746,14 @@ func (vm *VM) execute() InterpretResult {
 				} else {
 					vm.push(bytecode.NullValue)
 				}
+			case bytecode.ValSuperArray:
+				// SuperArray 索引支持
+				sa := arrVal.AsSuperArray()
+				if value, ok := sa.Get(idx); ok {
+					vm.push(value)
+				} else {
+					vm.push(bytecode.NullValue)
+				}
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
@@ -786,6 +794,10 @@ func (vm *VM) execute() InterpretResult {
 				// Map 设置
 				m := arrVal.AsMap()
 				m[idx] = value
+			case bytecode.ValSuperArray:
+				// SuperArray 设置
+				sa := arrVal.AsSuperArray()
+				sa.Set(idx, value)
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
@@ -798,6 +810,8 @@ func (vm *VM) execute() InterpretResult {
 				vm.push(bytecode.NewInt(int64(len(arrVal.AsArray()))))
 			case bytecode.ValFixedArray:
 				vm.push(bytecode.NewInt(int64(arrVal.AsFixedArray().Capacity)))
+			case bytecode.ValSuperArray:
+				vm.push(bytecode.NewInt(int64(arrVal.AsSuperArray().Len())))
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrLengthRequiresArray))
 			}
@@ -850,6 +864,9 @@ func (vm *VM) execute() InterpretResult {
 				arr := container.AsArray()
 				idx := int(key.AsInt())
 				vm.push(bytecode.NewBool(idx >= 0 && idx < len(arr)))
+			case bytecode.ValSuperArray:
+				sa := container.AsSuperArray()
+				vm.push(bytecode.NewBool(sa.HasKey(key)))
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrHasRequiresArrayOrMap))
 			}
@@ -861,10 +878,74 @@ func (vm *VM) execute() InterpretResult {
 			}
 			vm.push(bytecode.NewInt(int64(len(mapVal.AsMap()))))
 
+		// SuperArray 万能数组操作
+		case bytecode.OpSuperArrayNew:
+			count := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			sa := bytecode.NewSuperArray()
+
+			// 从栈上收集元素（按相反顺序）
+			// 栈上结构: [value1, flag1, value2, flag2, ...] 或 [key, value, flag, ...]
+			type elem struct {
+				hasKey bool
+				key    bytecode.Value
+				value  bytecode.Value
+			}
+			elements := make([]elem, count)
+
+			for i := count - 1; i >= 0; i-- {
+				flag := vm.pop().AsInt()
+				if flag == 1 {
+					// 键值对
+					value := vm.pop()
+					key := vm.pop()
+					elements[i] = elem{hasKey: true, key: key, value: value}
+				} else {
+					// 仅值
+					value := vm.pop()
+					elements[i] = elem{hasKey: false, value: value}
+				}
+			}
+
+			// 按正确顺序填充 SuperArray
+			for _, e := range elements {
+				if e.hasKey {
+					sa.Set(e.key, e.value)
+				} else {
+					sa.Push(e.value)
+				}
+			}
+
+			vm.push(vm.trackAllocation(bytecode.NewSuperArrayValue(sa)))
+
+		case bytecode.OpSuperArrayGet:
+			key := vm.pop()
+			arrVal := vm.pop()
+			if arrVal.Type != bytecode.ValSuperArray {
+				return vm.runtimeError("expected super array")
+			}
+			sa := arrVal.AsSuperArray()
+			if value, ok := sa.Get(key); ok {
+				vm.push(value)
+			} else {
+				vm.push(bytecode.NullValue)
+			}
+
+		case bytecode.OpSuperArraySet:
+			value := vm.pop()
+			key := vm.pop()
+			arrVal := vm.pop()
+			if arrVal.Type != bytecode.ValSuperArray {
+				return vm.runtimeError("expected super array")
+			}
+			sa := arrVal.AsSuperArray()
+			sa.Set(key, value)
+			vm.push(value)
+
 		// 迭代器操作
 		case bytecode.OpIterInit:
 			v := vm.pop()
-			if v.Type != bytecode.ValArray && v.Type != bytecode.ValFixedArray && v.Type != bytecode.ValMap {
+			if v.Type != bytecode.ValArray && v.Type != bytecode.ValFixedArray && v.Type != bytecode.ValMap && v.Type != bytecode.ValSuperArray {
 				return vm.runtimeError(i18n.T(i18n.ErrForeachRequiresIterable))
 			}
 			iter := bytecode.NewIterator(v)
@@ -899,16 +980,27 @@ func (vm *VM) execute() InterpretResult {
 		case bytecode.OpArrayPush:
 			value := vm.pop()
 			arrVal := vm.pop()
-			if arrVal.Type != bytecode.ValArray {
+			switch arrVal.Type {
+			case bytecode.ValArray:
+				arr := arrVal.AsArray()
+				arr = append(arr, value)
+				vm.push(vm.trackAllocation(bytecode.NewArray(arr)))
+			case bytecode.ValSuperArray:
+				sa := arrVal.AsSuperArray()
+				sa.Push(value)
+				vm.push(arrVal) // SuperArray 是引用类型，直接返回
+			default:
 				return vm.runtimeError(i18n.T(i18n.ErrPushRequiresArray))
 			}
-			arr := arrVal.AsArray()
-			arr = append(arr, value)
-			vm.push(vm.trackAllocation(bytecode.NewArray(arr)))
 
 		case bytecode.OpArrayHas:
 			idx := vm.pop()
 			arrVal := vm.pop()
+			if arrVal.Type == bytecode.ValSuperArray {
+				sa := arrVal.AsSuperArray()
+				vm.push(bytecode.NewBool(sa.HasKey(idx)))
+				continue
+			}
 			if arrVal.Type != bytecode.ValArray {
 				return vm.runtimeError(i18n.T(i18n.ErrHasRequiresArray))
 			}
@@ -1750,6 +1842,12 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 // 调用方法
 func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	receiver := vm.peek(argCount)
+
+	// 处理 SuperArray 内置方法
+	if receiver.Type == bytecode.ValSuperArray {
+		return vm.invokeSuperArrayMethod(name, argCount)
+	}
+
 	if receiver.Type != bytecode.ValObject {
 		return vm.runtimeError(i18n.T(i18n.ErrOnlyObjectsHaveMethods))
 	}
@@ -1796,6 +1894,152 @@ func (vm *VM) findMethodWithDefaults(class *bytecode.Class, name string, argCoun
 		}
 	}
 	return nil
+}
+
+// invokeSuperArrayMethod 处理 SuperArray 的内置方法调用
+func (vm *VM) invokeSuperArrayMethod(name string, argCount int) InterpretResult {
+	// 收集参数（不包括 receiver）
+	args := make([]bytecode.Value, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = vm.pop()
+	}
+	receiver := vm.pop()
+	sa := receiver.AsSuperArray()
+
+	var result bytecode.Value
+
+	switch name {
+	case "len", "length":
+		result = bytecode.NewInt(int64(sa.Len()))
+
+	case "keys":
+		keys := sa.Keys()
+		newSa := bytecode.NewSuperArray()
+		for _, k := range keys {
+			newSa.Push(k)
+		}
+		result = bytecode.NewSuperArrayValue(newSa)
+
+	case "values":
+		values := sa.Values()
+		newSa := bytecode.NewSuperArray()
+		for _, v := range values {
+			newSa.Push(v)
+		}
+		result = bytecode.NewSuperArrayValue(newSa)
+
+	case "hasKey":
+		if argCount < 1 {
+			return vm.runtimeError("hasKey requires 1 argument")
+		}
+		result = bytecode.NewBool(sa.HasKey(args[0]))
+
+	case "get":
+		if argCount < 1 {
+			return vm.runtimeError("get requires at least 1 argument")
+		}
+		if val, ok := sa.Get(args[0]); ok {
+			result = val
+		} else if argCount >= 2 {
+			result = args[1] // default value
+		} else {
+			result = bytecode.NullValue
+		}
+
+	case "set":
+		if argCount < 2 {
+			return vm.runtimeError("set requires 2 arguments")
+		}
+		sa.Set(args[0], args[1])
+		result = receiver // return self for chaining
+
+	case "remove":
+		if argCount < 1 {
+			return vm.runtimeError("remove requires 1 argument")
+		}
+		result = bytecode.NewBool(sa.Remove(args[0]))
+
+	case "push":
+		if argCount < 1 {
+			return vm.runtimeError("push requires 1 argument")
+		}
+		sa.Push(args[0])
+		result = receiver // return self for chaining
+
+	case "pop":
+		if sa.Len() == 0 {
+			result = bytecode.NullValue
+		} else {
+			lastIdx := sa.Len() - 1
+			result = sa.Entries[lastIdx].Value
+			// 移除最后一个元素
+			key := sa.Entries[lastIdx].Key
+			sa.Remove(key)
+		}
+
+	case "shift":
+		if sa.Len() == 0 {
+			result = bytecode.NullValue
+		} else {
+			result = sa.Entries[0].Value
+			key := sa.Entries[0].Key
+			sa.Remove(key)
+		}
+
+	case "unshift":
+		if argCount < 1 {
+			return vm.runtimeError("unshift requires 1 argument")
+		}
+		// 创建新数组，先添加新元素，再添加原有元素
+		newSa := bytecode.NewSuperArray()
+		newSa.Push(args[0])
+		for _, entry := range sa.Entries {
+			newSa.Set(entry.Key, entry.Value)
+		}
+		// 替换原数组内容
+		sa.Entries = newSa.Entries
+		sa.Index = newSa.Index
+		sa.NextInt = newSa.NextInt
+		result = receiver
+
+	case "merge":
+		if argCount < 1 || args[0].Type != bytecode.ValSuperArray {
+			return vm.runtimeError("merge requires a SuperArray argument")
+		}
+		other := args[0].AsSuperArray()
+		merged := sa.Copy()
+		for _, entry := range other.Entries {
+			merged.Set(entry.Key, entry.Value)
+		}
+		result = bytecode.NewSuperArrayValue(merged)
+
+	case "slice":
+		if argCount < 1 {
+			return vm.runtimeError("slice requires at least 1 argument")
+		}
+		start := int(args[0].AsInt())
+		end := sa.Len()
+		if argCount >= 2 && args[1].AsInt() != -1 {
+			end = int(args[1].AsInt())
+		}
+		if start < 0 {
+			start = 0
+		}
+		if end > sa.Len() {
+			end = sa.Len()
+		}
+		newSa := bytecode.NewSuperArray()
+		for i := start; i < end; i++ {
+			newSa.Push(sa.Entries[i].Value)
+		}
+		result = bytecode.NewSuperArrayValue(newSa)
+
+	default:
+		return vm.runtimeError("SuperArray has no method '%s'", name)
+	}
+
+	vm.push(result)
+	return InterpretOK
 }
 
 // formatException 格式化异常为 Java/C# 风格的输出

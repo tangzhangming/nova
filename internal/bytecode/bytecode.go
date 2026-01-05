@@ -99,6 +99,11 @@ const (
 	OpMapHas  // 检查 key 是否存在
 	OpMapLen  // 获取 Map 大小
 
+	// SuperArray 万能数组操作
+	OpSuperArrayNew // 创建万能数组 (元素个数: u16, 键值对标记: bytes)
+	OpSuperArrayGet // 获取万能数组元素 [stack: arr, key -> value]
+	OpSuperArraySet // 设置万能数组元素 [stack: arr, key, value -> arr]
+
 	// 迭代器操作
 	OpIterInit  // 初始化迭代器
 	OpIterNext  // 获取下一个元素 (返回 true/false)
@@ -198,11 +203,14 @@ var opNames = map[OpCode]string{
 	OpArraySet:    "ARRAY_SET",
 	OpArrayLen:    "ARRAY_LEN",
 	OpNewMap:      "NEW_MAP",
-	OpMapGet:      "MAP_GET",
-	OpMapSet:      "MAP_SET",
-	OpMapHas:      "MAP_HAS",
-	OpMapLen:      "MAP_LEN",
-	OpIterInit:    "ITER_INIT",
+	OpMapGet:         "MAP_GET",
+	OpMapSet:         "MAP_SET",
+	OpMapHas:         "MAP_HAS",
+	OpMapLen:         "MAP_LEN",
+	OpSuperArrayNew:  "SUPER_ARRAY_NEW",
+	OpSuperArrayGet:  "SUPER_ARRAY_GET",
+	OpSuperArraySet:  "SUPER_ARRAY_SET",
+	OpIterInit:       "ITER_INIT",
 	OpIterNext:    "ITER_NEXT",
 	OpIterKey:     "ITER_KEY",
 	OpIterValue:   "ITER_VALUE",
@@ -345,7 +353,7 @@ func (c *Chunk) disassembleInstruction(result *string, offset int) int {
 	switch op {
 	case OpPush, OpLoadLocal, OpStoreLocal, OpLoadGlobal, OpStoreGlobal,
 		OpNewObject, OpGetField, OpSetField, OpNewArray, OpNewFixedArray, OpNewMap,
-		OpCheckType, OpCast, OpCastSafe:
+		OpCheckType, OpCast, OpCastSafe, OpSuperArrayNew:
 		return c.constantInstruction(result, op, offset)
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
 		return c.jumpInstruction(result, op, 1, offset)
