@@ -556,12 +556,33 @@ func (p *Parser) parseBinaryExpr(left ast.Expression) ast.Expression {
 }
 
 func (p *Parser) parseAssignExpr(left ast.Expression) ast.Expression {
+	// 检查左侧是否是有效的赋值目标
+	if !p.isValidAssignTarget(left) {
+		p.error(i18n.T(i18n.ErrInvalidAssignTarget))
+	}
+
 	op := p.advance()
 	right := p.parsePrecedence(PREC_ASSIGNMENT)
 	return &ast.AssignExpr{
 		Left:     left,
 		Operator: op,
 		Right:    right,
+	}
+}
+
+// isValidAssignTarget 检查表达式是否是有效的赋值目标
+func (p *Parser) isValidAssignTarget(expr ast.Expression) bool {
+	switch expr.(type) {
+	case *ast.Variable:
+		return true // $var = ...
+	case *ast.IndexExpr:
+		return true // $arr[0] = ...
+	case *ast.PropertyAccess:
+		return true // $obj.prop = ...
+	case *ast.StaticAccess:
+		return true // Class::$var = ...
+	default:
+		return false
 	}
 }
 

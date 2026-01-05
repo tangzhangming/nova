@@ -1851,8 +1851,18 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 		c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
 
 	case token.EQ, token.NE:
-		// == 和 != 可以用于任何类型的比较，不需要特别检查
-		return
+		// == 和 != 需要两边类型兼容
+		// 允许: 数字与数字比较, 字符串与字符串比较, bool与bool比较, null与任何类型比较
+		if leftType == "null" || rightType == "null" {
+			return // null 可以与任何类型比较
+		}
+		if isNumeric(leftType) && isNumeric(rightType) {
+			return // 数字类型之间可以比较
+		}
+		if leftType == rightType {
+			return // 相同类型可以比较
+		}
+		c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
 	}
 }
 

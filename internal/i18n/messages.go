@@ -31,6 +31,7 @@ const (
 	ErrInvalidStaticAccess = "parser.invalid_static_access"
 	ErrInvalidStaticMember = "parser.invalid_static_member"
 	ErrChainedTypeCast     = "parser.chained_type_cast"
+	ErrInvalidAssignTarget = "parser.invalid_assign_target"
 
 	// ========== 编译器 ==========
 	ErrUnsupportedStmt       = "compiler.unsupported_stmt"

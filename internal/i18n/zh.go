@@ -30,6 +30,7 @@ var messagesZH = map[string]string{
 	ErrInvalidStaticAccess:  "无效的静态访问",
 	ErrInvalidStaticMember:  "无效的静态成员",
 	ErrChainedTypeCast:      "不允许链式类型断言",
+	ErrInvalidAssignTarget:  "无效的赋值目标",
 
 	// ========== 编译器 ==========
 	ErrUnsupportedStmt:      "不支持的语句类型",

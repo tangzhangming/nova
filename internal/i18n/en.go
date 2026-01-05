@@ -30,6 +30,7 @@ var messagesEN = map[string]string{
 	ErrInvalidStaticAccess:  "invalid static access",
 	ErrInvalidStaticMember:  "invalid static member",
 	ErrChainedTypeCast:      "chained type cast is not allowed",
+	ErrInvalidAssignTarget:  "invalid assignment target",
 
 	// ========== Compiler ==========
 	ErrUnsupportedStmt:      "unsupported statement type",
