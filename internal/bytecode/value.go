@@ -34,12 +34,16 @@ type FixedArray struct {
 }
 
 // Exception 异常对象
+// 支持两种模式：
+// 1. 简单异常：只有 Type/Message/Code/Cause/Stack（用于原生异常或字符串异常）
+// 2. 对象异常：包含一个 Sola Object（用于 throw new Exception(...) 创建的异常）
 type Exception struct {
 	Type    string     // 异常类型名 (如 "Exception", "RuntimeException")
 	Message string     // 异常消息
 	Code    int64      // 异常代码
 	Cause   *Exception // 链式异常：导致此异常的原因
 	Stack   []string   // 调用栈信息
+	Object  *Object    // 关联的 Sola 对象（如果异常是从类实例化的）
 }
 
 // NewException 创建异常值
@@ -67,6 +71,46 @@ func NewExceptionWithCause(typeName, message string, code int64, cause *Exceptio
 	}
 }
 
+// NewExceptionFromObject 从 Sola 对象创建异常值
+// 对象必须是 Throwable 或其子类的实例
+func NewExceptionFromObject(obj *Object) Value {
+	// 从对象中提取异常信息
+	message := ""
+	code := int64(0)
+	var cause *Exception
+
+	if msgVal, ok := obj.Fields["message"]; ok {
+		message = msgVal.AsString()
+	}
+	if codeVal, ok := obj.Fields["code"]; ok {
+		code = codeVal.AsInt()
+	}
+	if prevVal, ok := obj.Fields["previous"]; ok && prevVal.Type == ValException {
+		cause = prevVal.AsException()
+	}
+
+	return Value{
+		Type: ValException,
+		Data: &Exception{
+			Type:    obj.Class.Name,
+			Message: message,
+			Code:    code,
+			Cause:   cause,
+			Object:  obj,
+		},
+	}
+}
+
+// GetExceptionObject 获取异常关联的 Sola 对象
+func (e *Exception) GetExceptionObject() *Object {
+	return e.Object
+}
+
+// IsObjectException 检查是否是对象异常
+func (e *Exception) IsObjectException() bool {
+	return e.Object != nil
+}
+
 // SetStack 设置异常的调用栈
 func (e *Exception) SetStack(stack []string) {
 	e.Stack = stack
@@ -81,7 +125,16 @@ func (e *Exception) GetFullMessage() string {
 		if depth > 0 {
 			result += "\nCaused by: "
 		}
-		result += fmt.Sprintf("%s: %s", current.Type, current.Message)
+		
+		// 如果是对象异常，尝试从对象获取最新的 message
+		message := current.Message
+		if current.Object != nil {
+			if msgVal, ok := current.Object.Fields["message"]; ok {
+				message = msgVal.AsString()
+			}
+		}
+		
+		result += fmt.Sprintf("%s: %s", current.Type, message)
 		if len(current.Stack) > 0 {
 			for _, frame := range current.Stack {
 				result += fmt.Sprintf("\n    at %s", frame)
@@ -346,10 +399,17 @@ func (v Value) String() string {
 		return fmt.Sprintf("%s::%s", ev.EnumName, ev.CaseName)
 	case ValException:
 		ex := v.Data.(*Exception)
+		// 如果是对象异常，获取最新的 message
+		message := ex.Message
+		if ex.Object != nil {
+			if msgVal, ok := ex.Object.Fields["message"]; ok {
+				message = msgVal.AsString()
+			}
+		}
 		if ex.Cause != nil {
 			return ex.GetFullMessage()
 		}
-		return fmt.Sprintf("%s: %s", ex.Type, ex.Message)
+		return fmt.Sprintf("%s: %s", ex.Type, message)
 	default:
 		return "<unknown>"
 	}
@@ -733,5 +793,48 @@ func (v Value) AsException() *Exception {
 // IsException 检查是否是异常值
 func (v Value) IsException() bool {
 	return v.Type == ValException
+}
+
+// IsExceptionOfType 检查异常是否是指定类型（包括继承）
+func (e *Exception) IsExceptionOfType(typeName string) bool {
+	// 直接类型匹配
+	if e.Type == typeName {
+		return true
+	}
+	
+	// 如果有关联对象，检查类继承链
+	if e.Object != nil {
+		return IsClassOrSubclass(e.Object.Class, typeName)
+	}
+	
+	// 对于简单异常，使用硬编码的继承关系
+	// Exception 继承 Throwable
+	// RuntimeException 继承 Exception
+	// Error 继承 Throwable
+	switch e.Type {
+	case "Exception":
+		return typeName == "Throwable"
+	case "RuntimeException":
+		return typeName == "Exception" || typeName == "Throwable"
+	case "Error":
+		return typeName == "Throwable"
+	default:
+		// 其他类型（如 NativeException）默认认为继承 Exception
+		if typeName == "Exception" || typeName == "Throwable" {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// IsClassOrSubclass 检查一个类是否是指定类名或其子类
+func IsClassOrSubclass(class *Class, typeName string) bool {
+	for c := class; c != nil; c = c.Parent {
+		if c.Name == typeName {
+			return true
+		}
+	}
+	return false
 }
 

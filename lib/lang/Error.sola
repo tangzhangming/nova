@@ -1,0 +1,9 @@
+namespace sola.lang
+
+use sola.lang.Throwable;
+
+/**
+ * 错误基类（通常不应捕获）
+ */
+public class Error extends Throwable {
+}

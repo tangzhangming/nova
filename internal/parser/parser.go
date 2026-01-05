@@ -455,6 +455,7 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 		return p.parseClosureExpr()
 	default:
 		p.error(i18n.T(i18n.ErrUnexpectedToken, p.peek().Type))
+		p.advance() // 跳过无效 token，防止无限循环
 		return nil
 	}
 }

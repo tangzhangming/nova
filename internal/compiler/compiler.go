@@ -841,13 +841,26 @@ func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
 
 func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 	hasFinally := s.Finally != nil
-	hasCatch := len(s.Catches) > 0
+	catchCount := len(s.Catches)
 	
 	// 发出进入 try 块指令
+	// 格式: OpEnterTry catchCount:u8 finallyOffset:i16 [typeIdx:u16 catchOffset:i16]*catchCount
+	enterTryIP := c.currentChunk().Len() // OpEnterTry 指令的位置
 	c.emit(bytecode.OpEnterTry)
-	enterTryPos := c.currentChunk().Len()
-	c.currentChunk().WriteI16(0, 0) // catch 偏移量占位
-	c.currentChunk().WriteI16(0, 0) // finally 偏移量占位
+	enterTryPos := c.currentChunk().Len() // OpEnterTry 之后的位置（用于定位参数）
+	
+	// 写入 catch 数量
+	c.currentChunk().WriteU8(uint8(catchCount), 0)
+	
+	// finally 偏移量占位
+	c.currentChunk().WriteI16(0, 0)
+	
+	// 为每个 catch 处理器预留空间 (typeIdx: u16, catchOffset: i16)
+	catchHandlerPos := c.currentChunk().Len()
+	for i := 0; i < catchCount; i++ {
+		c.currentChunk().WriteU16(0, 0) // typeIdx 占位
+		c.currentChunk().WriteI16(0, 0) // catchOffset 占位
+	}
 	
 	// 编译 try 块
 	c.compileStmt(s.Try)
@@ -855,74 +868,77 @@ func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 	// 离开 try 块（正常流程）
 	c.emit(bytecode.OpLeaveTry)
 	
-	// 如果有 finally，正常流程需要跳转到 finally
-	var normalToFinallyJump int
-	var afterCatchJump int
+	// 如果有 finally，正常流程需要跳转到 finally；否则跳过所有 catch 块
+	var normalExitJump int
+	normalExitJump = c.emitJump(bytecode.OpJump)
 	
-	if hasFinally {
-		normalToFinallyJump = c.emitJump(bytecode.OpJump)
-	} else {
-		// 没有 finally，跳过 catch 块
-		afterCatchJump = c.emitJump(bytecode.OpJump)
+	// 编译每个 catch 块，并记录偏移量
+	var catchEndJumps []int
+	for i, catch := range s.Catches {
+		// 记录这个 catch 块的开始位置
+		catchBlockStart := c.currentChunk().Len()
+		
+		// 获取异常类型名
+		typeName := "Exception" // 默认
+		if catch.Type != nil {
+			typeName = c.getTypeName(catch.Type)
+		}
+		
+		// 将类型名添加到常量池
+		typeIdx := c.makeConstant(bytecode.NewString(typeName))
+		
+		// 计算从 enterTryIP 到 catch 块的偏移量
+		catchOffset := int16(catchBlockStart - enterTryIP)
+		
+		// 修补 catch 处理器信息
+		handlerOffset := catchHandlerPos + i*4
+		c.currentChunk().Code[handlerOffset] = byte(typeIdx >> 8)
+		c.currentChunk().Code[handlerOffset+1] = byte(typeIdx)
+		c.currentChunk().Code[handlerOffset+2] = byte(catchOffset >> 8)
+		c.currentChunk().Code[handlerOffset+3] = byte(catchOffset)
+		
+		// 发出 OpEnterCatch 指令，带上类型索引
+		c.emitU16(bytecode.OpEnterCatch, typeIdx)
+		
+		c.beginScope()
+		
+		// 异常值已经在栈上
+		if catch.Variable != nil {
+			c.addLocal(catch.Variable.Name)
+		} else {
+			c.emit(bytecode.OpPop)
+		}
+		
+		// 编译 catch 体
+		c.compileStmt(catch.Body)
+		c.endScope()
+		
+		// catch 块结束后跳转（跳过其他 catch 块，到 finally 或结束）
+		catchEndJumps = append(catchEndJumps, c.emitJump(bytecode.OpJump))
 	}
 	
-	// catch 块开始位置
-	catchStart := c.currentChunk().Len()
-	
-	// 修补 catch 偏移量
-	catchOffset := catchStart - enterTryPos
-	c.currentChunk().Code[enterTryPos] = byte(int16(catchOffset) >> 8)
-	c.currentChunk().Code[enterTryPos+1] = byte(int16(catchOffset))
-	
-	// 编译 catch 块
-	if hasCatch {
-		c.emit(bytecode.OpEnterCatch)
-		
-		for _, catch := range s.Catches {
-			c.beginScope()
-			
-			// 异常值已经在栈上
-			if catch.Variable != nil {
-				c.addLocal(catch.Variable.Name)
-			} else {
-				c.emit(bytecode.OpPop)
-			}
-			
-			// 编译 catch 体
-			c.compileStmt(catch.Body)
-			c.endScope()
-		}
-		
-		// catch 执行完后，如果有 finally，跳转到 finally
-		if hasFinally {
-			// catch 之后也跳转到 finally
-		} else {
-			// 没有 finally，catch 结束后直接继续
-		}
-	} else {
-		// 没有 catch 块，异常会直接传播到 finally
-		// 但需要一个占位，因为 handleException 会跳转到这里
-		c.emit(bytecode.OpEnterCatch)
-		// 重新抛出异常（因为没有 catch 处理）
-		if hasFinally {
-			// 异常会在 finally 后重新抛出
-		} else {
-			c.emit(bytecode.OpRethrow)
-		}
+	// 如果没有 catch 块但有 finally，需要处理未捕获的异常
+	if catchCount == 0 && hasFinally {
+		// 这种情况下异常会直接传播到 finally
 	}
 	
 	// finally 块
 	if hasFinally {
-		// 修补跳转到 finally
-		c.patchJump(normalToFinallyJump)
+		// 修补正常退出跳转
+		c.patchJump(normalExitJump)
+		
+		// 修补所有 catch 块的结束跳转
+		for _, jump := range catchEndJumps {
+			c.patchJump(jump)
+		}
 		
 		// finally 开始位置
 		finallyStart := c.currentChunk().Len()
 		
-		// 修补 finally 偏移量
-		finallyOffset := finallyStart - enterTryPos
-		c.currentChunk().Code[enterTryPos+2] = byte(int16(finallyOffset) >> 8)
-		c.currentChunk().Code[enterTryPos+3] = byte(int16(finallyOffset))
+		// 修补 finally 偏移量（相对于 enterTryIP）
+		finallyOffset := int16(finallyStart - enterTryIP)
+		c.currentChunk().Code[enterTryPos+1] = byte(finallyOffset >> 8)
+		c.currentChunk().Code[enterTryPos+2] = byte(finallyOffset)
 		
 		c.emit(bytecode.OpEnterFinally)
 		
@@ -931,12 +947,18 @@ func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 		
 		c.emit(bytecode.OpLeaveFinally)
 	} else {
-		// 没有 finally，修补 after-catch 跳转
-		c.patchJump(afterCatchJump)
+		// 没有 finally
+		// 修补正常退出跳转
+		c.patchJump(normalExitJump)
+		
+		// 修补所有 catch 块的结束跳转
+		for _, jump := range catchEndJumps {
+			c.patchJump(jump)
+		}
 		
 		// finally 偏移量设为 -1（没有 finally）
+		c.currentChunk().Code[enterTryPos+1] = 0xFF
 		c.currentChunk().Code[enterTryPos+2] = 0xFF
-		c.currentChunk().Code[enterTryPos+3] = 0xFF
 	}
 }
 

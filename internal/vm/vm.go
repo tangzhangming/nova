@@ -19,6 +19,7 @@ const (
 	InterpretOK InterpretResult = iota
 	InterpretCompileError
 	InterpretRuntimeError
+	InterpretExceptionHandled // 异常已处理，需要刷新 frame/chunk
 )
 
 // CallFrame 调用帧
@@ -28,19 +29,25 @@ type CallFrame struct {
 	BaseSlot int               // 栈基址
 }
 
+// CatchHandlerInfo catch 处理器信息
+type CatchHandlerInfo struct {
+	TypeName    string // 异常类型名
+	CatchOffset int    // catch 块相对于 OpEnterTry 的偏移量
+}
+
 // TryContext 异常处理上下文
 type TryContext struct {
-	CatchIP          int             // catch 块的 IP
-	FinallyIP        int             // finally 块的 IP (-1 表示没有)
-	AfterFinallyIP   int             // finally 块之后的 IP
-	FrameCount       int             // 进入 try 时的帧数
-	StackTop         int             // 进入 try 时的栈顶
-	ExceptionVar     int             // 异常变量的 slot
-	InFinally        bool            // 是否正在执行 finally 块
-	PendingException bytecode.Value  // 挂起的异常（finally 结束后处理）
-	HasPendingExc    bool            // 是否有挂起的异常
-	PendingReturn    bytecode.Value  // 挂起的返回值
-	HasPendingReturn bool            // 是否有挂起的返回
+	EnterTryIP       int                 // OpEnterTry 指令的位置
+	CatchHandlers    []CatchHandlerInfo  // catch 处理器列表（按顺序）
+	FinallyIP        int                 // finally 块的 IP (-1 表示没有)
+	FrameCount       int                 // 进入 try 时的帧数
+	StackTop         int                 // 进入 try 时的栈顶
+	InCatch          bool                // 是否正在执行 catch 块
+	InFinally        bool                // 是否正在执行 finally 块
+	PendingException bytecode.Value      // 挂起的异常（finally 结束后处理）
+	HasPendingExc    bool                // 是否有挂起的异常
+	PendingReturn    bytecode.Value      // 挂起的返回值
+	HasPendingReturn bool                // 是否有挂起的返回
 }
 
 // VM 虚拟机
@@ -270,26 +277,51 @@ func (vm *VM) execute() InterpretResult {
 		// 算术运算
 		case bytecode.OpAdd:
 			if result := vm.binaryOp(instruction); result != InterpretOK {
+				if result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				}
 				return result
 			}
 
 		case bytecode.OpSub:
 			if result := vm.binaryOp(instruction); result != InterpretOK {
+				if result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				}
 				return result
 			}
 
 		case bytecode.OpMul:
 			if result := vm.binaryOp(instruction); result != InterpretOK {
+				if result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				}
 				return result
 			}
 
 		case bytecode.OpDiv:
 			if result := vm.binaryOp(instruction); result != InterpretOK {
+				if result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				}
 				return result
 			}
 
 		case bytecode.OpMod:
 			if result := vm.binaryOp(instruction); result != InterpretOK {
+				if result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				}
 				return result
 			}
 
@@ -678,14 +710,26 @@ func (vm *VM) execute() InterpretResult {
 				arr := arrVal.AsArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
-					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexSimple))
+					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexSimple)); result == InterpretExceptionHandled {
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					} else {
+						return result
+					}
 				}
 				vm.push(arr[i])
 			case bytecode.ValFixedArray:
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= fa.Capacity {
-					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity))
+					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity)); result == InterpretExceptionHandled {
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					} else {
+						return result
+					}
 				}
 				vm.push(fa.Elements[i])
 			case bytecode.ValMap:
@@ -710,14 +754,26 @@ func (vm *VM) execute() InterpretResult {
 				arr := arrVal.AsArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
-					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexSimple))
+					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexSimple)); result == InterpretExceptionHandled {
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					} else {
+						return result
+					}
 				}
 				arr[i] = value
 			case bytecode.ValFixedArray:
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= fa.Capacity {
-					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity))
+					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity)); result == InterpretExceptionHandled {
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					} else {
+						return result
+					}
 				}
 				fa.Elements[i] = value
 			case bytecode.ValMap:
@@ -874,11 +930,29 @@ func (vm *VM) execute() InterpretResult {
 
 		// 异常处理
 		case bytecode.OpThrow:
-			exception := vm.pop()
-			// 如果抛出的是字符串，自动转换为 Exception 对象
-			if exception.Type == bytecode.ValString {
-				exception = bytecode.NewException("Exception", exception.AsString(), 0)
+			exceptionVal := vm.pop()
+			var exception bytecode.Value
+			
+			// 处理不同类型的异常
+			switch exceptionVal.Type {
+			case bytecode.ValString:
+				// 字符串异常：自动转换为 Exception 对象
+				exception = bytecode.NewException("Exception", exceptionVal.AsString(), 0)
+			case bytecode.ValObject:
+				// 对象异常：检查是否是 Throwable 的子类
+				obj := exceptionVal.AsObject()
+				if vm.isThrowable(obj.Class) {
+					exception = bytecode.NewExceptionFromObject(obj)
+				} else {
+					return vm.runtimeError("cannot throw non-Throwable object: %s", obj.Class.Name)
+				}
+			case bytecode.ValException:
+				// 已经是异常值
+				exception = exceptionVal
+			default:
+				return vm.runtimeError("cannot throw value of type %v", exceptionVal.Type)
 			}
+			
 			// 捕获调用栈信息
 			if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
 				exc.Stack = vm.captureStackTrace()
@@ -891,27 +965,42 @@ func (vm *VM) execute() InterpretResult {
 			chunk = frame.Closure.Function.Chunk
 
 		case bytecode.OpEnterTry:
-			// 记录偏移量开始的位置
-			offsetStart := frame.IP
-			catchOffset := chunk.ReadI16(frame.IP)
-			frame.IP += 2
+			// 新格式: OpEnterTry catchCount:u8 finallyOffset:i16 [typeIdx:u16 catchOffset:i16]*catchCount
+			enterTryIP := frame.IP - 1 // OpEnterTry 指令的位置
+			
+			catchCount := int(chunk.Code[frame.IP])
+			frame.IP++
+			
 			finallyOffset := chunk.ReadI16(frame.IP)
 			frame.IP += 2
 			
-			// 计算 catch 块的绝对地址
-			catchIP := offsetStart + int(catchOffset)
+			// 读取 catch 处理器信息
+			var catchHandlers []CatchHandlerInfo
+			for i := 0; i < catchCount; i++ {
+				typeIdx := chunk.ReadU16(frame.IP)
+				frame.IP += 2
+				catchOffset := chunk.ReadI16(frame.IP)
+				frame.IP += 2
+				
+				typeName := chunk.Constants[typeIdx].AsString()
+				catchHandlers = append(catchHandlers, CatchHandlerInfo{
+					TypeName:    typeName,
+					CatchOffset: int(catchOffset),
+				})
+			}
 			
 			// 计算 finally 块的绝对地址 (-1 表示没有 finally)
 			finallyIP := -1
 			if finallyOffset != -1 {
-				finallyIP = offsetStart + int(finallyOffset)
+				finallyIP = enterTryIP + int(finallyOffset)
 			}
 			
 			vm.tryStack = append(vm.tryStack, TryContext{
-				CatchIP:      catchIP,
-				FinallyIP:    finallyIP,
-				FrameCount:   vm.frameCount,
-				StackTop:     vm.stackTop,
+				EnterTryIP:    enterTryIP,
+				CatchHandlers: catchHandlers,
+				FinallyIP:     finallyIP,
+				FrameCount:    vm.frameCount,
+				StackTop:      vm.stackTop,
 			})
 
 		case bytecode.OpLeaveTry:
@@ -920,9 +1009,16 @@ func (vm *VM) execute() InterpretResult {
 			}
 
 		case bytecode.OpEnterCatch:
+			// 新格式: OpEnterCatch typeIdx:u16
+			// typeIdx 用于调试/日志，VM 在 handleException 中已经做了类型匹配
+			frame.IP += 2 // 跳过 typeIdx
 			// 异常值已经在栈上
 			// 清除异常状态
 			vm.hasException = false
+			// 标记当前 TryContext 正在执行 catch 块
+			if len(vm.tryStack) > 0 {
+				vm.tryStack[len(vm.tryStack)-1].InCatch = true
+			}
 
 		case bytecode.OpEnterFinally:
 			// 进入 finally 块
@@ -1022,12 +1118,35 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 		exc.Stack = vm.captureStackTrace()
 	}
 	
+	// 获取异常对象用于类型匹配
+	exc := exception.AsException()
+	
 	// 查找最近的 try 块
 	for len(vm.tryStack) > 0 {
 		tryCtx := &vm.tryStack[len(vm.tryStack)-1]
 		
 		// 如果正在执行 finally 块中发生异常，记录但继续传播
 		if tryCtx.InFinally {
+			vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+			continue
+		}
+		
+		// 如果正在执行 catch 块中发生异常，需要执行 finally（如果有）然后传播
+		if tryCtx.InCatch {
+			// 如果有 finally 块，先执行 finally
+			if tryCtx.FinallyIP >= 0 {
+				tryCtx.PendingException = exception
+				tryCtx.HasPendingExc = true
+				tryCtx.InFinally = true
+				tryCtx.InCatch = false
+				if vm.frameCount > 0 {
+					frame := &vm.frames[vm.frameCount-1]
+					frame.IP = tryCtx.FinallyIP
+				}
+				vm.hasException = false
+				return true
+			}
+			// 没有 finally，移除此 TryContext 并继续传播
 			vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
 			continue
 		}
@@ -1043,15 +1162,33 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 			// 恢复栈状态
 			vm.stackTop = tryCtx.StackTop
 			
-			// 如果有 finally 块，先执行 finally
-			if tryCtx.FinallyIP >= 0 && tryCtx.CatchIP != tryCtx.FinallyIP {
-				// 有 catch 块，先跳转到 catch
-				frame.IP = tryCtx.CatchIP
-				vm.push(exception)
+			// 查找匹配的 catch 处理器
+			matchedHandler := -1
+			for i, handler := range tryCtx.CatchHandlers {
+				if vm.exceptionMatchesType(exc, handler.TypeName) {
+					matchedHandler = i
+					break
+				}
+			}
+			
+			if matchedHandler >= 0 {
+				// 找到匹配的 catch 处理器
+				handler := tryCtx.CatchHandlers[matchedHandler]
+				catchIP := tryCtx.EnterTryIP + handler.CatchOffset
+				frame.IP = catchIP
+				
+				// 如果异常有关联的对象，推入对象；否则推入异常值
+				if exc != nil && exc.Object != nil {
+					vm.push(bytecode.NewObject(exc.Object))
+				} else {
+					vm.push(exception)
+				}
+				
 				vm.hasException = false
+				// 不要移除 tryCtx，因为 catch 块执行完后可能还需要执行 finally
 				return true
 			} else if tryCtx.FinallyIP >= 0 {
-				// 只有 finally 块，没有 catch
+				// 没有匹配的 catch，但有 finally 块
 				// 挂起异常，先执行 finally
 				tryCtx.PendingException = exception
 				tryCtx.HasPendingExc = true
@@ -1059,14 +1196,8 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 				frame.IP = tryCtx.FinallyIP
 				vm.hasException = false
 				return true
-			} else {
-				// 只有 catch，跳转到 catch
-				frame.IP = tryCtx.CatchIP
-				vm.push(exception)
-				vm.hasException = false
-				vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
-				return true
 			}
+			// 没有匹配的处理器也没有 finally，继续向上传播
 		}
 		
 		vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
@@ -1089,6 +1220,87 @@ func (vm *VM) captureStackTrace() []string {
 		stack = append(stack, fmt.Sprintf("%s (line %d)", fn.Name, line))
 	}
 	return stack
+}
+
+// exceptionMatchesType 检查异常是否匹配指定类型
+func (vm *VM) exceptionMatchesType(exc *bytecode.Exception, typeName string) bool {
+	if exc == nil {
+		return false
+	}
+	
+	// 使用 bytecode 包中的类型匹配逻辑
+	if exc.IsExceptionOfType(typeName) {
+		return true
+	}
+	
+	// 如果有关联的类对象，检查 VM 中注册的类层次结构
+	if exc.Object != nil {
+		return vm.isInstanceOfType(exc.Object.Class, typeName)
+	}
+	
+	return false
+}
+
+// isInstanceOfType 检查一个类是否是指定类型或其子类
+func (vm *VM) isInstanceOfType(class *bytecode.Class, typeName string) bool {
+	// 遍历类继承链
+	for c := class; c != nil; c = c.Parent {
+		if c.Name == typeName {
+			return true
+		}
+	}
+	
+	// 也检查 VM 中注册的类（用于处理 parent 尚未解析的情况）
+	if class.ParentName != "" && class.Parent == nil {
+		if parent := vm.classes[class.ParentName]; parent != nil {
+			return vm.isInstanceOfType(parent, typeName)
+		}
+	}
+	
+	return false
+}
+
+// isThrowable 检查一个类是否是 Throwable 或其子类
+func (vm *VM) isThrowable(class *bytecode.Class) bool {
+	return vm.isInstanceOfType(class, "Throwable")
+}
+
+// throwRuntimeException 抛出一个运行时异常（可被 try-catch 捕获）
+func (vm *VM) throwRuntimeException(message string) InterpretResult {
+	// 尝试创建一个真正的 RuntimeException 对象
+	var exception bytecode.Value
+	
+	if class := vm.classes["RuntimeException"]; class != nil {
+		// RuntimeException 类已加载，创建对象实例
+		obj := bytecode.NewObjectInstance(class)
+		obj.Fields["message"] = bytecode.NewString(message)
+		obj.Fields["code"] = bytecode.NewInt(0)
+		obj.Fields["previous"] = bytecode.NullValue
+		obj.Fields["stackTrace"] = bytecode.NewArray([]bytecode.Value{})
+		exception = bytecode.NewExceptionFromObject(obj)
+	} else if class := vm.classes["Exception"]; class != nil {
+		// 使用 Exception 类
+		obj := bytecode.NewObjectInstance(class)
+		obj.Fields["message"] = bytecode.NewString(message)
+		obj.Fields["code"] = bytecode.NewInt(0)
+		obj.Fields["previous"] = bytecode.NullValue
+		obj.Fields["stackTrace"] = bytecode.NewArray([]bytecode.Value{})
+		exception = bytecode.NewExceptionFromObject(obj)
+	} else {
+		// 没有异常类可用，使用简单异常值
+		exception = bytecode.NewException("RuntimeException", message, 0)
+	}
+	
+	if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
+		exc.Stack = vm.captureStackTrace()
+	}
+	
+	if vm.handleException(exception) {
+		// 异常被捕获，返回特殊状态让调用者刷新 frame/chunk
+		return InterpretExceptionHandled
+	}
+	// 未捕获的异常
+	return vm.runtimeError("uncaught exception: %s", exception.String())
 }
 
 // 栈操作
@@ -1129,12 +1341,12 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 			vm.push(bytecode.NewInt(ai * bi))
 		case bytecode.OpDiv:
 			if bi == 0 {
-				return vm.runtimeError(i18n.T(i18n.ErrDivisionByZero))
+				return vm.throwRuntimeException(i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewInt(ai / bi))
 		case bytecode.OpMod:
 			if bi == 0 {
-				return vm.runtimeError(i18n.T(i18n.ErrDivisionByZero))
+				return vm.throwRuntimeException(i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewInt(ai % bi))
 		}
@@ -1154,11 +1366,11 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 			vm.push(bytecode.NewFloat(af * bf))
 		case bytecode.OpDiv:
 			if bf == 0 {
-				return vm.runtimeError(i18n.T(i18n.ErrDivisionByZero))
+				return vm.throwRuntimeException(i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewFloat(af / bf))
 		case bytecode.OpMod:
-			return vm.runtimeError(i18n.T(i18n.ErrModuloNotForFloats))
+			return vm.throwRuntimeException(i18n.T(i18n.ErrModuloNotForFloats))
 		}
 		return InterpretOK
 	}

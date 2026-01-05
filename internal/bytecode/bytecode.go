@@ -118,9 +118,9 @@ const (
 
 	// 异常处理
 	OpThrow        // 抛出异常
-	OpEnterTry     // 进入 try 块 (catchOffset: i16, finallyOffset: i16)
+	OpEnterTry     // 进入 try 块 (catchCount: u8, finallyOffset: i16, [typeIdx: u16, catchOffset: i16]*)
 	OpLeaveTry     // 离开 try 块
-	OpEnterCatch   // 进入 catch 块
+	OpEnterCatch   // 进入 catch 块 (typeIdx: u16 - 期望的异常类型)
 	OpEnterFinally // 进入 finally 块
 	OpLeaveFinally // 离开 finally 块
 	OpRethrow      // 重新抛出挂起的异常
@@ -218,6 +218,13 @@ func (op OpCode) String() string {
 		return name
 	}
 	return fmt.Sprintf("UNKNOWN(%d)", op)
+}
+
+// CatchHandler 表示一个 catch 处理器
+type CatchHandler struct {
+	TypeName   string // 异常类型名 (如 "Exception", "RuntimeException")
+	TypeIndex  uint16 // 类型名在常量池中的索引
+	CatchOffset int   // catch 块的字节码偏移量
 }
 
 // Chunk 字节码块
@@ -332,6 +339,12 @@ func (c *Chunk) disassembleInstruction(result *string, offset int) int {
 		return c.byteInstruction(result, op, offset)
 	case OpCallMethod, OpCallStatic:
 		return c.invokeInstruction(result, op, offset)
+	case OpEnterTry:
+		return c.enterTryInstruction(result, offset)
+	case OpEnterCatch:
+		return c.constantInstruction(result, op, offset)
+	case OpClosure:
+		return c.constantInstruction(result, op, offset)
 	default:
 		*result += fmt.Sprintf("%s\n", op)
 		return offset + 1
@@ -366,4 +379,26 @@ func (c *Chunk) invokeInstruction(result *string, op OpCode, offset int) int {
 	argCount := c.Code[offset+3]
 	*result += fmt.Sprintf("%-16s %4d (%d args)\n", op, nameIdx, argCount)
 	return offset + 4
+}
+
+func (c *Chunk) enterTryInstruction(result *string, offset int) int {
+	catchCount := c.Code[offset+1]
+	finallyOffset := c.ReadI16(offset + 2)
+	
+	*result += fmt.Sprintf("ENTER_TRY       catches=%d, finally=%d\n", catchCount, finallyOffset)
+	
+	// 读取每个 catch 处理器信息
+	pos := offset + 4
+	for i := 0; i < int(catchCount); i++ {
+		typeIdx := c.ReadU16(pos)
+		catchOffset := c.ReadI16(pos + 2)
+		typeName := ""
+		if int(typeIdx) < len(c.Constants) {
+			typeName = c.Constants[typeIdx].AsString()
+		}
+		*result += fmt.Sprintf("    catch[%d]: type='%s' offset=%d\n", i, typeName, catchOffset)
+		pos += 4
+	}
+	
+	return pos
 }

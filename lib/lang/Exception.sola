@@ -1,0 +1,9 @@
+namespace sola.lang
+
+use sola.lang.Throwable;
+
+/**
+ * 异常基类（可捕获的）
+ */
+public class Exception extends Throwable {
+}

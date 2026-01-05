@@ -56,6 +56,7 @@ func New() *Runtime {
 		enums:    make(map[string]*bytecode.Enum),
 	}
 	r.registerBuiltins()
+	// 异常类现在通过 lib/lang/*.sola 文件定义，不再在这里内置
 	return r
 }
 
@@ -1115,4 +1116,10 @@ func nativeTcpSetTimeout(args []bytecode.Value) bytecode.Value {
 	err := tc.conn.SetDeadline(deadline)
 	return bytecode.NewBool(err == nil)
 }
+
+// 异常类现在通过 lib/lang/*.sola 文件定义：
+//   sola.lang.Throwable        // 所有错误和异常的基类
+//   sola.lang.Exception        // 异常基类（可捕获的）
+//   sola.lang.RuntimeException // 运行时异常
+//   sola.lang.Error            // 错误基类（通常不应捕获）
 

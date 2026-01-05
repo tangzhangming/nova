@@ -1,0 +1,24 @@
+// 异常系统测试
+use sola.lang.Exception;
+use sola.lang.RuntimeException;
+
+
+
+
+try {
+    $a := 0;
+    int[] $ids = [1,2,3,4];
+
+    echo $ids[4];
+
+
+
+} catch (Exception $e) {
+    echo "catch 块: " + $e->getMessage();
+    print_r($e);
+
+} finally {
+    echo "finally 块始终执行";
+}
+
+echo "=== 全部测试通过 ===";

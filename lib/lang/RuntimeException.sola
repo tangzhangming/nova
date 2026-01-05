@@ -1,0 +1,9 @@
+namespace sola.lang
+
+use sola.lang.Exception;
+
+/**
+ * 运行时异常
+ */
+public class RuntimeException extends Exception {
+}

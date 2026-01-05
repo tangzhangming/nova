@@ -1,0 +1,37 @@
+namespace sola.lang
+
+/**
+ * 所有错误和异常的基类
+ */
+public class Throwable {
+    protected string $message = "";
+    protected int $code = 0;
+    protected ?Throwable $previous = null;
+    protected array $stackTrace = [];
+
+    public function __construct(string $message = "", int $code = 0, ?Throwable $previous = null) {
+        $this->message = $message;
+        $this->code = $code;
+        $this->previous = $previous;
+    }
+
+    public function getMessage(): string {
+        return $this->message;
+    }
+
+    public function getCode(): int {
+        return $this->code;
+    }
+
+    public function getPrevious(): ?Throwable {
+        return $this->previous;
+    }
+
+    public function getStackTrace(): array {
+        return $this->stackTrace;
+    }
+
+    public function __toString(): string {
+        return $this->message;
+    }
+}
