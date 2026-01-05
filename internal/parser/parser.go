@@ -213,7 +213,7 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 
 	switch {
 	case p.matchAny(token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
-		token.UINT_TYPE, token.U8_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
+		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
 		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
 		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.OBJECT):
 		baseType = &ast.SimpleType{
@@ -1075,7 +1075,7 @@ func (p *Parser) parseExprOrVarDeclStmt() ast.Statement {
 
 func (p *Parser) isTypeStart() bool {
 	return p.checkAny(token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
-		token.UINT_TYPE, token.U8_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
+		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
 		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
 		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.OBJECT,
 		token.MAP, token.FUNC_TYPE, token.QUESTION) ||

@@ -84,6 +84,7 @@ const (
 	I64_TYPE    // i64
 	UINT_TYPE   // uint
 	U8_TYPE     // u8
+	BYTE_TYPE   // byte (与 u8 等价)
 	U16_TYPE    // u16
 	U32_TYPE    // u32
 	U64_TYPE    // u64
@@ -215,6 +216,7 @@ var tokenNames = map[TokenType]string{
 	I64_TYPE:       "i64",
 	UINT_TYPE:      "uint",
 	U8_TYPE:        "u8",
+	BYTE_TYPE:      "byte",
 	U16_TYPE:       "u16",
 	U32_TYPE:       "u32",
 	U64_TYPE:       "u64",
@@ -278,6 +280,7 @@ var keywords = map[string]TokenType{
 	"i64":        I64_TYPE,
 	"uint":       UINT_TYPE,
 	"u8":         U8_TYPE,
+	"byte":       BYTE_TYPE,
 	"u16":        U16_TYPE,
 	"u32":        U32_TYPE,
 	"u64":        U64_TYPE,

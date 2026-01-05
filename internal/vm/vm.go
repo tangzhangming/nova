@@ -915,6 +915,107 @@ func (vm *VM) execute() InterpretResult {
 			i := int(idx.AsInt())
 			vm.push(bytecode.NewBool(i >= 0 && i < len(arr)))
 
+		// 字节数组操作
+		case bytecode.OpNewBytes:
+			count := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			bytes := make([]byte, count)
+			for i := count - 1; i >= 0; i-- {
+				bytes[i] = byte(vm.pop().AsInt() & 0xFF)
+			}
+			vm.push(vm.trackAllocation(bytecode.NewBytes(bytes)))
+
+		case bytecode.OpBytesGet:
+			idx := vm.pop()
+			bytesVal := vm.pop()
+			if bytesVal.Type != bytecode.ValBytes {
+				return vm.runtimeError("expected bytes for index operation")
+			}
+			b := bytesVal.AsBytes()
+			i := int(idx.AsInt())
+			if i < 0 || i >= len(b) {
+				if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", 
+					i18n.T(i18n.ErrArrayIndexOutOfBounds, i, len(b))); result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				} else {
+					return result
+				}
+			}
+			vm.push(bytecode.NewInt(int64(b[i])))
+
+		case bytecode.OpBytesSet:
+			value := vm.pop()
+			idx := vm.pop()
+			bytesVal := vm.pop()
+			if bytesVal.Type != bytecode.ValBytes {
+				return vm.runtimeError("expected bytes for set operation")
+			}
+			b := bytesVal.AsBytes()
+			i := int(idx.AsInt())
+			if i < 0 || i >= len(b) {
+				if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", 
+					i18n.T(i18n.ErrArrayIndexOutOfBounds, i, len(b))); result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				} else {
+					return result
+				}
+			}
+			b[i] = byte(value.AsInt() & 0xFF)
+			vm.push(bytesVal)
+
+		case bytecode.OpBytesLen:
+			bytesVal := vm.pop()
+			if bytesVal.Type != bytecode.ValBytes {
+				return vm.runtimeError("expected bytes for length operation")
+			}
+			vm.push(bytecode.NewInt(int64(len(bytesVal.AsBytes()))))
+
+		case bytecode.OpBytesSlice:
+			endVal := vm.pop()
+			startVal := vm.pop()
+			bytesVal := vm.pop()
+			if bytesVal.Type != bytecode.ValBytes {
+				return vm.runtimeError("expected bytes for slice operation")
+			}
+			b := bytesVal.AsBytes()
+			start := int(startVal.AsInt())
+			end := int(endVal.AsInt())
+			if end < 0 {
+				end = len(b)
+			}
+			if start < 0 {
+				start = 0
+			}
+			if start > len(b) {
+				start = len(b)
+			}
+			if end > len(b) {
+				end = len(b)
+			}
+			if start > end {
+				start = end
+			}
+			result := make([]byte, end-start)
+			copy(result, b[start:end])
+			vm.push(vm.trackAllocation(bytecode.NewBytes(result)))
+
+		case bytecode.OpBytesConcat:
+			b2Val := vm.pop()
+			b1Val := vm.pop()
+			if b1Val.Type != bytecode.ValBytes || b2Val.Type != bytecode.ValBytes {
+				return vm.runtimeError("expected bytes for concat operation")
+			}
+			b1 := b1Val.AsBytes()
+			b2 := b2Val.AsBytes()
+			result := make([]byte, len(b1)+len(b2))
+			copy(result, b1)
+			copy(result[len(b1):], b2)
+			vm.push(vm.trackAllocation(bytecode.NewBytes(result)))
+
 		case bytecode.OpUnset:
 			objVal := vm.pop()
 			if objVal.Type == bytecode.ValObject {
@@ -1813,6 +1914,8 @@ func (vm *VM) getValueTypeName(v bytecode.Value) string {
 		return "array"
 	case bytecode.ValFixedArray:
 		return "array"
+	case bytecode.ValBytes:
+		return "bytes"
 	case bytecode.ValMap:
 		return "map"
 	case bytecode.ValObject:
@@ -1854,6 +1957,12 @@ func (vm *VM) checkValueType(v bytecode.Value, expectedType string) bool {
 		return actualType == "int" || actualType == "float"
 	case "mixed", "any":
 		return true
+	case "array":
+		// bytes 也被视为数组的兼容类型
+		return actualType == "array" || actualType == "bytes"
+	case "bytes":
+		// bytes 类型也接受 array（用于兼容性）
+		return actualType == "bytes" || actualType == "array"
 	}
 	
 	// 对象类型检查（包括继承关系）

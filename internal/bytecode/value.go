@@ -16,6 +16,7 @@ const (
 	ValString
 	ValArray
 	ValFixedArray // 定长数组
+	ValBytes      // 字节数组类型
 	ValMap
 	ValObject
 	ValFunc
@@ -290,6 +291,11 @@ func NewMap(m map[Value]Value) Value {
 	return Value{Type: ValMap, Data: m}
 }
 
+// NewBytes 创建字节数组值
+func NewBytes(b []byte) Value {
+	return Value{Type: ValBytes, Data: b}
+}
+
 // NewObject 创建对象值
 func NewObject(obj *Object) Value {
 	return Value{Type: ValObject, Data: obj}
@@ -329,6 +335,8 @@ func (v Value) IsTruthy() bool {
 		return v.Data.(*FixedArray).Capacity > 0
 	case ValMap:
 		return len(v.Data.(map[Value]Value)) > 0
+	case ValBytes:
+		return len(v.Data.([]byte)) > 0
 	default:
 		return true
 	}
@@ -403,6 +411,19 @@ func (v Value) AsMap() map[Value]Value {
 	return nil
 }
 
+// AsBytes 获取字节数组
+func (v Value) AsBytes() []byte {
+	if v.Type == ValBytes {
+		return v.Data.([]byte)
+	}
+	return nil
+}
+
+// IsBytesValue 检查是否为字节数组
+func (v Value) IsBytesValue() bool {
+	return v.Type == ValBytes
+}
+
 // AsObject 获取对象
 func (v Value) AsObject() *Object {
 	if v.Type == ValObject {
@@ -448,6 +469,9 @@ func (v Value) String() string {
 			parts = append(parts, k.String()+" => "+val.String())
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
+	case ValBytes:
+		b := v.Data.([]byte)
+		return fmt.Sprintf("<bytes len=%d>", len(b))
 	case ValObject:
 		obj := v.Data.(*Object)
 		return fmt.Sprintf("<%s instance>", obj.Class.Name)
@@ -521,6 +545,17 @@ func (v Value) Equals(other Value) bool {
 		}
 		for i := range fa1.Elements {
 			if !fa1.Elements[i].Equals(fa2.Elements[i]) {
+				return false
+			}
+		}
+		return true
+	case ValBytes:
+		b1, b2 := v.Data.([]byte), other.Data.([]byte)
+		if len(b1) != len(b2) {
+			return false
+		}
+		for i := range b1 {
+			if b1[i] != b2[i] {
 				return false
 			}
 		}

@@ -109,6 +109,14 @@ const (
 	OpArrayPush    // 追加元素到数组
 	OpArrayHas     // 检查索引/值是否存在
 
+	// 字节数组操作
+	OpNewBytes    // 从栈上整数创建字节数组 (count: u16)
+	OpBytesGet    // 获取字节 bytes[i] -> int
+	OpBytesSet    // 设置字节 bytes[i] = v
+	OpBytesLen    // 获取字节数组长度
+	OpBytesSlice  // 字节数组切片
+	OpBytesConcat // 拼接两个字节数组
+
 	// 对象销毁
 	OpUnset        // 销毁对象并调用析构函数
 
@@ -200,6 +208,12 @@ var opNames = map[OpCode]string{
 	OpIterValue:   "ITER_VALUE",
 	OpArrayPush:   "ARRAY_PUSH",
 	OpArrayHas:    "ARRAY_HAS",
+	OpNewBytes:    "NEW_BYTES",
+	OpBytesGet:    "BYTES_GET",
+	OpBytesSet:    "BYTES_SET",
+	OpBytesLen:    "BYTES_LEN",
+	OpBytesSlice:  "BYTES_SLICE",
+	OpBytesConcat: "BYTES_CONCAT",
 	OpUnset:       "UNSET",
 	OpCheckType:   "CHECK_TYPE",
 	OpCast:        "CAST",

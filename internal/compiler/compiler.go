@@ -483,6 +483,23 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 			c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
 			c.currentChunk().WriteU16(0, c.currentLine)
 		}
+	} else if c.isBytesArrayType(s.Type) {
+		// byte[] 类型特殊处理
+		if s.Value != nil {
+			if arr, ok := s.Value.(*ast.ArrayLiteral); ok {
+				// 数组字面量编译为 byte[]
+				for _, elem := range arr.Elements {
+					c.compileExpr(elem)
+				}
+				c.emitU16(bytecode.OpNewBytes, uint16(len(arr.Elements)))
+			} else {
+				// 非数组字面量（可能是函数调用等），正常编译
+				c.compileExpr(s.Value)
+			}
+		} else {
+			// 无初始值，创建空 byte[]
+			c.emitU16(bytecode.OpNewBytes, 0)
+		}
 	} else {
 		// 普通变量或动态数组
 		if s.Value != nil {
@@ -1809,6 +1826,19 @@ func (c *Compiler) getTypeName(t ast.TypeNode) string {
 	default:
 		return "unknown"
 	}
+}
+
+// isBytesArrayType 检查是否是 byte[] 类型
+func (c *Compiler) isBytesArrayType(t ast.TypeNode) bool {
+	arrType, ok := t.(*ast.ArrayType)
+	if !ok {
+		return false
+	}
+	// 检查元素类型是否是 byte 或 u8
+	if simpleType, ok := arrType.ElementType.(*ast.SimpleType); ok {
+		return simpleType.Name == "byte" || simpleType.Name == "u8"
+	}
+	return false
 }
 
 // isTypeCompatible 检查类型兼容性

@@ -1,0 +1,251 @@
+// Sola 标准库 - Bytes 字节数组工具类
+namespace sola.lang
+
+/**
+ * 字节数组工具类
+ * 
+ * 提供字节数组的创建、转换和操作功能。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.lang.Bytes;
+ * 
+ * // 从字符串创建
+ * byte[] $data := Bytes::fromString("Hello");
+ * 
+ * // 转换为十六进制
+ * string $hex := Bytes::toHex($data);  // "48656c6c6f"
+ * 
+ * // 从十六进制创建
+ * byte[] $data2 := Bytes::fromHex("48656c6c6f");
+ * ```
+ */
+public class Bytes {
+
+    // ========================================================================
+    // 静态工厂方法
+    // ========================================================================
+
+    /**
+     * 创建指定大小的字节数组（初始化为0）
+     * 
+     * @param int $size 字节数组大小
+     * @return byte[] 新创建的字节数组
+     */
+    public static function alloc(int $size): byte[] {
+        return native_bytes_new($size);
+    }
+
+    /**
+     * 从字符串创建字节数组（UTF-8 编码）
+     * 
+     * @param string $s 源字符串
+     * @return byte[] 字节数组
+     */
+    public static function fromString(string $s): byte[] {
+        return native_bytes_from_string($s);
+    }
+
+    /**
+     * 从十六进制字符串创建字节数组
+     * 
+     * @param string $hex 十六进制字符串，如 "48656c6c6f"
+     * @return byte[] 字节数组
+     * @throws FormatException 如果十六进制字符串格式无效
+     */
+    public static function fromHex(string $hex): byte[] {
+        return native_bytes_from_hex($hex);
+    }
+
+    /**
+     * 从整数数组创建字节数组
+     * 每个整数会被截断为 0-255 范围
+     * 
+     * @param int[] $arr 整数数组
+     * @return byte[] 字节数组
+     */
+    public static function fromArray(int[] $arr): byte[] {
+        return native_bytes_from_array($arr);
+    }
+
+    // ========================================================================
+    // 转换方法
+    // ========================================================================
+
+    /**
+     * 将字节数组转换为字符串
+     * 
+     * @param byte[] $b 字节数组
+     * @return string 字符串
+     */
+    public static function toString(byte[] $b): string {
+        return native_bytes_to_string($b);
+    }
+
+    /**
+     * 将字节数组转换为十六进制字符串
+     * 
+     * @param byte[] $b 字节数组
+     * @return string 十六进制字符串（小写）
+     */
+    public static function toHex(byte[] $b): string {
+        return native_bytes_to_hex($b);
+    }
+
+    /**
+     * 将字节数组转换为整数数组
+     * 
+     * @param byte[] $b 字节数组
+     * @return int[] 整数数组（每个元素 0-255）
+     */
+    public static function toArray(byte[] $b): int[] {
+        return native_bytes_to_array($b);
+    }
+
+    // ========================================================================
+    // 基本操作
+    // ========================================================================
+
+    /**
+     * 获取字节数组长度
+     * 
+     * @param byte[] $b 字节数组
+     * @return int 长度
+     */
+    public static function length(byte[] $b): int {
+        return native_bytes_len($b);
+    }
+
+    /**
+     * 获取指定索引的字节
+     * 
+     * @param byte[] $b 字节数组
+     * @param int $index 索引
+     * @return int 字节值（0-255）
+     * @throws ArrayIndexOutOfBoundsException 如果索引越界
+     */
+    public static function get(byte[] $b, int $index): int {
+        return native_bytes_get($b, $index);
+    }
+
+    /**
+     * 设置指定索引的字节
+     * 
+     * @param byte[] $b 字节数组
+     * @param int $index 索引
+     * @param int $value 字节值（会被截断为 0-255）
+     * @throws ArrayIndexOutOfBoundsException 如果索引越界
+     */
+    public static function set(byte[] $b, int $index, int $value) {
+        native_bytes_set($b, $index, $value);
+    }
+
+    /**
+     * 切片操作
+     * 
+     * @param byte[] $b 源字节数组
+     * @param int $start 起始索引（包含）
+     * @param int $end 结束索引（不包含），-1 表示到末尾
+     * @return byte[] 新的字节数组
+     */
+    public static function slice(byte[] $b, int $start, int $end = -1): byte[] {
+        return native_bytes_slice($b, $start, $end);
+    }
+
+    /**
+     * 拼接两个字节数组
+     * 
+     * @param byte[] $a 第一个字节数组
+     * @param byte[] $b 第二个字节数组
+     * @return byte[] 拼接后的新字节数组
+     */
+    public static function concat(byte[] $a, byte[] $b): byte[] {
+        return native_bytes_concat($a, $b);
+    }
+
+    /**
+     * 复制字节数组
+     * 
+     * @param byte[] $b 源字节数组
+     * @return byte[] 新的字节数组副本
+     */
+    public static function copy(byte[] $b): byte[] {
+        return native_bytes_copy($b);
+    }
+
+    // ========================================================================
+    // 比较方法
+    // ========================================================================
+
+    /**
+     * 比较两个字节数组是否相等
+     * 
+     * @param byte[] $a 第一个字节数组
+     * @param byte[] $b 第二个字节数组
+     * @return bool 是否相等
+     */
+    public static function equal(byte[] $a, byte[] $b): bool {
+        return native_bytes_equal($a, $b);
+    }
+
+    /**
+     * 字典序比较两个字节数组
+     * 
+     * @param byte[] $a 第一个字节数组
+     * @param byte[] $b 第二个字节数组
+     * @return int 负数表示 a < b，0 表示相等，正数表示 a > b
+     */
+    public static function compare(byte[] $a, byte[] $b): int {
+        return native_bytes_compare($a, $b);
+    }
+
+    // ========================================================================
+    // 搜索方法
+    // ========================================================================
+
+    /**
+     * 查找子序列位置
+     * 
+     * @param byte[] $b 源字节数组
+     * @param byte[] $sub 要查找的子序列
+     * @return int 找到返回起始索引，未找到返回 -1
+     */
+    public static function indexOf(byte[] $b, byte[] $sub): int {
+        return native_bytes_index($b, $sub);
+    }
+
+    /**
+     * 检查是否包含子序列
+     * 
+     * @param byte[] $b 源字节数组
+     * @param byte[] $sub 要查找的子序列
+     * @return bool 是否包含
+     */
+    public static function contains(byte[] $b, byte[] $sub): bool {
+        return native_bytes_contains($b, $sub);
+    }
+
+    // ========================================================================
+    // 填充方法
+    // ========================================================================
+
+    /**
+     * 用指定值填充字节数组
+     * 
+     * @param byte[] $b 字节数组
+     * @param int $value 填充值（会被截断为 0-255）
+     */
+    public static function fill(byte[] $b, int $value) {
+        native_bytes_fill($b, $value);
+    }
+
+    /**
+     * 将字节数组清零
+     * 
+     * @param byte[] $b 字节数组
+     */
+    public static function zero(byte[] $b) {
+        native_bytes_zero($b);
+    }
+}
+

@@ -426,6 +426,27 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_base64_is_valid_raw"] = nativeBase64IsValidRaw
 	r.builtins["native_base64_is_valid_raw_url_safe"] = nativeBase64IsValidRawURLSafe
 
+	// Native Bytes 函数 (仅供标准库使用)
+	r.builtins["native_bytes_new"] = nativeBytesNew
+	r.builtins["native_bytes_from_string"] = nativeBytesFromString
+	r.builtins["native_bytes_to_string"] = nativeBytesToString
+	r.builtins["native_bytes_from_hex"] = nativeBytesFromHex
+	r.builtins["native_bytes_to_hex"] = nativeBytesToHex
+	r.builtins["native_bytes_from_array"] = nativeBytesFromArray
+	r.builtins["native_bytes_to_array"] = nativeBytesToArray
+	r.builtins["native_bytes_len"] = nativeBytesLen
+	r.builtins["native_bytes_get"] = nativeBytesGet
+	r.builtins["native_bytes_set"] = nativeBytesSet
+	r.builtins["native_bytes_slice"] = nativeBytesSlice
+	r.builtins["native_bytes_concat"] = nativeBytesConcat
+	r.builtins["native_bytes_copy"] = nativeBytesCopy
+	r.builtins["native_bytes_equal"] = nativeBytesEqual
+	r.builtins["native_bytes_compare"] = nativeBytesCompare
+	r.builtins["native_bytes_index"] = nativeBytesIndex
+	r.builtins["native_bytes_contains"] = nativeBytesContains
+	r.builtins["native_bytes_fill"] = nativeBytesFill
+	r.builtins["native_bytes_zero"] = nativeBytesZero
+
 	// 测试用：抛出原生异常的函数
 	r.builtins["native_throw"] = func(args []bytecode.Value) bytecode.Value {
 		msg := "Native exception"

@@ -161,6 +161,8 @@ func builtinLen(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewInt(int64(len(v.AsString())))
 	case bytecode.ValArray:
 		return bytecode.NewInt(int64(len(v.AsArray())))
+	case bytecode.ValBytes:
+		return bytecode.NewInt(int64(len(v.AsBytes())))
 	case bytecode.ValMap:
 		return bytecode.NewInt(int64(len(v.AsMap())))
 	default:
