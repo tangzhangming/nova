@@ -181,7 +181,27 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 
 	// 添加参数作为局部变量 (直接使用 addLocal，因为方法参数始终是局部的)
 	for _, param := range decl.Parameters {
-		c.addLocal(param.Name.Name)
+		typeName := ""
+		if param.Type != nil {
+			typeName = c.getTypeName(param.Type)
+		}
+		c.addLocalWithType(param.Name.Name, typeName)
+	}
+	
+	// 生成参数类型检查代码
+	for i, param := range decl.Parameters {
+		if param.Type != nil {
+			typeName := c.getTypeName(param.Type)
+			if typeName != "" && typeName != "unknown" && typeName != "mixed" && typeName != "any" {
+				// 加载参数值
+				c.emitU16(bytecode.OpLoadLocal, uint16(i+1)) // +1 因为 slot 0 是 this 或占位符
+				// 发出类型检查指令
+				typeIdx := c.makeConstant(bytecode.NewString(typeName))
+				c.emitU16(bytecode.OpCheckType, typeIdx)
+				// 弹出检查后的值（类型检查不消耗值）
+				c.emit(bytecode.OpPop)
+			}
+		}
 	}
 
 	// 编译方法体

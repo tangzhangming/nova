@@ -32,15 +32,19 @@ type Compiler struct {
 	// 返回值类型检查
 	returnType       ast.TypeNode // 当前函数的返回类型
 	expectedReturns  int          // 预期返回值数量 (0=void, 1=单值, >1=多值)
+	
+	// 类型检查
+	globalTypes map[string]string // 全局变量类型表
 
 	errors []Error
 }
 
 // Local 局部变量
 type Local struct {
-	Name  string
-	Depth int
-	Index int
+	Name     string
+	Depth    int
+	Index    int
+	TypeName string // 变量类型名（用于类型检查）
 }
 
 // Error 编译错误
@@ -57,10 +61,11 @@ func (e Error) Error() string {
 func New() *Compiler {
 	fn := bytecode.NewFunction("<script>")
 	return &Compiler{
-		function: fn,
-		locals:   make([]Local, 256),
-		classes:  make(map[string]*bytecode.Class),
-		enums:    make(map[string]*bytecode.Enum),
+		function:    fn,
+		locals:      make([]Local, 256),
+		classes:     make(map[string]*bytecode.Class),
+		enums:       make(map[string]*bytecode.Enum),
+		globalTypes: make(map[string]string),
 	}
 }
 
@@ -151,7 +156,27 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	
 	// 添加参数作为局部变量 (直接使用 addLocal，因为函数参数始终是局部的)
 	for _, param := range params {
-		c.addLocal(param.Name.Name)
+		typeName := ""
+		if param.Type != nil {
+			typeName = c.getTypeName(param.Type)
+		}
+		c.addLocalWithType(param.Name.Name, typeName)
+	}
+	
+	// 生成参数类型检查代码
+	for i, param := range params {
+		if param.Type != nil {
+			typeName := c.getTypeName(param.Type)
+			if typeName != "" && typeName != "unknown" && typeName != "mixed" && typeName != "any" {
+				// 加载参数值
+				c.emitU16(bytecode.OpLoadLocal, uint16(i+1)) // +1 因为 slot 0 是调用者
+				// 发出类型检查指令
+				typeIdx := c.makeConstant(bytecode.NewString(typeName))
+				c.emitU16(bytecode.OpCheckType, typeIdx)
+				// 弹出检查后的值（类型检查不消耗值）
+				c.emit(bytecode.OpPop)
+			}
+		}
 	}
 
 	// 为有默认值的参数生成检查代码
@@ -262,9 +287,29 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 	// 预留 slot 0 给调用者
 	c.addLocal("")
 	
-	// 添加参数作为局部变量
+	// 添加参数作为局部变量（包含类型信息）
 	for _, param := range params {
-		c.addLocal(param.Name.Name)
+		typeName := ""
+		if param.Type != nil {
+			typeName = c.getTypeName(param.Type)
+		}
+		c.addLocalWithType(param.Name.Name, typeName)
+	}
+	
+	// 生成参数类型检查代码
+	for i, param := range params {
+		if param.Type != nil {
+			typeName := c.getTypeName(param.Type)
+			if typeName != "" && typeName != "unknown" && typeName != "mixed" && typeName != "any" {
+				// 加载参数值
+				c.emitU16(bytecode.OpLoadLocal, uint16(i+1)) // +1 因为 slot 0 是调用者
+				// 发出类型检查指令
+				typeIdx := c.makeConstant(bytecode.NewString(typeName))
+				c.emitU16(bytecode.OpCheckType, typeIdx)
+				// 弹出检查后的值
+				c.emit(bytecode.OpPop)
+			}
+		}
 	}
 	
 	// 为有默认值的参数计算默认值
@@ -369,6 +414,22 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 }
 
 func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
+	// 获取声明的类型
+	var declaredType string
+	if s.Type != nil {
+		declaredType = c.getTypeName(s.Type)
+	}
+	
+	// 类型检查：如果有显式类型和初始值，检查类型匹配
+	if s.Type != nil && s.Value != nil {
+		actualType := c.inferExprType(s.Value)
+		if actualType != "unknown" && declaredType != "unknown" {
+			if !c.isTypeCompatible(actualType, declaredType) {
+				c.error(s.Value.Pos(), "cannot assign %s to variable of type %s", actualType, declaredType)
+			}
+		}
+	}
+	
 	// 检查是否是定长数组类型
 	if arrType, ok := s.Type.(*ast.ArrayType); ok && arrType.Size != nil {
 		// 获取数组大小（必须是常量整数）
@@ -410,14 +471,20 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 			c.emit(bytecode.OpNull)
 		}
 	}
+	
+	// 如果是类型推断 (:=)，从值推断类型
+	if s.Type == nil && s.Value != nil {
+		declaredType = c.inferExprType(s.Value)
+	}
 
 	// 声明并定义变量
 	if c.scopeDepth > 0 {
 		// 局部变量
-		c.declareVariable(s.Name.Name)
+		c.declareVariableWithType(s.Name.Name, declaredType)
 		c.defineVariable()
 	} else {
 		// 全局变量 - 存储到全局变量表
+		c.globalTypes[s.Name.Name] = declaredType
 		idx := c.makeConstant(bytecode.NewString(s.Name.Name))
 		c.emitU16(bytecode.OpStoreGlobal, idx)
 		c.emit(bytecode.OpPop) // 弹出值
@@ -1076,6 +1143,17 @@ func (c *Compiler) compileTernaryExpr(e *ast.TernaryExpr) {
 }
 
 func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
+	// 编译时类型检查
+	if v, ok := e.Left.(*ast.Variable); ok {
+		varType := c.getVariableType(v.Name)
+		if varType != "" && varType != "unknown" {
+			rightType := c.inferExprType(e.Right)
+			if rightType != "unknown" && !c.isTypeCompatible(rightType, varType) {
+				c.error(e.Right.Pos(), "cannot assign %s to variable of type %s", rightType, varType)
+			}
+		}
+	}
+	
 	// 特殊处理数组索引赋值：OpArraySet 期望栈顺序为 [array, index, value] (底到顶)
 	if idx, ok := e.Left.(*ast.IndexExpr); ok {
 		c.compileExpr(idx.Object)  // array
@@ -1359,6 +1437,10 @@ func (c *Compiler) endScope() {
 }
 
 func (c *Compiler) declareVariable(name string) {
+	c.declareVariableWithType(name, "")
+}
+
+func (c *Compiler) declareVariableWithType(name string, typeName string) {
 	if c.scopeDepth == 0 {
 		return // 全局变量
 	}
@@ -1374,8 +1456,8 @@ func (c *Compiler) declareVariable(name string) {
 			return
 		}
 	}
-
-	c.addLocal(name)
+	
+	c.addLocalWithType(name, typeName)
 }
 
 func (c *Compiler) defineVariable() {
@@ -1388,16 +1470,65 @@ func (c *Compiler) defineVariable() {
 }
 
 func (c *Compiler) addLocal(name string) {
+	c.addLocalWithType(name, "")
+}
+
+func (c *Compiler) addLocalWithType(name string, typeName string) {
 	if c.localCount >= 256 {
 		c.error(token.Position{}, "too many local variables")
 		return
 	}
 	c.locals[c.localCount] = Local{
-		Name:  name,
-		Depth: c.scopeDepth,
-		Index: c.localCount,
+		Name:     name,
+		Depth:    c.scopeDepth,
+		Index:    c.localCount,
+		TypeName: typeName,
 	}
 	c.localCount++
+}
+
+// getLocalType 获取局部变量的类型
+func (c *Compiler) getLocalType(name string) string {
+	for i := c.localCount - 1; i >= 0; i-- {
+		if c.locals[i].Name == name {
+			return c.locals[i].TypeName
+		}
+	}
+	return ""
+}
+
+// setLocalType 设置局部变量的类型
+func (c *Compiler) setLocalType(name string, typeName string) {
+	for i := c.localCount - 1; i >= 0; i-- {
+		if c.locals[i].Name == name {
+			c.locals[i].TypeName = typeName
+			return
+		}
+	}
+}
+
+// getVariableType 获取变量类型（局部或全局）
+func (c *Compiler) getVariableType(name string) string {
+	// 先查局部变量
+	if t := c.getLocalType(name); t != "" {
+		return t
+	}
+	// 再查全局变量
+	if t, ok := c.globalTypes[name]; ok {
+		return t
+	}
+	return ""
+}
+
+// setVariableType 设置变量类型（局部或全局）
+func (c *Compiler) setVariableType(name string, typeName string) {
+	// 如果是局部变量
+	if c.resolveLocal(name) != -1 {
+		c.setLocalType(name, typeName)
+		return
+	}
+	// 否则是全局变量
+	c.globalTypes[name] = typeName
 }
 
 func (c *Compiler) resolveLocal(name string) int {
@@ -1510,7 +1641,10 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		}
 		return c.inferExprType(e.Operand)
 	case *ast.Variable:
-		// 变量类型需要从上下文获取，暂时返回 unknown
+		// 从变量类型表中获取类型
+		if t := c.getVariableType(e.Name); t != "" {
+			return t
+		}
 		return "unknown"
 	case *ast.CallExpr, *ast.MethodCall, *ast.StaticAccess:
 		// 函数调用的返回类型需要查表，暂时返回 unknown

@@ -907,6 +907,31 @@ func (vm *VM) execute() InterpretResult {
 			// 清除异常状态
 			vm.hasException = false
 
+		// 类型检查
+		case bytecode.OpCheckType:
+			typeIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			expectedType := chunk.Constants[typeIdx].AsString()
+			value := vm.peek(0)
+			
+			if !vm.checkValueType(value, expectedType) {
+				actualType := vm.getValueTypeName(value)
+				return vm.runtimeError("type error: expected %s but got %s", expectedType, actualType)
+			}
+			
+		case bytecode.OpCast:
+			typeIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			targetType := chunk.Constants[typeIdx].AsString()
+			value := vm.pop()
+			
+			result, ok := vm.castValue(value, targetType)
+			if !ok {
+				actualType := vm.getValueTypeName(value)
+				return vm.runtimeError("cannot cast %s to %s", actualType, targetType)
+			}
+			vm.push(result)
+
 		// 调试
 		case bytecode.OpDebugPrint:
 			fmt.Println(vm.pop().String())
@@ -1268,5 +1293,165 @@ func (vm *VM) DefineEnum(enum *bytecode.Enum) {
 // GetError 获取错误信息
 func (vm *VM) GetError() string {
 	return vm.errorMessage
+}
+
+// getValueTypeName 获取值的类型名称
+func (vm *VM) getValueTypeName(v bytecode.Value) string {
+	switch v.Type {
+	case bytecode.ValNull:
+		return "null"
+	case bytecode.ValBool:
+		return "bool"
+	case bytecode.ValInt:
+		return "int"
+	case bytecode.ValFloat:
+		return "float"
+	case bytecode.ValString:
+		return "string"
+	case bytecode.ValArray:
+		return "array"
+	case bytecode.ValFixedArray:
+		return "array"
+	case bytecode.ValMap:
+		return "map"
+	case bytecode.ValObject:
+		obj := v.AsObject()
+		if obj != nil && obj.Class != nil {
+			return obj.Class.Name
+		}
+		return "object"
+	case bytecode.ValClosure:
+		return "function"
+	case bytecode.ValIterator:
+		return "iterator"
+	default:
+		return "unknown"
+	}
+}
+
+// checkValueType 检查值是否匹配指定类型
+func (vm *VM) checkValueType(v bytecode.Value, expectedType string) bool {
+	actualType := vm.getValueTypeName(v)
+	
+	// 直接匹配
+	if actualType == expectedType {
+		return true
+	}
+	
+	// null 可以匹配任何可空类型（以 ? 开头的类型名会被处理掉 ?）
+	if actualType == "null" {
+		return true // null 可以赋值给任何类型（在运行时）
+	}
+	
+	// 数值类型兼容性
+	switch expectedType {
+	case "int", "i8", "i16", "i32", "i64":
+		return actualType == "int"
+	case "float", "f32", "f64":
+		return actualType == "float" || actualType == "int"
+	case "number":
+		return actualType == "int" || actualType == "float"
+	case "mixed", "any":
+		return true
+	}
+	
+	// 对象类型检查（包括继承关系）
+	if v.Type == bytecode.ValObject {
+		obj := v.AsObject()
+		if obj != nil && obj.Class != nil {
+			// 检查是否是该类型或其子类
+			return vm.checkClassHierarchy(obj.Class, expectedType)
+		}
+	}
+	
+	return false
+}
+
+
+// checkClassHierarchy 检查类是否匹配指定类型名（包括继承关系和接口）
+func (vm *VM) checkClassHierarchy(class *bytecode.Class, typeName string) bool {
+	if class == nil {
+		return false
+	}
+	
+	// 检查当前类
+	if class.Name == typeName {
+		return true
+	}
+	
+	// 检查父类链
+	for c := class; c != nil; c = c.Parent {
+		if c.Name == typeName {
+			return true
+		}
+		// 检查接口
+		for _, iface := range c.Implements {
+			if iface == typeName {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// castValue 将值转换为指定类型
+func (vm *VM) castValue(v bytecode.Value, targetType string) (bytecode.Value, bool) {
+	switch targetType {
+	case "int", "i8", "i16", "i32", "i64":
+		switch v.Type {
+		case bytecode.ValInt:
+			return v, true
+		case bytecode.ValFloat:
+			return bytecode.NewInt(int64(v.AsFloat())), true
+		case bytecode.ValString:
+			// 尝试解析字符串为整数
+			var i int64
+			_, err := fmt.Sscanf(v.AsString(), "%d", &i)
+			if err == nil {
+				return bytecode.NewInt(i), true
+			}
+			return bytecode.Value{}, false
+		case bytecode.ValBool:
+			if v.AsBool() {
+				return bytecode.NewInt(1), true
+			}
+			return bytecode.NewInt(0), true
+		case bytecode.ValNull:
+			return bytecode.NewInt(0), true
+		}
+		
+	case "float", "f32", "f64":
+		switch v.Type {
+		case bytecode.ValFloat:
+			return v, true
+		case bytecode.ValInt:
+			return bytecode.NewFloat(float64(v.AsInt())), true
+		case bytecode.ValString:
+			var f float64
+			_, err := fmt.Sscanf(v.AsString(), "%f", &f)
+			if err == nil {
+				return bytecode.NewFloat(f), true
+			}
+			return bytecode.Value{}, false
+		case bytecode.ValNull:
+			return bytecode.NewFloat(0.0), true
+		}
+		
+	case "string":
+		return bytecode.NewString(v.String()), true
+		
+	case "bool":
+		return bytecode.NewBool(v.IsTruthy()), true
+		
+	case "array":
+		if v.Type == bytecode.ValArray || v.Type == bytecode.ValFixedArray {
+			return v, true
+		}
+		// 将单个值包装为数组
+		return bytecode.NewArray([]bytecode.Value{v}), true
+	}
+	
+	return bytecode.Value{}, false
 }
 
