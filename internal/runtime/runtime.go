@@ -327,19 +327,6 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["contains"] = builtinContains
 	r.builtins["index_of"] = builtinIndexOf
 
-	// 字符串函数
-	r.builtins["strlen"] = builtinStrlen
-	r.builtins["substr"] = builtinSubstr
-	r.builtins["str_upper"] = builtinStrUpper
-	r.builtins["str_lower"] = builtinStrLower
-	r.builtins["str_trim"] = builtinStrTrim
-	r.builtins["str_split"] = builtinStrSplit
-	r.builtins["str_join"] = builtinStrJoin
-	r.builtins["str_replace"] = builtinStrReplace
-	r.builtins["str_contains"] = builtinStrContains
-	r.builtins["str_starts_with"] = builtinStrStartsWith
-	r.builtins["str_ends_with"] = builtinStrEndsWith
-
 	// 数学函数
 	r.builtins["abs"] = builtinAbs
 	r.builtins["min"] = builtinMin
@@ -347,6 +334,20 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["floor"] = builtinFloor
 	r.builtins["ceil"] = builtinCeil
 	r.builtins["round"] = builtinRound
+
+	// Native 字符串函数 (仅供标准库使用)
+	r.builtins["native_str_len"] = nativeStrLen
+	r.builtins["native_str_substring"] = nativeStrSubstring
+	r.builtins["native_str_to_upper"] = nativeStrToUpper
+	r.builtins["native_str_to_lower"] = nativeStrToLower
+	r.builtins["native_str_trim"] = nativeStrTrim
+	r.builtins["native_str_replace"] = nativeStrReplace
+	r.builtins["native_str_split"] = nativeStrSplit
+	r.builtins["native_str_join"] = nativeStrJoin
+	r.builtins["native_str_index_of"] = nativeStrIndexOf
+	r.builtins["native_str_last_index_of"] = nativeStrLastIndexOf
+	r.builtins["native_str_to_int"] = nativeStrToInt
+	r.builtins["native_str_to_float"] = nativeStrToFloat
 
 	// Native TCP 函数 (仅供标准库使用)
 	r.builtins["native_tcp_connect"] = nativeTcpConnect
@@ -701,123 +702,6 @@ func builtinIndexOf(args []bytecode.Value) bytecode.Value {
 	return bytecode.NewInt(-1)
 }
 
-// 字符串函数
-
-func builtinStrlen(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.ZeroValue
-	}
-	return bytecode.NewInt(int64(len(args[0].AsString())))
-}
-
-func builtinSubstr(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 {
-		return bytecode.NewString("")
-	}
-	s := args[0].AsString()
-	start := int(args[1].AsInt())
-	length := len(s) - start
-	if len(args) > 2 {
-		length = int(args[2].AsInt())
-	}
-	if start < 0 {
-		start = 0
-	}
-	if start >= len(s) {
-		return bytecode.NewString("")
-	}
-	end := start + length
-	if end > len(s) {
-		end = len(s)
-	}
-	return bytecode.NewString(s[start:end])
-}
-
-func builtinStrUpper(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.NewString("")
-	}
-	return bytecode.NewString(strings.ToUpper(args[0].AsString()))
-}
-
-func builtinStrLower(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.NewString("")
-	}
-	return bytecode.NewString(strings.ToLower(args[0].AsString()))
-}
-
-func builtinStrTrim(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.NewString("")
-	}
-	return bytecode.NewString(strings.TrimSpace(args[0].AsString()))
-}
-
-func builtinStrSplit(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 {
-		return bytecode.NewArray([]bytecode.Value{})
-	}
-	s := args[0].AsString()
-	sep := args[1].AsString()
-	parts := strings.Split(s, sep)
-	result := make([]bytecode.Value, len(parts))
-	for i, p := range parts {
-		result[i] = bytecode.NewString(p)
-	}
-	return bytecode.NewArray(result)
-}
-
-func builtinStrJoin(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValArray {
-		return bytecode.NewString("")
-	}
-	arr := args[0].AsArray()
-	sep := args[1].AsString()
-	parts := make([]string, len(arr))
-	for i, v := range arr {
-		parts[i] = v.AsString()
-	}
-	return bytecode.NewString(strings.Join(parts, sep))
-}
-
-func builtinStrReplace(args []bytecode.Value) bytecode.Value {
-	if len(args) < 3 {
-		return bytecode.NewString("")
-	}
-	s := args[0].AsString()
-	old := args[1].AsString()
-	new := args[2].AsString()
-	return bytecode.NewString(strings.ReplaceAll(s, old, new))
-}
-
-func builtinStrContains(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 {
-		return bytecode.FalseValue
-	}
-	s := args[0].AsString()
-	sub := args[1].AsString()
-	return bytecode.NewBool(strings.Contains(s, sub))
-}
-
-func builtinStrStartsWith(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 {
-		return bytecode.FalseValue
-	}
-	s := args[0].AsString()
-	prefix := args[1].AsString()
-	return bytecode.NewBool(strings.HasPrefix(s, prefix))
-}
-
-func builtinStrEndsWith(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 {
-		return bytecode.FalseValue
-	}
-	s := args[0].AsString()
-	suffix := args[1].AsString()
-	return bytecode.NewBool(strings.HasSuffix(s, suffix))
-}
-
 // 数学函数
 
 func builtinAbs(args []bytecode.Value) bytecode.Value {
@@ -1115,6 +999,189 @@ func nativeTcpSetTimeout(args []bytecode.Value) bytecode.Value {
 	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
 	err := tc.conn.SetDeadline(deadline)
 	return bytecode.NewBool(err == nil)
+}
+
+// ============================================================================
+// Native 字符串函数 (仅供标准库使用)
+// ============================================================================
+
+// nativeStrLen 获取字符串长度
+func nativeStrLen(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.ZeroValue
+	}
+	return bytecode.NewInt(int64(len(args[0].AsString())))
+}
+
+// nativeStrSubstring 截取子串
+// 参数：str, start, length(-1表示截取到末尾)
+func nativeStrSubstring(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewString("")
+	}
+	s := args[0].AsString()
+	start := int(args[1].AsInt())
+	length := -1
+	if len(args) > 2 {
+		length = int(args[2].AsInt())
+	}
+
+	// 边界处理
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(s) {
+		return bytecode.NewString("")
+	}
+
+	// 计算结束位置
+	var end int
+	if length < 0 {
+		end = len(s)
+	} else {
+		end = start + length
+		if end > len(s) {
+			end = len(s)
+		}
+	}
+
+	return bytecode.NewString(s[start:end])
+}
+
+// nativeStrToUpper 转大写
+func nativeStrToUpper(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(strings.ToUpper(args[0].AsString()))
+}
+
+// nativeStrToLower 转小写
+func nativeStrToLower(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(strings.ToLower(args[0].AsString()))
+}
+
+// nativeStrTrim 去除首尾空白
+func nativeStrTrim(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(strings.TrimSpace(args[0].AsString()))
+}
+
+// nativeStrReplace 替换字符串
+// 参数：str, old, new
+func nativeStrReplace(args []bytecode.Value) bytecode.Value {
+	if len(args) < 3 {
+		if len(args) > 0 {
+			return args[0]
+		}
+		return bytecode.NewString("")
+	}
+	s := args[0].AsString()
+	old := args[1].AsString()
+	newStr := args[2].AsString()
+	return bytecode.NewString(strings.ReplaceAll(s, old, newStr))
+}
+
+// nativeStrSplit 分割字符串
+// 参数：str, delimiter
+func nativeStrSplit(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewArray([]bytecode.Value{})
+	}
+	s := args[0].AsString()
+	sep := args[1].AsString()
+	parts := strings.Split(s, sep)
+	result := make([]bytecode.Value, len(parts))
+	for i, p := range parts {
+		result[i] = bytecode.NewString(p)
+	}
+	return bytecode.NewArray(result)
+}
+
+// nativeStrJoin 连接数组
+// 参数：arr, delimiter
+func nativeStrJoin(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 || args[0].Type != bytecode.ValArray {
+		return bytecode.NewString("")
+	}
+	arr := args[0].AsArray()
+	sep := args[1].AsString()
+	parts := make([]string, len(arr))
+	for i, v := range arr {
+		parts[i] = v.AsString()
+	}
+	return bytecode.NewString(strings.Join(parts, sep))
+}
+
+// nativeStrIndexOf 查找子串位置
+// 参数：str, substr, fromIndex(可选，默认0)
+func nativeStrIndexOf(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewInt(-1)
+	}
+	s := args[0].AsString()
+	substr := args[1].AsString()
+	fromIndex := 0
+	if len(args) > 2 {
+		fromIndex = int(args[2].AsInt())
+	}
+
+	// 边界处理
+	if fromIndex < 0 {
+		fromIndex = 0
+	}
+	if fromIndex >= len(s) {
+		return bytecode.NewInt(-1)
+	}
+
+	// 从 fromIndex 开始查找
+	idx := strings.Index(s[fromIndex:], substr)
+	if idx == -1 {
+		return bytecode.NewInt(-1)
+	}
+	return bytecode.NewInt(int64(fromIndex + idx))
+}
+
+// nativeStrLastIndexOf 从后往前查找
+// 参数：str, substr
+func nativeStrLastIndexOf(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewInt(-1)
+	}
+	s := args[0].AsString()
+	substr := args[1].AsString()
+	return bytecode.NewInt(int64(strings.LastIndex(s, substr)))
+}
+
+// nativeStrToInt 字符串转整数
+func nativeStrToInt(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.ZeroValue
+	}
+	s := strings.TrimSpace(args[0].AsString())
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return bytecode.ZeroValue
+	}
+	return bytecode.NewInt(n)
+}
+
+// nativeStrToFloat 字符串转浮点数
+func nativeStrToFloat(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 {
+		return bytecode.NewFloat(0)
+	}
+	s := strings.TrimSpace(args[0].AsString())
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return bytecode.NewFloat(0)
+	}
+	return bytecode.NewFloat(f)
 }
 
 // 异常类现在通过 lib/lang/*.sola 文件定义：

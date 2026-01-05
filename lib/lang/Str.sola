@@ -1,0 +1,533 @@
+// Sola 标准库 - 字符串工具类
+namespace sola.lang
+
+/**
+ * 字符串工具类
+ * 提供常用的字符串操作方法
+ * 
+ * 本类使用 native_ 开头的桥接函数实现，不依赖旧的字符串函数
+ */
+public class Str {
+    
+    // ========================================================================
+    // 基础操作
+    // ========================================================================
+    
+    /**
+     * 获取字符串长度
+     * @param string $str 输入字符串
+     * @return int 字符串长度
+     */
+    public static function length(string $str): int {
+        return native_str_len($str);
+    }
+    
+    /**
+     * 获取指定位置的字符
+     * @param string $str 输入字符串
+     * @param int $index 字符位置（从0开始）
+     * @return string 单个字符，如果索引越界返回空字符串
+     */
+    public static function charAt(string $str, int $index): string {
+        $len := native_str_len($str);
+        if ($index < 0 || $index >= $len) {
+            return "";
+        }
+        return native_str_substring($str, $index, 1);
+    }
+    
+    /**
+     * 检查字符串是否为空（长度为0）
+     * @param string $str 输入字符串
+     * @return bool 是否为空
+     */
+    public static function isEmpty(string $str): bool {
+        return native_str_len($str) == 0;
+    }
+    
+    /**
+     * 检查字符串是否不为空
+     * @param string $str 输入字符串
+     * @return bool 是否不为空
+     */
+    public static function isNotEmpty(string $str): bool {
+        return native_str_len($str) > 0;
+    }
+    
+    // ========================================================================
+    // 查找操作
+    // ========================================================================
+    
+    /**
+     * 查找子字符串第一次出现的位置
+     * @param string $str 输入字符串
+     * @param string $substr 要查找的子字符串
+     * @return int 位置索引，如果未找到返回 -1
+     */
+    public static function indexOf(string $str, string $substr): int {
+        return native_str_index_of($str, $substr, 0);
+    }
+    
+    /**
+     * 从指定位置开始查找子字符串
+     * @param string $str 输入字符串
+     * @param string $substr 要查找的子字符串
+     * @param int $fromIndex 开始查找的位置
+     * @return int 位置索引，如果未找到返回 -1
+     */
+    public static function indexOfFrom(string $str, string $substr, int $fromIndex): int {
+        return native_str_index_of($str, $substr, $fromIndex);
+    }
+    
+    /**
+     * 查找子字符串最后一次出现的位置
+     * @param string $str 输入字符串
+     * @param string $substr 要查找的子字符串
+     * @return int 位置索引，如果未找到返回 -1
+     */
+    public static function lastIndexOf(string $str, string $substr): int {
+        return native_str_last_index_of($str, $substr);
+    }
+    
+    /**
+     * 检查字符串是否包含子字符串
+     * @param string $str 输入字符串
+     * @param string $substr 要查找的子字符串
+     * @return bool 是否包含
+     */
+    public static function contains(string $str, string $substr): bool {
+        return native_str_index_of($str, $substr, 0) >= 0;
+    }
+    
+    // ========================================================================
+    // 截取操作
+    // ========================================================================
+    
+    /**
+     * 从指定位置截取到字符串末尾
+     * @param string $str 输入字符串
+     * @param int $start 开始位置
+     * @return string 截取后的字符串
+     */
+    public static function substring(string $str, int $start): string {
+        return native_str_substring($str, $start, -1);
+    }
+    
+    /**
+     * 截取指定范围的字符串
+     * @param string $str 输入字符串
+     * @param int $start 开始位置（包含）
+     * @param int $end 结束位置（不包含）
+     * @return string 截取后的字符串
+     */
+    public static function substringRange(string $str, int $start, int $end): string {
+        if ($start < 0) {
+            $start = 0;
+        }
+        if ($end <= $start) {
+            return "";
+        }
+        return native_str_substring($str, $start, $end - $start);
+    }
+    
+    // ========================================================================
+    // 前缀后缀检查
+    // ========================================================================
+    
+    /**
+     * 检查字符串是否以指定前缀开始
+     * @param string $str 输入字符串
+     * @param string $prefix 前缀
+     * @return bool 是否以指定前缀开始
+     */
+    public static function startsWith(string $str, string $prefix): bool {
+        $prefixLen := native_str_len($prefix);
+        if ($prefixLen == 0) {
+            return true;
+        }
+        if (native_str_len($str) < $prefixLen) {
+            return false;
+        }
+        return native_str_substring($str, 0, $prefixLen) == $prefix;
+    }
+    
+    /**
+     * 检查字符串是否以指定后缀结束
+     * @param string $str 输入字符串
+     * @param string $suffix 后缀
+     * @return bool 是否以指定后缀结束
+     */
+    public static function endsWith(string $str, string $suffix): bool {
+        $suffixLen := native_str_len($suffix);
+        if ($suffixLen == 0) {
+            return true;
+        }
+        $strLen := native_str_len($str);
+        if ($strLen < $suffixLen) {
+            return false;
+        }
+        return native_str_substring($str, $strLen - $suffixLen, $suffixLen) == $suffix;
+    }
+    
+    // ========================================================================
+    // 转换操作
+    // ========================================================================
+    
+    /**
+     * 去除字符串首尾的空白字符
+     * @param string $str 输入字符串
+     * @return string 去除空白后的字符串
+     */
+    public static function trim(string $str): string {
+        return native_str_trim($str);
+    }
+    
+    /**
+     * 转换为大写
+     * @param string $str 输入字符串
+     * @return string 大写字符串
+     */
+    public static function toUpperCase(string $str): string {
+        return native_str_to_upper($str);
+    }
+    
+    /**
+     * 转换为小写
+     * @param string $str 输入字符串
+     * @return string 小写字符串
+     */
+    public static function toLowerCase(string $str): string {
+        return native_str_to_lower($str);
+    }
+    
+    /**
+     * 替换字符串中的子字符串
+     * @param string $str 输入字符串
+     * @param string $old 要替换的子字符串
+     * @param string $new 替换后的字符串
+     * @return string 替换后的字符串
+     */
+    public static function replace(string $str, string $old, string $new): string {
+        return native_str_replace($str, $old, $new);
+    }
+    
+    // ========================================================================
+    // 分割与连接
+    // ========================================================================
+    
+    /**
+     * 分割字符串
+     * @param string $str 输入字符串
+     * @param string $delimiter 分隔符
+     * @return array 分割后的字符串数组
+     */
+    public static function split(string $str, string $delimiter): array {
+        return native_str_split($str, $delimiter);
+    }
+    
+    /**
+     * 将数组连接为字符串
+     * @param array $arr 字符串数组
+     * @param string $delimiter 连接符
+     * @return string 连接后的字符串
+     */
+    public static function join(array $arr, string $delimiter): string {
+        return native_str_join($arr, $delimiter);
+    }
+    
+    // ========================================================================
+    // 比较操作
+    // ========================================================================
+    
+    /**
+     * 比较两个字符串是否相等
+     * @param string $a 字符串a
+     * @param string $b 字符串b
+     * @return bool 是否相等
+     */
+    public static function equals(string $a, string $b): bool {
+        return $a == $b;
+    }
+    
+    /**
+     * 忽略大小写比较两个字符串是否相等
+     * @param string $a 字符串a
+     * @param string $b 字符串b
+     * @return bool 是否相等（忽略大小写）
+     */
+    public static function equalsIgnoreCase(string $a, string $b): bool {
+        return native_str_to_lower($a) == native_str_to_lower($b);
+    }
+    
+    // ========================================================================
+    // 类型转换
+    // ========================================================================
+    
+    /**
+     * 将字符串转换为整数
+     * @param string $str 输入字符串
+     * @return int 转换后的整数，如果无法转换返回 0
+     */
+    public static function toInt(string $str): int {
+        return native_str_to_int($str);
+    }
+    
+    /**
+     * 将字符串转换为浮点数
+     * @param string $str 输入字符串
+     * @return float 转换后的浮点数，如果无法转换返回 0.0
+     */
+    public static function toFloat(string $str): float {
+        return native_str_to_float($str);
+    }
+    
+    // ========================================================================
+    // 工具方法
+    // ========================================================================
+    
+    /**
+     * 重复字符串指定次数
+     * @param string $str 要重复的字符串
+     * @param int $count 重复次数
+     * @return string 重复后的字符串
+     */
+    public static function repeat(string $str, int $count): string {
+        if ($count <= 0) {
+            return "";
+        }
+        $result := "";
+        for ($i := 0; $i < $count; $i++) {
+            $result = $result + $str;
+        }
+        return $result;
+    }
+    
+    /**
+     * 反转字符串
+     * @param string $str 输入字符串
+     * @return string 反转后的字符串
+     */
+    public static function reverse(string $str): string {
+        $len := native_str_len($str);
+        if ($len <= 1) {
+            return $str;
+        }
+        $result := "";
+        for ($i := $len - 1; $i >= 0; $i--) {
+            $result = $result + native_str_substring($str, $i, 1);
+        }
+        return $result;
+    }
+    
+    /**
+     * 填充字符串到指定长度（左填充）
+     * @param string $str 原字符串
+     * @param int $length 目标长度
+     * @param string $padChar 填充字符
+     * @return string 填充后的字符串
+     */
+    public static function padLeft(string $str, int $length, string $padChar): string {
+        $strLen := native_str_len($str);
+        if ($strLen >= $length) {
+            return $str;
+        }
+        $padLen := $length - $strLen;
+        $padStr := Str::repeat($padChar, $padLen);
+        return $padStr + $str;
+    }
+    
+    /**
+     * 填充字符串到指定长度（右填充）
+     * @param string $str 原字符串
+     * @param int $length 目标长度
+     * @param string $padChar 填充字符
+     * @return string 填充后的字符串
+     */
+    public static function padRight(string $str, int $length, string $padChar): string {
+        $strLen := native_str_len($str);
+        if ($strLen >= $length) {
+            return $str;
+        }
+        $padLen := $length - $strLen;
+        $padStr := Str::repeat($padChar, $padLen);
+        return $str + $padStr;
+    }
+    
+    /**
+     * 移除字符串中的所有空白字符
+     * @param string $str 原字符串
+     * @return string 移除空白后的字符串
+     */
+    public static function removeWhitespace(string $str): string {
+        $len := native_str_len($str);
+        if ($len == 0) {
+            return "";
+        }
+        $result := "";
+        for ($i := 0; $i < $len; $i++) {
+            $char := native_str_substring($str, $i, 1);
+            if ($char != " " && $char != "\t" && $char != "\n" && $char != "\r") {
+                $result = $result + $char;
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 检查字符串是否为数字（整数或浮点数）
+     * @param string $str 输入字符串
+     * @return bool 是否为数字
+     */
+    public static function isNumeric(string $str): bool {
+        $trimmed := native_str_trim($str);
+        $len := native_str_len($trimmed);
+        if ($len == 0) {
+            return false;
+        }
+        // 尝试转换为浮点数，检查是否成功
+        // 如果转换后为0且原字符串不是"0"相关，则不是数字
+        $floatVal := native_str_to_float($trimmed);
+        if ($floatVal != 0.0) {
+            return true;
+        }
+        // 检查是否为"0"、"0.0"等形式
+        return $trimmed == "0" || $trimmed == "0.0" || $trimmed == "+0" || $trimmed == "-0";
+    }
+    
+    /**
+     * 检查字符串是否只包含字母
+     * 简化实现：转为小写后只保留 a-z，如果长度相同则只有字母
+     * @param string $str 输入字符串
+     * @return bool 是否只包含字母
+     */
+    public static function isAlpha(string $str): bool {
+        $len := native_str_len($str);
+        if ($len == 0) {
+            return false;
+        }
+        // 移除非字母字符后检查长度
+        $lower := native_str_to_lower($str);
+        $upper := native_str_to_upper($str);
+        // 如果转换大小写后字符串相同，则可能只有字母
+        // 进一步检查：移除所有非字母字符
+        $result := native_str_replace($lower, "a", "");
+        $result = native_str_replace($result, "b", "");
+        $result = native_str_replace($result, "c", "");
+        $result = native_str_replace($result, "d", "");
+        $result = native_str_replace($result, "e", "");
+        $result = native_str_replace($result, "f", "");
+        $result = native_str_replace($result, "g", "");
+        $result = native_str_replace($result, "h", "");
+        $result = native_str_replace($result, "i", "");
+        $result = native_str_replace($result, "j", "");
+        $result = native_str_replace($result, "k", "");
+        $result = native_str_replace($result, "l", "");
+        $result = native_str_replace($result, "m", "");
+        $result = native_str_replace($result, "n", "");
+        $result = native_str_replace($result, "o", "");
+        $result = native_str_replace($result, "p", "");
+        $result = native_str_replace($result, "q", "");
+        $result = native_str_replace($result, "r", "");
+        $result = native_str_replace($result, "s", "");
+        $result = native_str_replace($result, "t", "");
+        $result = native_str_replace($result, "u", "");
+        $result = native_str_replace($result, "v", "");
+        $result = native_str_replace($result, "w", "");
+        $result = native_str_replace($result, "x", "");
+        $result = native_str_replace($result, "y", "");
+        $result = native_str_replace($result, "z", "");
+        return native_str_len($result) == 0;
+    }
+    
+    /**
+     * 检查字符串是否只包含字母和数字
+     * @param string $str 输入字符串
+     * @return bool 是否只包含字母和数字
+     */
+    public static function isAlphanumeric(string $str): bool {
+        $len := native_str_len($str);
+        if ($len == 0) {
+            return false;
+        }
+        // 移除所有字母和数字后检查是否为空
+        $lower := native_str_to_lower($str);
+        $result := native_str_replace($lower, "a", "");
+        $result = native_str_replace($result, "b", "");
+        $result = native_str_replace($result, "c", "");
+        $result = native_str_replace($result, "d", "");
+        $result = native_str_replace($result, "e", "");
+        $result = native_str_replace($result, "f", "");
+        $result = native_str_replace($result, "g", "");
+        $result = native_str_replace($result, "h", "");
+        $result = native_str_replace($result, "i", "");
+        $result = native_str_replace($result, "j", "");
+        $result = native_str_replace($result, "k", "");
+        $result = native_str_replace($result, "l", "");
+        $result = native_str_replace($result, "m", "");
+        $result = native_str_replace($result, "n", "");
+        $result = native_str_replace($result, "o", "");
+        $result = native_str_replace($result, "p", "");
+        $result = native_str_replace($result, "q", "");
+        $result = native_str_replace($result, "r", "");
+        $result = native_str_replace($result, "s", "");
+        $result = native_str_replace($result, "t", "");
+        $result = native_str_replace($result, "u", "");
+        $result = native_str_replace($result, "v", "");
+        $result = native_str_replace($result, "w", "");
+        $result = native_str_replace($result, "x", "");
+        $result = native_str_replace($result, "y", "");
+        $result = native_str_replace($result, "z", "");
+        $result = native_str_replace($result, "0", "");
+        $result = native_str_replace($result, "1", "");
+        $result = native_str_replace($result, "2", "");
+        $result = native_str_replace($result, "3", "");
+        $result = native_str_replace($result, "4", "");
+        $result = native_str_replace($result, "5", "");
+        $result = native_str_replace($result, "6", "");
+        $result = native_str_replace($result, "7", "");
+        $result = native_str_replace($result, "8", "");
+        $result = native_str_replace($result, "9", "");
+        return native_str_len($result) == 0;
+    }
+    
+    /**
+     * 首字母大写
+     * @param string $str 输入字符串
+     * @return string 首字母大写后的字符串
+     */
+    public static function capitalize(string $str): string {
+        $len := native_str_len($str);
+        if ($len == 0) {
+            return "";
+        }
+        $first := native_str_to_upper(native_str_substring($str, 0, 1));
+        if ($len == 1) {
+            return $first;
+        }
+        return $first + native_str_substring($str, 1, -1);
+    }
+    
+    /**
+     * 统计子字符串出现次数
+     * @param string $str 输入字符串
+     * @param string $substr 要统计的子字符串
+     * @return int 出现次数
+     */
+    public static function count(string $str, string $substr): int {
+        $substrLen := native_str_len($substr);
+        if ($substrLen == 0) {
+            return 0;
+        }
+        $count := 0;
+        $pos := 0;
+        while (true) {
+            $found := native_str_index_of($str, $substr, $pos);
+            if ($found < 0) {
+                break;
+            }
+            $count = $count + 1;
+            $pos = $found + $substrLen;
+        }
+        return $count;
+    }
+}

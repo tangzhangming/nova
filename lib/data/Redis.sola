@@ -2,6 +2,8 @@
 // 实现 RESP (Redis Serialization Protocol) 协议
 namespace sola.data
 
+use sola.lang.Str;
+
 public class Redis {
     // 连接ID
     private int $connId = -1;
@@ -470,16 +472,16 @@ public class Redis {
         }
         
         $request := "*" + to_string($argc) + "\r\n";
-        $request = $request + "$" + to_string(strlen($cmd)) + "\r\n" + $cmd + "\r\n";
+        $request = $request + "$" + to_string(Str::length($cmd)) + "\r\n" + $cmd + "\r\n";
         
         if (!$this->isEmptyArg($arg1)) {
-            $request = $request + "$" + to_string(strlen($arg1)) + "\r\n" + $arg1 + "\r\n";
+            $request = $request + "$" + to_string(Str::length($arg1)) + "\r\n" + $arg1 + "\r\n";
         }
         if (!$this->isEmptyArg($arg2)) {
-            $request = $request + "$" + to_string(strlen($arg2)) + "\r\n" + $arg2 + "\r\n";
+            $request = $request + "$" + to_string(Str::length($arg2)) + "\r\n" + $arg2 + "\r\n";
         }
         if (!$this->isEmptyArg($arg3)) {
-            $request = $request + "$" + to_string(strlen($arg3)) + "\r\n" + $arg3 + "\r\n";
+            $request = $request + "$" + to_string(Str::length($arg3)) + "\r\n" + $arg3 + "\r\n";
         }
         
         return $request;
@@ -491,7 +493,7 @@ public class Redis {
         $request := "*" + to_string($argc) + "\r\n";
         
         foreach ($args as $arg) {
-            $request = $request + "$" + to_string(strlen($arg)) + "\r\n" + $arg + "\r\n";
+            $request = $request + "$" + to_string(Str::length($arg)) + "\r\n" + $arg + "\r\n";
         }
         
         return $request;
@@ -506,15 +508,15 @@ public class Redis {
         }
         
         // 移除 \r\n
-        $line = str_trim($line);
+        $line = Str::trim($line);
         
-        if (strlen($line) == 0) {
+        if (Str::isEmpty($line)) {
             return "";
         }
         
         // 获取响应类型（第一个字符）
-        $type := substr($line, 0, 1);
-        $data := substr($line, 1, strlen($line) - 1);
+        $type := Str::charAt($line, 0);
+        $data := Str::substring($line, 1);
         
         if ($type == "+") {
             // 简单字符串
@@ -542,7 +544,7 @@ public class Redis {
                     break;
                 }
                 $result = $result + $chunk;
-                $remaining = $remaining - strlen($chunk);
+                $remaining = $remaining - Str::length($chunk);
             }
             
             // 读取尾部 \r\n
@@ -574,15 +576,15 @@ public class Redis {
         }
         
         // 移除 \r\n
-        $line = str_trim($line);
+        $line = Str::trim($line);
         
-        if (strlen($line) == 0) {
+        if (Str::isEmpty($line)) {
             return $result;
         }
         
         // 获取响应类型
-        $type := substr($line, 0, 1);
-        $data := substr($line, 1, strlen($line) - 1);
+        $type := Str::charAt($line, 0);
+        $data := Str::substring($line, 1);
         
         if ($type != "*") {
             // 不是数组响应
