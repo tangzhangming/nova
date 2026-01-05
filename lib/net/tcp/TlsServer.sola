@@ -1,0 +1,325 @@
+namespace sola.net.tcp
+
+/**
+ * TLS/SSL 安全服务端类
+ * 
+ * 提供基于 TLS/SSL 的安全 TCP 服务器功能，支持 HTTPS 等安全协议。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.tcp.TlsServer;
+ * use sola.net.tcp.TcpConnection;
+ * 
+ * // 创建并启动 TLS 服务器（需要证书文件）
+ * $server := new TlsServer();
+ * $server->setCertificate("server.crt", "server.key");
+ * $server->start("0.0.0.0", 443);
+ * 
+ * if ($server->isListening()) {
+ *     print("TLS 服务器启动成功，监听端口: " + $server->getPort());
+ *     
+ *     while (true) {
+ *         $conn := $server->accept();
+ *         if ($conn != null) {
+ *             // 处理安全连接
+ *             $request := $conn->readLine();
+ *             $conn->write("HTTP/1.1 200 OK\r\n\r\nSecure Hello!");
+ *             $conn->close();
+ *         }
+ *     }
+ * }
+ * 
+ * $server->stop();
+ * ```
+ */
+public class TlsServer {
+    
+    // ========================================================================
+    // 私有属性
+    // ========================================================================
+    
+    /** 监听器句柄 */
+    private int $listenerId = -1;
+    
+    /** 监听主机 */
+    private string $host = "0.0.0.0";
+    
+    /** 监听端口 */
+    private int $port = 0;
+    
+    /** 证书文件路径 */
+    private string $certFile = "";
+    
+    /** 私钥文件路径 */
+    private string $keyFile = "";
+    
+    /** 接受连接超时（毫秒） */
+    private int $acceptTimeout = 0;
+    
+    /** 是否正在运行 */
+    private bool $running = false;
+    
+    // ========================================================================
+    // 构造函数
+    // ========================================================================
+    
+    /**
+     * 构造函数
+     * 
+     * 创建 TLS 服务器实例，需要先设置证书再启动
+     * 
+     * @param string $host 监听主机地址（可选，默认 "0.0.0.0"）
+     * @param int $port 监听端口号（可选）
+     */
+    public function __construct(string $host = "", int $port = 0) {
+        if ($host != "") {
+            $this->host = $host;
+        }
+        if ($port > 0) {
+            $this->port = $port;
+        }
+    }
+    
+    // ========================================================================
+    // 证书配置
+    // ========================================================================
+    
+    /**
+     * 设置证书文件
+     * 
+     * 必须在调用 start() 之前设置
+     * 
+     * @param string $certFile 证书文件路径（PEM 格式）
+     * @param string $keyFile 私钥文件路径（PEM 格式）
+     * @return TlsServer 返回自身用于链式调用
+     */
+    public function setCertificate(string $certFile, string $keyFile): TlsServer {
+        $this->certFile = $certFile;
+        $this->keyFile = $keyFile;
+        return $this;
+    }
+    
+    /**
+     * 获取证书文件路径
+     * 
+     * @return string 证书文件路径
+     */
+    public function getCertFile(): string {
+        return $this->certFile;
+    }
+    
+    /**
+     * 获取私钥文件路径
+     * 
+     * @return string 私钥文件路径
+     */
+    public function getKeyFile(): string {
+        return $this->keyFile;
+    }
+    
+    // ========================================================================
+    // 服务器控制
+    // ========================================================================
+    
+    /**
+     * 启动 TLS 服务器监听
+     * 
+     * @param string $host 监听主机地址（如果构造时未指定）
+     * @param int $port 监听端口号（如果构造时未指定）
+     * @return bool 启动是否成功
+     */
+    public function start(string $host = "", int $port = 0): bool {
+        // 验证证书是否已设置
+        if ($this->certFile == "" || $this->keyFile == "") {
+            return false;
+        }
+        
+        // 如果已在监听，先停止
+        if ($this->listenerId >= 0) {
+            $this->stop();
+        }
+        
+        // 使用参数或已保存的值
+        if ($host != "") {
+            $this->host = $host;
+        }
+        if ($port > 0) {
+            $this->port = $port;
+        }
+        
+        // 验证参数
+        if ($this->port <= 0) {
+            return false;
+        }
+        
+        // 开始 TLS 监听
+        $this->listenerId = native_tls_listen($this->host, $this->port, $this->certFile, $this->keyFile);
+        
+        if ($this->listenerId < 0) {
+            return false;
+        }
+        
+        $this->running = true;
+        return true;
+    }
+    
+    /**
+     * 停止服务器
+     * 
+     * @return bool 停止是否成功
+     */
+    public function stop(): bool {
+        if ($this->listenerId < 0) {
+            return false;
+        }
+        $result := native_tcp_stop_listen($this->listenerId);
+        $this->listenerId = -1;
+        $this->running = false;
+        return $result;
+    }
+    
+    /**
+     * 检查服务器是否正在监听
+     * 
+     * @return bool 是否正在监听
+     */
+    public function isListening(): bool {
+        if ($this->listenerId < 0) {
+            return false;
+        }
+        return native_tcp_listener_is_listening($this->listenerId);
+    }
+    
+    // ========================================================================
+    // 连接接受
+    // ========================================================================
+    
+    /**
+     * 接受一个新的 TLS 客户端连接（阻塞）
+     * 
+     * @return TcpConnection|null 新的连接对象，失败返回 null
+     */
+    public function accept(): TcpConnection {
+        if ($this->listenerId < 0) {
+            return null;
+        }
+        
+        $connId := 0;
+        if ($this->acceptTimeout > 0) {
+            $connId = native_tcp_accept_timeout($this->listenerId, $this->acceptTimeout);
+        } else {
+            $connId = native_tcp_accept($this->listenerId);
+        }
+        
+        if ($connId < 0) {
+            return null;
+        }
+        
+        return new TcpConnection($connId);
+    }
+    
+    /**
+     * 带超时接受新的 TLS 客户端连接
+     * 
+     * @param int $timeoutMs 超时时间（毫秒）
+     * @return TcpConnection|null 新的连接对象，超时或失败返回 null
+     */
+    public function acceptTimeout(int $timeoutMs): TcpConnection {
+        if ($this->listenerId < 0) {
+            return null;
+        }
+        
+        $connId := native_tcp_accept_timeout($this->listenerId, $timeoutMs);
+        
+        if ($connId < 0) {
+            return null;
+        }
+        
+        return new TcpConnection($connId);
+    }
+    
+    // ========================================================================
+    // 配置
+    // ========================================================================
+    
+    /**
+     * 设置接受连接的默认超时时间
+     * 
+     * @param int $ms 超时时间（毫秒），0 表示无限等待
+     * @return TlsServer 返回自身用于链式调用
+     */
+    public function setAcceptTimeout(int $ms): TlsServer {
+        $this->acceptTimeout = $ms;
+        return $this;
+    }
+    
+    /**
+     * 获取接受连接的超时时间
+     * 
+     * @return int 超时时间（毫秒）
+     */
+    public function getAcceptTimeout(): int {
+        return $this->acceptTimeout;
+    }
+    
+    // ========================================================================
+    // 地址信息
+    // ========================================================================
+    
+    /**
+     * 获取监听主机地址
+     * 
+     * @return string 主机地址
+     */
+    public function getHost(): string {
+        if ($this->listenerId < 0) {
+            return $this->host;
+        }
+        return native_tcp_listener_host($this->listenerId);
+    }
+    
+    /**
+     * 获取监听端口
+     * 
+     * @return int 端口号
+     */
+    public function getPort(): int {
+        if ($this->listenerId < 0) {
+            return $this->port;
+        }
+        return native_tcp_listener_port($this->listenerId);
+    }
+    
+    /**
+     * 获取完整的监听地址（host:port）
+     * 
+     * @return string 完整地址
+     */
+    public function getAddress(): string {
+        if ($this->listenerId < 0) {
+            return "";
+        }
+        return native_tcp_listener_addr($this->listenerId);
+    }
+    
+    // ========================================================================
+    // 静态工厂方法
+    // ========================================================================
+    
+    /**
+     * 创建并启动 TLS 服务器
+     * 
+     * @param int $port 监听端口号
+     * @param string $certFile 证书文件路径
+     * @param string $keyFile 私钥文件路径
+     * @param string $host 监听主机地址（默认 "0.0.0.0"）
+     * @return TlsServer 新的 TlsServer 实例
+     */
+    public static function create(int $port, string $certFile, string $keyFile, string $host = "0.0.0.0"): TlsServer {
+        $server := new TlsServer($host, $port);
+        $server->setCertificate($certFile, $keyFile);
+        $server->start();
+        return $server;
+    }
+}
+

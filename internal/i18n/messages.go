@@ -52,6 +52,7 @@ const (
 	ErrCompoundAssignIndex   = "compiler.compound_assign_index"
 	ErrInvalidStaticAccessC  = "compiler.invalid_static_access"
 	ErrInvalidBinaryOp       = "compiler.invalid_binary_op"
+	ErrNativeFuncRestricted  = "compiler.native_func_restricted"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

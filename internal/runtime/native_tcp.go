@@ -16,9 +16,9 @@ import (
 // ============================================================================
 
 type tcpConnection struct {
-	conn       net.Conn
-	reader     *bufio.Reader
-	isTLS      bool
+	conn         net.Conn
+	reader       *bufio.Reader
+	isTLS        bool
 	readBufSize  int
 	writeBufSize int
 }
@@ -28,6 +28,46 @@ var (
 	tcpConnMutex   sync.RWMutex
 	nextConnID     int64 = 1
 )
+
+// ============================================================================
+// TCP 监听器管理
+// ============================================================================
+
+type tcpListener struct {
+	listener net.Listener
+	isTLS    bool
+	host     string
+	port     int
+}
+
+var (
+	tcpListeners     = make(map[int64]*tcpListener)
+	tcpListenerMutex sync.RWMutex
+	nextListenerID   int64 = 1
+)
+
+// getListener 获取监听器（线程安全）
+func getListener(listenerID int64) (*tcpListener, bool) {
+	tcpListenerMutex.RLock()
+	tl, ok := tcpListeners[listenerID]
+	tcpListenerMutex.RUnlock()
+	return tl, ok
+}
+
+// registerListener 注册新监听器（线程安全）
+func registerListener(listener net.Listener, host string, port int, isTLS bool) int64 {
+	tcpListenerMutex.Lock()
+	listenerID := nextListenerID
+	nextListenerID++
+	tcpListeners[listenerID] = &tcpListener{
+		listener: listener,
+		isTLS:    isTLS,
+		host:     host,
+		port:     port,
+	}
+	tcpListenerMutex.Unlock()
+	return listenerID
+}
 
 // getConnection 获取连接（线程安全）
 func getConnection(connID int64) (*tcpConnection, bool) {
@@ -867,4 +907,199 @@ func nativeTlsGetServerName(args []bytecode.Value) bytecode.Value {
 	
 	state := tlsConn.ConnectionState()
 	return bytecode.NewString(state.ServerName)
+}
+
+// ============================================================================
+// TCP 服务端函数
+// ============================================================================
+
+// nativeTcpListen 在指定地址和端口上监听
+func nativeTcpListen(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewInt(-1)
+	}
+	host := args[0].AsString()
+	port := args[1].AsInt()
+	
+	address := fmt.Sprintf("%s:%d", host, port)
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	
+	listenerID := registerListener(listener, host, int(port), false)
+	return bytecode.NewInt(listenerID)
+}
+
+// nativeTcpAccept 接受新连接（阻塞）
+func nativeTcpAccept(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewInt(-1)
+	}
+	listenerID := args[0].AsInt()
+	tl, ok := getListener(listenerID)
+	if !ok {
+		return bytecode.NewInt(-1)
+	}
+	
+	conn, err := tl.listener.Accept()
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	
+	connID := registerConnection(conn, tl.isTLS)
+	return bytecode.NewInt(connID)
+}
+
+// nativeTcpAcceptTimeout 带超时的接受新连接
+func nativeTcpAcceptTimeout(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewInt(-1)
+	}
+	listenerID := args[0].AsInt()
+	timeoutMs := args[1].AsInt()
+	
+	tl, ok := getListener(listenerID)
+	if !ok {
+		return bytecode.NewInt(-1)
+	}
+	
+	// 设置超时
+	if tcpListener, ok := tl.listener.(*net.TCPListener); ok {
+		deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+		tcpListener.SetDeadline(deadline)
+		defer tcpListener.SetDeadline(time.Time{}) // 清除超时
+	}
+	
+	conn, err := tl.listener.Accept()
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	
+	connID := registerConnection(conn, tl.isTLS)
+	return bytecode.NewInt(connID)
+}
+
+// nativeTcpStopListen 停止监听
+func nativeTcpStopListen(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.FalseValue
+	}
+	listenerID := args[0].AsInt()
+	
+	tcpListenerMutex.Lock()
+	tl, ok := tcpListeners[listenerID]
+	if ok {
+		tl.listener.Close()
+		delete(tcpListeners, listenerID)
+	}
+	tcpListenerMutex.Unlock()
+	
+	return bytecode.NewBool(ok)
+}
+
+// nativeTcpListenerAddr 获取监听器地址
+func nativeTcpListenerAddr(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewString("")
+	}
+	listenerID := args[0].AsInt()
+	tl, ok := getListener(listenerID)
+	if !ok {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(tl.listener.Addr().String())
+}
+
+// nativeTcpListenerHost 获取监听器主机
+func nativeTcpListenerHost(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewString("")
+	}
+	listenerID := args[0].AsInt()
+	tl, ok := getListener(listenerID)
+	if !ok {
+		return bytecode.NewString("")
+	}
+	host, _, err := net.SplitHostPort(tl.listener.Addr().String())
+	if err != nil {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(host)
+}
+
+// nativeTcpListenerPort 获取监听器端口
+func nativeTcpListenerPort(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewInt(0)
+	}
+	listenerID := args[0].AsInt()
+	tl, ok := getListener(listenerID)
+	if !ok {
+		return bytecode.NewInt(0)
+	}
+	_, portStr, err := net.SplitHostPort(tl.listener.Addr().String())
+	if err != nil {
+		return bytecode.NewInt(0)
+	}
+	var port int
+	fmt.Sscanf(portStr, "%d", &port)
+	return bytecode.NewInt(int64(port))
+}
+
+// nativeTcpListenerIsListening 检查是否正在监听
+func nativeTcpListenerIsListening(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.FalseValue
+	}
+	listenerID := args[0].AsInt()
+	_, ok := getListener(listenerID)
+	return bytecode.NewBool(ok)
+}
+
+// ============================================================================
+// TLS 服务端函数
+// ============================================================================
+
+// nativeTlsListen 在指定地址和端口上使用TLS监听
+func nativeTlsListen(args []bytecode.Value) bytecode.Value {
+	if len(args) < 4 {
+		return bytecode.NewInt(-1)
+	}
+	host := args[0].AsString()
+	port := args[1].AsInt()
+	certFile := args[2].AsString()
+	keyFile := args[3].AsString()
+	
+	// 加载证书
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	
+	address := fmt.Sprintf("%s:%d", host, port)
+	listener, err := tls.Listen("tcp", address, tlsConfig)
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	
+	listenerID := registerListener(listener, host, int(port), true)
+	return bytecode.NewInt(listenerID)
+}
+
+// nativeTlsListenerIsTLS 检查监听器是否为TLS
+func nativeTlsListenerIsTLS(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.FalseValue
+	}
+	listenerID := args[0].AsInt()
+	tl, ok := getListener(listenerID)
+	if !ok {
+		return bytecode.FalseValue
+	}
+	return bytecode.NewBool(tl.isTLS)
 }

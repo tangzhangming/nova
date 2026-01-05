@@ -1382,6 +1382,17 @@ func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 		return
 	}
 	
+	// 检查 native_ 开头的函数只能在标准库中调用
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		if strings.HasPrefix(ident.Name, "native_") {
+			// 标准库命名空间以 "sola." 开头
+			if !strings.HasPrefix(c.currentNamespace, "sola.") {
+				c.error(e.Pos(), i18n.T(i18n.ErrNativeFuncRestricted, ident.Name))
+				return
+			}
+		}
+	}
+	
 	c.compileExpr(e.Function)
 	for _, arg := range e.Arguments {
 		c.compileExpr(arg)

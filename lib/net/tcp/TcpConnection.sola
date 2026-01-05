@@ -1,0 +1,433 @@
+namespace sola.net.tcp
+
+use sola.lang.Bytes;
+
+/**
+ * TCP 连接类
+ * 
+ * 表示一个已建立的 TCP 连接，用于服务端处理客户端请求。
+ * 提供数据读写、超时配置、Socket 选项等功能。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.tcp.TcpServer;
+ * use sola.net.tcp.TcpConnection;
+ * 
+ * $server := new TcpServer("0.0.0.0", 8080);
+ * 
+ * while ($server->isListening()) {
+ *     $conn := $server->accept();
+ *     if ($conn != null) {
+ *         // 读取客户端数据
+ *         $request := $conn->readLine();
+ *         print("收到请求: " + $request);
+ *         
+ *         // 发送响应
+ *         $conn->write("HTTP/1.1 200 OK\r\n\r\nHello World!");
+ *         
+ *         // 关闭连接
+ *         $conn->close();
+ *     }
+ * }
+ * ```
+ */
+public class TcpConnection {
+    
+    // ========================================================================
+    // 私有属性
+    // ========================================================================
+    
+    /** 连接句柄 */
+    private int $connId = -1;
+    
+    // ========================================================================
+    // 构造函数
+    // ========================================================================
+    
+    /**
+     * 构造函数（内部使用）
+     * 
+     * 通常由 TcpServer.accept() 创建，不建议直接实例化
+     * 
+     * @param int $connId 连接句柄
+     */
+    public function __construct(int $connId) {
+        $this->connId = $connId;
+    }
+    
+    // ========================================================================
+    // 连接管理
+    // ========================================================================
+    
+    /**
+     * 关闭连接
+     * 
+     * @return bool 关闭是否成功
+     */
+    public function close(): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        $result := native_tcp_close($this->connId);
+        $this->connId = -1;
+        return $result;
+    }
+    
+    /**
+     * 检查连接是否有效
+     * 
+     * @return bool 是否连接有效
+     */
+    public function isConnected(): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_is_connected($this->connId);
+    }
+    
+    /**
+     * 检查是否为 TLS 连接
+     * 
+     * @return bool 是否为 TLS 连接
+     */
+    public function isTLS(): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_is_tls($this->connId);
+    }
+    
+    // ========================================================================
+    // 数据写入
+    // ========================================================================
+    
+    /**
+     * 发送字符串数据
+     * 
+     * @param string $data 要发送的字符串
+     * @return int 发送的字节数，失败返回 -1
+     */
+    public function write(string $data): int {
+        if ($this->connId < 0) {
+            return -1;
+        }
+        return native_tcp_write($this->connId, $data);
+    }
+    
+    /**
+     * 发送字节数组数据
+     * 
+     * @param byte[] $data 要发送的字节数组
+     * @return int 发送的字节数，失败返回 -1
+     */
+    public function writeBytes(byte[] $data): int {
+        if ($this->connId < 0) {
+            return -1;
+        }
+        return native_tcp_write_bytes($this->connId, $data);
+    }
+    
+    /**
+     * 发送一行数据（自动添加换行符）
+     * 
+     * @param string $data 要发送的字符串
+     * @return int 发送的字节数，失败返回 -1
+     */
+    public function writeLine(string $data): int {
+        return $this->write($data + "\n");
+    }
+    
+    // ========================================================================
+    // 数据读取
+    // ========================================================================
+    
+    /**
+     * 读取字符串数据
+     * 
+     * @param int $length 要读取的最大字节数
+     * @return string 读取的字符串，失败返回空字符串
+     */
+    public function read(int $length): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_read($this->connId, $length);
+    }
+    
+    /**
+     * 读取字节数组数据
+     * 
+     * @param int $length 要读取的最大字节数
+     * @return byte[] 读取的字节数组
+     */
+    public function readBytes(int $length): byte[] {
+        if ($this->connId < 0) {
+            return Bytes::alloc(0);
+        }
+        return native_tcp_read_bytes($this->connId, $length);
+    }
+    
+    /**
+     * 精确读取指定长度的数据
+     * 
+     * @param int $length 要读取的精确字节数
+     * @return byte[] 读取的字节数组
+     */
+    public function readExact(int $length): byte[] {
+        if ($this->connId < 0) {
+            return Bytes::alloc(0);
+        }
+        return native_tcp_read_exact($this->connId, $length);
+    }
+    
+    /**
+     * 读取一行数据
+     * 
+     * @return string 读取的一行，包含换行符
+     */
+    public function readLine(): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_read_line($this->connId);
+    }
+    
+    /**
+     * 读取直到遇到指定的分隔符
+     * 
+     * @param string $delimiter 分隔符
+     * @return string 读取的数据
+     */
+    public function readUntil(string $delimiter): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_read_until($this->connId, $delimiter);
+    }
+    
+    /**
+     * 获取缓冲区中可读的字节数
+     * 
+     * @return int 可读字节数
+     */
+    public function available(): int {
+        if ($this->connId < 0) {
+            return 0;
+        }
+        return native_tcp_available($this->connId);
+    }
+    
+    /**
+     * 刷新输出缓冲区
+     * 
+     * @return bool 是否成功
+     */
+    public function flush(): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_flush($this->connId);
+    }
+    
+    // ========================================================================
+    // 超时配置
+    // ========================================================================
+    
+    /**
+     * 设置读取超时时间
+     * 
+     * @param int $ms 超时时间（毫秒），0 表示无限等待
+     * @return TcpConnection 返回自身用于链式调用
+     */
+    public function setReadTimeout(int $ms): TcpConnection {
+        if ($this->connId >= 0) {
+            native_tcp_set_read_timeout($this->connId, $ms);
+        }
+        return $this;
+    }
+    
+    /**
+     * 设置写入超时时间
+     * 
+     * @param int $ms 超时时间（毫秒），0 表示无限等待
+     * @return TcpConnection 返回自身用于链式调用
+     */
+    public function setWriteTimeout(int $ms): TcpConnection {
+        if ($this->connId >= 0) {
+            native_tcp_set_write_timeout($this->connId, $ms);
+        }
+        return $this;
+    }
+    
+    /**
+     * 设置通用超时
+     * 
+     * @param int $seconds 超时时间（秒）
+     * @return bool 是否成功
+     */
+    public function setTimeout(int $seconds): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_set_timeout($this->connId, $seconds);
+    }
+    
+    /**
+     * 清除所有超时设置
+     * 
+     * @return bool 是否成功
+     */
+    public function clearTimeout(): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_clear_timeout($this->connId);
+    }
+    
+    // ========================================================================
+    // Socket 选项配置
+    // ========================================================================
+    
+    /**
+     * 设置 KeepAlive
+     * 
+     * @param bool $enabled 是否启用
+     * @param int $intervalSeconds KeepAlive 间隔（秒）
+     * @return TcpConnection 返回自身用于链式调用
+     */
+    public function setKeepAlive(bool $enabled, int $intervalSeconds = 0): TcpConnection {
+        if ($this->connId >= 0) {
+            native_tcp_set_keepalive($this->connId, $enabled, $intervalSeconds);
+        }
+        return $this;
+    }
+    
+    /**
+     * 设置 NoDelay（禁用 Nagle 算法）
+     * 
+     * @param bool $enabled 是否启用
+     * @return TcpConnection 返回自身用于链式调用
+     */
+    public function setNoDelay(bool $enabled): TcpConnection {
+        if ($this->connId >= 0) {
+            native_tcp_set_nodelay($this->connId, $enabled);
+        }
+        return $this;
+    }
+    
+    /**
+     * 设置 Linger 选项
+     * 
+     * @param int $seconds 等待时间（秒），-1 表示禁用
+     * @return bool 是否成功
+     */
+    public function setLinger(int $seconds): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_set_linger($this->connId, $seconds);
+    }
+    
+    /**
+     * 设置发送缓冲区大小
+     * 
+     * @param int $size 缓冲区大小（字节）
+     * @return bool 是否成功
+     */
+    public function setSendBufferSize(int $size): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_set_write_buffer($this->connId, $size);
+    }
+    
+    /**
+     * 设置接收缓冲区大小
+     * 
+     * @param int $size 缓冲区大小（字节）
+     * @return bool 是否成功
+     */
+    public function setReceiveBufferSize(int $size): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        return native_tcp_set_read_buffer($this->connId, $size);
+    }
+    
+    // ========================================================================
+    // 地址信息
+    // ========================================================================
+    
+    /**
+     * 获取远程主机地址（客户端地址）
+     * 
+     * @return string 主机地址
+     */
+    public function getRemoteHost(): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_get_remote_host($this->connId);
+    }
+    
+    /**
+     * 获取远程端口（客户端端口）
+     * 
+     * @return int 端口号
+     */
+    public function getRemotePort(): int {
+        if ($this->connId < 0) {
+            return 0;
+        }
+        return native_tcp_get_remote_port($this->connId);
+    }
+    
+    /**
+     * 获取远程完整地址
+     * 
+     * @return string 完整地址（host:port）
+     */
+    public function getRemoteAddress(): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_get_remote_addr($this->connId);
+    }
+    
+    /**
+     * 获取本地主机地址（服务端地址）
+     * 
+     * @return string 主机地址
+     */
+    public function getLocalHost(): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_get_local_host($this->connId);
+    }
+    
+    /**
+     * 获取本地端口（服务端端口）
+     * 
+     * @return int 端口号
+     */
+    public function getLocalPort(): int {
+        if ($this->connId < 0) {
+            return 0;
+        }
+        return native_tcp_get_local_port($this->connId);
+    }
+    
+    /**
+     * 获取本地完整地址
+     * 
+     * @return string 完整地址（host:port）
+     */
+    public function getLocalAddress(): string {
+        if ($this->connId < 0) {
+            return "";
+        }
+        return native_tcp_get_local_addr($this->connId);
+    }
+}
+

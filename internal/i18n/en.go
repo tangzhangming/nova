@@ -51,6 +51,7 @@ var messagesEN = map[string]string{
 	ErrCompoundAssignIndex:  "compound assignment to array element not yet supported",
 	ErrInvalidStaticAccessC: "invalid static access",
 	ErrInvalidBinaryOp:      "operator '%s' cannot be applied to %s and %s",
+	ErrNativeFuncRestricted: "native function '%s' can only be called from standard library (sola.*)",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

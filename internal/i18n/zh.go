@@ -51,6 +51,7 @@ var messagesZH = map[string]string{
 	ErrCompoundAssignIndex:  "暂不支持数组元素的复合赋值",
 	ErrInvalidStaticAccessC: "无效的静态访问",
 	ErrInvalidBinaryOp:      "运算符 '%s' 不能用于 %s 和 %s 类型",
+	ErrNativeFuncRestricted: "原生函数 '%s' 只能在标准库 (sola.*) 中调用",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",

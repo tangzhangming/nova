@@ -368,13 +368,27 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_tcp_get_remote_port"] = nativeTcpGetRemotePort
 	r.builtins["native_tcp_is_tls"] = nativeTcpIsTLS
 
-	// Native TLS 函数 - SSL/TLS支持
+	// Native TLS 函数 - SSL/TLS客户端支持
 	r.builtins["native_tls_connect"] = nativeTlsConnect
 	r.builtins["native_tls_connect_insecure"] = nativeTlsConnectInsecure
 	r.builtins["native_tls_upgrade"] = nativeTlsUpgrade
 	r.builtins["native_tls_get_version"] = nativeTlsGetVersion
 	r.builtins["native_tls_get_cipher_suite"] = nativeTlsGetCipherSuite
 	r.builtins["native_tls_get_server_name"] = nativeTlsGetServerName
+
+	// Native TCP 函数 - 服务端监听
+	r.builtins["native_tcp_listen"] = nativeTcpListen
+	r.builtins["native_tcp_accept"] = nativeTcpAccept
+	r.builtins["native_tcp_accept_timeout"] = nativeTcpAcceptTimeout
+	r.builtins["native_tcp_stop_listen"] = nativeTcpStopListen
+	r.builtins["native_tcp_listener_addr"] = nativeTcpListenerAddr
+	r.builtins["native_tcp_listener_host"] = nativeTcpListenerHost
+	r.builtins["native_tcp_listener_port"] = nativeTcpListenerPort
+	r.builtins["native_tcp_listener_is_listening"] = nativeTcpListenerIsListening
+
+	// Native TLS 函数 - SSL/TLS服务端支持
+	r.builtins["native_tls_listen"] = nativeTlsListen
+	r.builtins["native_tls_listener_is_tls"] = nativeTlsListenerIsTLS
 
 	// Native 文件操作函数 (仅供标准库使用)
 	r.builtins["native_file_read"] = nativeFileRead
