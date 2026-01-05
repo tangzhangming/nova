@@ -404,6 +404,28 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_time_weekday"] = nativeTimeWeekday
 	r.builtins["native_time_make"] = nativeTimeMake
 
+	// Native Base64 函数 (仅供标准库使用)
+	r.builtins["native_base64_encode"] = nativeBase64Encode
+	r.builtins["native_base64_decode"] = nativeBase64Decode
+	r.builtins["native_base64_encode_url_safe"] = nativeBase64EncodeURLSafe
+	r.builtins["native_base64_decode_url_safe"] = nativeBase64DecodeURLSafe
+	r.builtins["native_base64_encode_raw"] = nativeBase64EncodeRaw
+	r.builtins["native_base64_decode_raw"] = nativeBase64DecodeRaw
+	r.builtins["native_base64_encode_raw_url_safe"] = nativeBase64EncodeRawURLSafe
+	r.builtins["native_base64_decode_raw_url_safe"] = nativeBase64DecodeRawURLSafe
+	r.builtins["native_base64_decode_strict"] = nativeBase64DecodeStrict
+	r.builtins["native_base64_decode_strict_url_safe"] = nativeBase64DecodeStrictURLSafe
+	r.builtins["native_base64_decode_strict_raw"] = nativeBase64DecodeStrictRaw
+	r.builtins["native_base64_decode_strict_raw_url_safe"] = nativeBase64DecodeStrictRawURLSafe
+	r.builtins["native_base64_encoded_len"] = nativeBase64EncodedLen
+	r.builtins["native_base64_decoded_len"] = nativeBase64DecodedLen
+	r.builtins["native_base64_encoded_len_raw"] = nativeBase64EncodedLenRaw
+	r.builtins["native_base64_decoded_len_raw"] = nativeBase64DecodedLenRaw
+	r.builtins["native_base64_is_valid"] = nativeBase64IsValid
+	r.builtins["native_base64_is_valid_url_safe"] = nativeBase64IsValidURLSafe
+	r.builtins["native_base64_is_valid_raw"] = nativeBase64IsValidRaw
+	r.builtins["native_base64_is_valid_raw_url_safe"] = nativeBase64IsValidRawURLSafe
+
 	// 测试用：抛出原生异常的函数
 	r.builtins["native_throw"] = func(args []bytecode.Value) bytecode.Value {
 		msg := "Native exception"

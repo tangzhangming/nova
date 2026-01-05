@@ -1316,12 +1316,19 @@ func (vm *VM) throwRuntimeException(message string) InterpretResult {
 
 // throwTypedException 抛出指定类型的异常（可被 try-catch 捕获）
 // typeName: 异常类型名（如 "DivideByZeroException", "ArrayIndexOutOfBoundsException"）
-// 会按顺序尝试: 指定类型 -> RuntimeException -> Exception -> 简单异常
+// 会按顺序尝试: 指定类型（完整名称和简单名称）-> RuntimeException -> Exception -> 简单异常
 func (vm *VM) throwTypedException(typeName string, message string) InterpretResult {
 	var exception bytecode.Value
 	
 	// 尝试按优先级查找异常类
-	classNames := []string{typeName, "RuntimeException", "Exception"}
+	// 首先尝试完整命名空间名称（sola.lang.类名），然后尝试简单类名
+	var classNames []string
+	if typeName != "RuntimeException" && typeName != "Exception" {
+		// 对于标准库异常，尝试完整命名空间名称
+		classNames = []string{"sola.lang." + typeName, typeName, "sola.lang.RuntimeException", "RuntimeException", "sola.lang.Exception", "Exception"}
+	} else {
+		classNames = []string{"sola.lang." + typeName, typeName, "sola.lang.Exception", "Exception"}
+	}
 	var foundClass *bytecode.Class
 	var foundTypeName string
 	

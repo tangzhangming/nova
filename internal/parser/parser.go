@@ -1326,7 +1326,11 @@ func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 	foreachToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'foreach'")
 
-	iterable := p.parseExpression()
+	// 解析 iterable 表达式，但使用 PREC_CAST 优先级，避免把 as 当作类型转换
+	// 使用 PREC_CAST 而不是 PREC_CAST - 1，因为 parsePrecedence 的条件是 precedence <= getPrecedence(token)
+	// 所以使用 PREC_CAST 时，遇到 as token 会停止（因为 PREC_CAST <= PREC_CAST 是 true，但我们需要停止）
+	// 实际上应该使用 PREC_CAST + 1，这样遇到 as 时会停止
+	iterable := p.parsePrecedence(PREC_CAST + 1)
 	asToken := p.consume(token.AS, "expected 'as'")
 
 	var key *ast.Variable

@@ -1,0 +1,334 @@
+// Sola 标准库 - Base64 编码解码
+namespace sola.util
+
+/**
+ * Base64 编码解码工具类
+ * 
+ * 提供标准 Base64 和 URL 安全 Base64 的编码解码功能，
+ * 支持带填充和无填充模式，以及严格模式解码。
+ * 
+ * 编码变体说明：
+ * - Standard (标准): 使用 A-Z, a-z, 0-9, +, / 字符集，带 = 填充
+ * - URL Safe (URL安全): 使用 A-Z, a-z, 0-9, -, _ 字符集，带 = 填充
+ * - Raw (无填充): 不使用 = 填充字符
+ * - Strict (严格模式): 解码时严格验证输入格式
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.util.Base64;
+ * 
+ * // 标准编码
+ * $encoded := Base64::encodeToString("Hello, World!");
+ * $decoded := Base64::decodeString($encoded);
+ * 
+ * // URL 安全编码（用于 JWT 等）
+ * $urlSafe := Base64::encodeToStringURLSafe($data);
+ * ```
+ */
+public class Base64 {
+
+    // ========================================================================
+    // 标准 Base64 编码（带填充）
+    // ========================================================================
+
+    /**
+     * 将数据编码为标准 Base64 字符串（带填充）
+     * 
+     * 使用标准 Base64 字符集 (A-Z, a-z, 0-9, +, /)，
+     * 输出带有填充字符 '='。
+     * 
+     * @param string $data 要编码的原始数据
+     * @return string Base64 编码后的字符串
+     */
+    public static function encodeToString(string $data): string {
+        return native_base64_encode($data);
+    }
+
+    /**
+     * 将标准 Base64 字符串解码为原始数据
+     * 
+     * @param string $encoded Base64 编码的字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不是有效的 Base64 编码
+     */
+    public static function decodeString(string $encoded): string {
+        return native_base64_decode($encoded);
+    }
+
+    // ========================================================================
+    // URL 安全 Base64 编码（带填充）
+    // ========================================================================
+
+    /**
+     * 将数据编码为 URL 安全的 Base64 字符串（带填充）
+     * 
+     * 使用 URL 安全字符集 (A-Z, a-z, 0-9, -, _)，
+     * 将标准 Base64 中的 '+' 替换为 '-'，'/' 替换为 '_'。
+     * 适用于 URL、文件名、Cookie 等场景。
+     * 
+     * @param string $data 要编码的原始数据
+     * @return string URL 安全的 Base64 编码字符串
+     */
+    public static function encodeToStringURLSafe(string $data): string {
+        return native_base64_encode_url_safe($data);
+    }
+
+    /**
+     * 将 URL 安全的 Base64 字符串解码为原始数据
+     * 
+     * @param string $encoded URL 安全的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不是有效的 URL 安全 Base64 编码
+     */
+    public static function decodeStringURLSafe(string $encoded): string {
+        return native_base64_decode_url_safe($encoded);
+    }
+
+    // ========================================================================
+    // 标准 Base64 编码（无填充）
+    // ========================================================================
+
+    /**
+     * 将数据编码为标准 Base64 字符串（无填充）
+     * 
+     * 与 encodeToString 相同，但不添加填充字符 '='。
+     * 
+     * @param string $data 要编码的原始数据
+     * @return string 无填充的 Base64 编码字符串
+     */
+    public static function encodeToStringRaw(string $data): string {
+        return native_base64_encode_raw($data);
+    }
+
+    /**
+     * 将无填充的标准 Base64 字符串解码为原始数据
+     * 
+     * @param string $encoded 无填充的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不是有效的 Base64 编码
+     */
+    public static function decodeStringRaw(string $encoded): string {
+        return native_base64_decode_raw($encoded);
+    }
+
+    // ========================================================================
+    // URL 安全 Base64 编码（无填充）
+    // ========================================================================
+
+    /**
+     * 将数据编码为 URL 安全的 Base64 字符串（无填充）
+     * 
+     * 适用于 JWT 等需要 URL 安全且无填充的场景。
+     * 
+     * @param string $data 要编码的原始数据
+     * @return string URL 安全且无填充的 Base64 编码字符串
+     */
+    public static function encodeToStringRawURLSafe(string $data): string {
+        return native_base64_encode_raw_url_safe($data);
+    }
+
+    /**
+     * 将 URL 安全且无填充的 Base64 字符串解码为原始数据
+     * 
+     * @param string $encoded URL 安全且无填充的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不是有效的 URL 安全 Base64 编码
+     */
+    public static function decodeStringRawURLSafe(string $encoded): string {
+        return native_base64_decode_raw_url_safe($encoded);
+    }
+
+    // ========================================================================
+    // 严格模式解码
+    // ========================================================================
+
+    /**
+     * 严格模式解码标准 Base64 字符串
+     * 
+     * 严格模式下，解码器会验证输入是否严格符合 Base64 规范：
+     * - 不允许多余的空白字符
+     * - 填充字符必须正确
+     * - 长度必须是 4 的倍数（带填充时）
+     * 
+     * @param string $encoded Base64 编码的字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不符合严格的 Base64 规范
+     */
+    public static function decodeStringStrict(string $encoded): string {
+        return native_base64_decode_strict($encoded);
+    }
+
+    /**
+     * 严格模式解码 URL 安全 Base64 字符串
+     * 
+     * @param string $encoded URL 安全的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不符合严格的 URL 安全 Base64 规范
+     */
+    public static function decodeStringStrictURLSafe(string $encoded): string {
+        return native_base64_decode_strict_url_safe($encoded);
+    }
+
+    /**
+     * 严格模式解码无填充的标准 Base64 字符串
+     * 
+     * @param string $encoded 无填充的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不符合严格的 Base64 规范
+     */
+    public static function decodeStringStrictRaw(string $encoded): string {
+        return native_base64_decode_strict_raw($encoded);
+    }
+
+    /**
+     * 严格模式解码 URL 安全且无填充的 Base64 字符串
+     * 
+     * @param string $encoded URL 安全且无填充的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不符合严格的 URL 安全 Base64 规范
+     */
+    public static function decodeStringStrictRawURLSafe(string $encoded): string {
+        return native_base64_decode_strict_raw_url_safe($encoded);
+    }
+
+    // ========================================================================
+    // 长度计算
+    // ========================================================================
+
+    /**
+     * 计算编码后的长度（带填充）
+     * 
+     * 根据输入数据的字节长度，计算 Base64 编码后的字符串长度。
+     * 公式：(n + 2) / 3 * 4
+     * 
+     * @param int $inputLength 输入数据的字节长度
+     * @return int 编码后的字符串长度
+     */
+    public static function encodedLen(int $inputLength): int {
+        return native_base64_encoded_len($inputLength);
+    }
+
+    /**
+     * 计算解码后的最大长度（带填充）
+     * 
+     * 根据 Base64 编码字符串的长度，计算解码后数据的最大字节长度。
+     * 注意：实际解码长度可能更小（因为填充字符的存在）。
+     * 
+     * @param int $encodedLength 编码字符串的长度
+     * @return int 解码后数据的最大字节长度
+     */
+    public static function decodedLen(int $encodedLength): int {
+        return native_base64_decoded_len($encodedLength);
+    }
+
+    /**
+     * 计算无填充编码后的长度
+     * 
+     * @param int $inputLength 输入数据的字节长度
+     * @return int 无填充编码后的字符串长度
+     */
+    public static function encodedLenRaw(int $inputLength): int {
+        return native_base64_encoded_len_raw($inputLength);
+    }
+
+    /**
+     * 计算无填充解码后的长度
+     * 
+     * @param int $encodedLength 无填充编码字符串的长度
+     * @return int 解码后数据的字节长度
+     */
+    public static function decodedLenRaw(int $encodedLength): int {
+        return native_base64_decoded_len_raw($encodedLength);
+    }
+
+    // ========================================================================
+    // 验证方法
+    // ========================================================================
+
+    /**
+     * 检查字符串是否是有效的标准 Base64 编码
+     * 
+     * @param string $encoded 要验证的字符串
+     * @return bool 如果是有效的 Base64 编码返回 true，否则返回 false
+     */
+    public static function isValid(string $encoded): bool {
+        return native_base64_is_valid($encoded);
+    }
+
+    /**
+     * 检查字符串是否是有效的 URL 安全 Base64 编码
+     * 
+     * @param string $encoded 要验证的字符串
+     * @return bool 如果是有效的 URL 安全 Base64 编码返回 true，否则返回 false
+     */
+    public static function isValidURLSafe(string $encoded): bool {
+        return native_base64_is_valid_url_safe($encoded);
+    }
+
+    /**
+     * 检查字符串是否是有效的无填充标准 Base64 编码
+     * 
+     * @param string $encoded 要验证的字符串
+     * @return bool 如果是有效的无填充 Base64 编码返回 true，否则返回 false
+     */
+    public static function isValidRaw(string $encoded): bool {
+        return native_base64_is_valid_raw($encoded);
+    }
+
+    /**
+     * 检查字符串是否是有效的无填充 URL 安全 Base64 编码
+     * 
+     * @param string $encoded 要验证的字符串
+     * @return bool 如果是有效的无填充 URL 安全 Base64 编码返回 true，否则返回 false
+     */
+    public static function isValidRawURLSafe(string $encoded): bool {
+        return native_base64_is_valid_raw_url_safe($encoded);
+    }
+
+    // ========================================================================
+    // 便捷别名方法
+    // ========================================================================
+
+    /**
+     * encode 的别名方法
+     * 
+     * @param string $data 要编码的原始数据
+     * @return string Base64 编码后的字符串
+     */
+    public static function encode(string $data): string {
+        return native_base64_encode($data);
+    }
+
+    /**
+     * decode 的别名方法
+     * 
+     * @param string $encoded Base64 编码的字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不是有效的 Base64 编码
+     */
+    public static function decode(string $encoded): string {
+        return native_base64_decode($encoded);
+    }
+
+    /**
+     * URL 安全编码的简短别名
+     * 
+     * @param string $data 要编码的原始数据
+     * @return string URL 安全的 Base64 编码字符串
+     */
+    public static function encodeURL(string $data): string {
+        return native_base64_encode_url_safe($data);
+    }
+
+    /**
+     * URL 安全解码的简短别名
+     * 
+     * @param string $encoded URL 安全的 Base64 编码字符串
+     * @return string 解码后的原始数据
+     * @throws FormatException 如果输入不是有效的 URL 安全 Base64 编码
+     */
+    public static function decodeURL(string $encoded): string {
+        return native_base64_decode_url_safe($encoded);
+    }
+}
+
