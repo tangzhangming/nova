@@ -116,6 +116,9 @@ func toByteVisibility(v ast.Visibility) bytecode.Visibility {
 
 // compileMethod 编译方法
 func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *bytecode.Method {
+	// 更新当前行号
+	c.currentLine = decl.Pos().Line
+	
 	// 计算最小参数数量（考虑默认参数）
 	minArity := len(decl.Parameters)
 	for i, param := range decl.Parameters {
@@ -126,6 +129,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 
 	method := &bytecode.Method{
 		Name:        decl.Name.Name,
+		SourceFile:  c.sourceFile, // 继承源文件信息
 		Arity:       len(decl.Parameters),
 		MinArity:    minArity,
 		IsStatic:    decl.Static,
@@ -159,9 +163,10 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 
 	// 创建方法的编译环境
 	c.function = &bytecode.Function{
-		Name:  decl.Name.Name,
-		Arity: len(decl.Parameters),
-		Chunk: method.Chunk,
+		Name:       decl.Name.Name,
+		Arity:      len(decl.Parameters),
+		Chunk:      method.Chunk,
+		SourceFile: c.sourceFile, // 继承源文件信息
 	}
 	c.locals = make([]Local, 256)
 	c.localCount = 0

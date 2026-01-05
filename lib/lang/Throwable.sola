@@ -2,12 +2,15 @@ namespace sola.lang
 
 /**
  * 所有错误和异常的基类
+ * 提供类似 Java/C# 的完整异常信息支持
  */
 public class Throwable {
     protected string $message = "";
     protected int $code = 0;
     protected ?Throwable $previous = null;
     protected array $stackTrace = [];
+    protected string $file = "";
+    protected int $line = 0;
 
     public function __construct(string $message = "", int $code = 0, ?Throwable $previous = null) {
         $this->message = $message;
@@ -15,23 +18,82 @@ public class Throwable {
         $this->previous = $previous;
     }
 
+    /**
+     * 获取异常消息
+     */
     public function getMessage(): string {
         return $this->message;
     }
 
+    /**
+     * 获取异常代码
+     */
     public function getCode(): int {
         return $this->code;
     }
 
+    /**
+     * 获取导致此异常的前一个异常
+     */
     public function getPrevious(): ?Throwable {
         return $this->previous;
     }
 
+    /**
+     * 获取异常抛出的文件路径
+     */
+    public function getFile(): string {
+        return $this->file;
+    }
+
+    /**
+     * 获取异常抛出的行号
+     */
+    public function getLine(): int {
+        return $this->line;
+    }
+
+    /**
+     * 获取堆栈跟踪数组
+     * 每个元素是一个格式化的堆栈帧字符串
+     */
     public function getStackTrace(): array {
         return $this->stackTrace;
     }
 
+    /**
+     * 获取格式化的堆栈跟踪字符串
+     */
+    public function getTraceAsString(): string {
+        string $result = "";
+        int $i = 0;
+        foreach ($this->stackTrace as $frame) {
+            if ($i > 0) {
+                $result = $result + "\n";
+            }
+            $result = $result + "    " + $frame;
+            $i = $i + 1;
+        }
+        return $result;
+    }
+
+    /**
+     * 转换为字符串表示
+     * 返回完整的异常信息，包括类型、消息和堆栈跟踪
+     */
     public function __toString(): string {
-        return $this->message;
+        string $result = $this->message;
+        
+        // 添加堆栈跟踪
+        if ($this->stackTrace.length > 0) {
+            $result = $result + "\n" + $this->getTraceAsString();
+        }
+        
+        // 添加异常链
+        if ($this->previous != null) {
+            $result = $result + "\nCaused by: " + $this->previous->__toString();
+        }
+        
+        return $result;
     }
 }

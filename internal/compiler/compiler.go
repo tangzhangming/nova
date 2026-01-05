@@ -37,6 +37,10 @@ type Compiler struct {
 	// 类型检查
 	globalTypes map[string]string // 全局变量类型表
 
+	// 源文件信息
+	sourceFile  string // 当前编译的源文件路径
+	currentLine int    // 当前编译的行号
+
 	errors []Error
 }
 
@@ -82,6 +86,10 @@ func (c *Compiler) Enums() map[string]*bytecode.Enum {
 
 // Compile 编译 AST
 func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
+	// 设置源文件信息
+	c.sourceFile = file.Filename
+	c.function.SourceFile = file.Filename
+	
 	// 预留 slot 0 给调用者（与 CompileFunction 保持一致）
 	c.addLocal("")
 
@@ -125,6 +133,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	// 创建新函数
 	c.function = bytecode.NewFunction(name)
 	c.function.Arity = len(params)
+	c.function.SourceFile = c.sourceFile // 继承源文件信息
 	c.locals = make([]Local, 256)
 	c.localCount = 0
 	c.scopeDepth = 0
@@ -257,6 +266,7 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 	c.function = bytecode.NewFunction(name)
 	c.function.Arity = len(params)
 	c.function.UpvalueCount = len(useVars)
+	c.function.SourceFile = c.sourceFile // 继承源文件信息
 	c.locals = make([]Local, 256)
 	c.localCount = 0
 	c.scopeDepth = 0
@@ -356,6 +366,9 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 // ============================================================================
 
 func (c *Compiler) compileStmt(stmt ast.Statement) {
+	// 更新当前行号
+	c.currentLine = stmt.Pos().Line
+	
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
 		c.compileExpr(s.Expr)
@@ -453,16 +466,16 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 				}
 				// 创建定长数组
 				c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
-				c.currentChunk().WriteU16(uint16(len(arr.Elements)), 0)
+				c.currentChunk().WriteU16(uint16(len(arr.Elements)), c.currentLine)
 			} else {
 				// 非数组字面量初始化，创建空定长数组
 				c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
-				c.currentChunk().WriteU16(0, 0)
+				c.currentChunk().WriteU16(0, c.currentLine)
 			}
 		} else {
 			// 无初始值，创建空定长数组
 			c.emitU16(bytecode.OpNewFixedArray, uint16(capacity))
-			c.currentChunk().WriteU16(0, 0)
+			c.currentChunk().WriteU16(0, c.currentLine)
 		}
 	} else {
 		// 普通变量或动态数组
@@ -850,16 +863,16 @@ func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 	enterTryPos := c.currentChunk().Len() // OpEnterTry 之后的位置（用于定位参数）
 	
 	// 写入 catch 数量
-	c.currentChunk().WriteU8(uint8(catchCount), 0)
+	c.currentChunk().WriteU8(uint8(catchCount), c.currentLine)
 	
 	// finally 偏移量占位
-	c.currentChunk().WriteI16(0, 0)
+	c.currentChunk().WriteI16(0, c.currentLine)
 	
 	// 为每个 catch 处理器预留空间 (typeIdx: u16, catchOffset: i16)
 	catchHandlerPos := c.currentChunk().Len()
 	for i := 0; i < catchCount; i++ {
-		c.currentChunk().WriteU16(0, 0) // typeIdx 占位
-		c.currentChunk().WriteI16(0, 0) // catchOffset 占位
+		c.currentChunk().WriteU16(0, c.currentLine) // typeIdx 占位
+		c.currentChunk().WriteI16(0, c.currentLine) // catchOffset 占位
 	}
 	
 	// 编译 try 块
@@ -967,6 +980,9 @@ func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 // ============================================================================
 
 func (c *Compiler) compileExpr(expr ast.Expression) {
+	// 更新当前行号
+	c.currentLine = expr.Pos().Line
+	
 	switch e := expr.(type) {
 	case *ast.IntegerLiteral:
 		c.emitConstant(bytecode.NewInt(e.Value))
@@ -1313,7 +1329,7 @@ func (c *Compiler) compileAssignTarget(target ast.Expression) {
 		if v, ok := t.Member.(*ast.Variable); ok {
 			nameIdx := c.makeConstant(bytecode.NewString(v.Name))
 			c.emitU16(bytecode.OpSetStatic, classIdx)
-			c.currentChunk().WriteU16(nameIdx, 0)
+			c.currentChunk().WriteU16(nameIdx, c.currentLine)
 		}
 	}
 }
@@ -1392,7 +1408,7 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 	}
 	idx := c.makeConstant(bytecode.NewString(e.Method.Name))
 	c.emitU16(bytecode.OpCallMethod, idx)
-	c.currentChunk().WriteU8(byte(len(e.Arguments)), 0) // 参数数量
+	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine) // 参数数量
 }
 
 func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
@@ -1418,13 +1434,13 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 		// 静态属性访问: Class::$prop
 		nameIdx := c.makeConstant(bytecode.NewString(member.Name))
 		c.emitU16(bytecode.OpGetStatic, classIdx)
-		c.currentChunk().WriteU16(nameIdx, 0)
+		c.currentChunk().WriteU16(nameIdx, c.currentLine)
 		
 	case *ast.Identifier:
 		// 类常量访问: Class::CONST
 		nameIdx := c.makeConstant(bytecode.NewString(member.Name))
 		c.emitU16(bytecode.OpGetStatic, classIdx)
-		c.currentChunk().WriteU16(nameIdx, 0)
+		c.currentChunk().WriteU16(nameIdx, c.currentLine)
 		
 	case *ast.CallExpr:
 		// 静态方法调用: Class::method()
@@ -1435,8 +1451,8 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 				c.compileExpr(arg)
 			}
 			c.emitU16(bytecode.OpCallStatic, classIdx)
-			c.currentChunk().WriteU16(nameIdx, 0)
-			c.currentChunk().WriteU8(byte(len(member.Arguments)), 0)
+			c.currentChunk().WriteU16(nameIdx, c.currentLine)
+			c.currentChunk().WriteU8(byte(len(member.Arguments)), c.currentLine)
 		}
 	default:
 		c.error(e.Pos(), i18n.T(i18n.ErrInvalidStaticMember))
@@ -1453,7 +1469,7 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 	}
 	constructorIdx := c.makeConstant(bytecode.NewString("__construct"))
 	c.emitU16(bytecode.OpCallMethod, constructorIdx)
-	c.currentChunk().WriteU8(byte(len(e.Arguments)), 0) // 参数数量
+	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine) // 参数数量
 }
 
 func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) {
@@ -1619,17 +1635,17 @@ func (c *Compiler) currentChunk() *bytecode.Chunk {
 }
 
 func (c *Compiler) emit(op bytecode.OpCode) {
-	c.currentChunk().WriteOp(op, 0) // TODO: 行号
+	c.currentChunk().WriteOp(op, c.currentLine)
 }
 
 func (c *Compiler) emitByte(op bytecode.OpCode, b byte) {
 	c.emit(op)
-	c.currentChunk().WriteU8(b, 0)
+	c.currentChunk().WriteU8(b, c.currentLine)
 }
 
 func (c *Compiler) emitU16(op bytecode.OpCode, v uint16) {
 	c.emit(op)
-	c.currentChunk().WriteU16(v, 0)
+	c.currentChunk().WriteU16(v, c.currentLine)
 }
 
 func (c *Compiler) emitConstant(value bytecode.Value) {
@@ -1643,7 +1659,7 @@ func (c *Compiler) makeConstant(value bytecode.Value) uint16 {
 
 func (c *Compiler) emitJump(op bytecode.OpCode) int {
 	c.emit(op)
-	c.currentChunk().WriteU16(0xFFFF, 0) // 占位
+	c.currentChunk().WriteU16(0xFFFF, c.currentLine) // 占位
 	return c.currentChunk().Len() - 2
 }
 
@@ -1654,7 +1670,7 @@ func (c *Compiler) patchJump(offset int) {
 func (c *Compiler) emitLoop(loopStart int) {
 	c.emit(bytecode.OpLoop)
 	offset := c.currentChunk().Len() - loopStart + 2
-	c.currentChunk().WriteU16(uint16(offset), 0)
+	c.currentChunk().WriteU16(uint16(offset), c.currentLine)
 }
 
 func (c *Compiler) error(pos token.Position, message string, args ...interface{}) {

@@ -173,7 +173,10 @@ func cmdRun(args []string) {
 	// 正常运行
 	r := runtime.New()
 	if err := r.Run(string(source), filename); err != nil {
-		fmt.Fprintf(os.Stderr, m.ErrRuntime+"\n", err)
+		// 如果有非空错误消息则打印（VM 的异常信息已经打印过了）
+		if err.Error() != "" {
+			fmt.Fprintf(os.Stderr, m.ErrRuntime+"\n", err)
+		}
 		os.Exit(1)
 	}
 }

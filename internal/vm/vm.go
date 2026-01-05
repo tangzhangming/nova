@@ -648,6 +648,7 @@ func (vm *VM) execute() InterpretResult {
 			closure := &bytecode.Closure{
 				Function: &bytecode.Function{
 					Name:       method.Name,
+					SourceFile: method.SourceFile,
 					Arity:      method.Arity,
 					MinArity:   method.Arity, // 静态方法暂不支持默认参数
 					Chunk:      method.Chunk,
@@ -957,10 +958,13 @@ func (vm *VM) execute() InterpretResult {
 			}
 			
 			// 捕获调用栈信息
-			if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
-				exc.Stack = vm.captureStackTrace()
+			if exc := exception.AsException(); exc != nil && len(exc.StackFrames) == 0 {
+				exc.SetStackFrames(vm.captureStackTrace())
 			}
 			if !vm.handleException(exception) {
+				if exc := exception.AsException(); exc != nil {
+					return vm.runtimeErrorWithException(exc)
+				}
 				return vm.runtimeError("uncaught exception: %s", exception.String())
 			}
 			// 更新 frame 和 chunk 引用
@@ -1049,6 +1053,9 @@ func (vm *VM) execute() InterpretResult {
 					// 如果有挂起的异常，重新抛出
 					if tryCtx.HasPendingExc {
 						if !vm.handleException(tryCtx.PendingException) {
+							if exc := tryCtx.PendingException.AsException(); exc != nil {
+								return vm.runtimeErrorWithException(exc)
+							}
 							return vm.runtimeError("uncaught exception: %s", tryCtx.PendingException.String())
 						}
 						frame = &vm.frames[vm.frameCount-1]
@@ -1078,6 +1085,9 @@ func (vm *VM) execute() InterpretResult {
 			// 重新抛出当前异常
 			if vm.hasException {
 				if !vm.handleException(vm.exception) {
+					if exc := vm.exception.AsException(); exc != nil {
+						return vm.runtimeErrorWithException(exc)
+					}
 					return vm.runtimeError("uncaught exception: %s", vm.exception.String())
 				}
 				frame = &vm.frames[vm.frameCount-1]
@@ -1128,8 +1138,8 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 	vm.hasException = true
 	
 	// 为异常添加调用栈信息
-	if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
-		exc.Stack = vm.captureStackTrace()
+	if exc := exception.AsException(); exc != nil && len(exc.StackFrames) == 0 {
+		exc.SetStackFrames(vm.captureStackTrace())
 	}
 	
 	// 获取异常对象用于类型匹配
@@ -1222,8 +1232,8 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 }
 
 // captureStackTrace 捕获当前调用栈信息
-func (vm *VM) captureStackTrace() []string {
-	var stack []string
+func (vm *VM) captureStackTrace() []bytecode.StackFrame {
+	var frames []bytecode.StackFrame
 	for i := vm.frameCount - 1; i >= 0; i-- {
 		frame := &vm.frames[i]
 		fn := frame.Closure.Function
@@ -1231,9 +1241,13 @@ func (vm *VM) captureStackTrace() []string {
 		if frame.IP > 0 && frame.IP-1 < len(fn.Chunk.Lines) {
 			line = fn.Chunk.Lines[frame.IP-1]
 		}
-		stack = append(stack, fmt.Sprintf("%s (line %d)", fn.Name, line))
+		frames = append(frames, bytecode.StackFrame{
+			FunctionName: fn.Name,
+			FileName:     fn.SourceFile,
+			LineNumber:   line,
+		})
 	}
-	return stack
+	return frames
 }
 
 // exceptionMatchesType 检查异常是否匹配指定类型
@@ -1305,8 +1319,8 @@ func (vm *VM) throwRuntimeException(message string) InterpretResult {
 		exception = bytecode.NewException("RuntimeException", message, 0)
 	}
 	
-	if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
-		exc.Stack = vm.captureStackTrace()
+	if exc := exception.AsException(); exc != nil && len(exc.StackFrames) == 0 {
+		exc.SetStackFrames(vm.captureStackTrace())
 	}
 	
 	if vm.handleException(exception) {
@@ -1314,6 +1328,9 @@ func (vm *VM) throwRuntimeException(message string) InterpretResult {
 		return InterpretExceptionHandled
 	}
 	// 未捕获的异常
+	if exc := exception.AsException(); exc != nil {
+		return vm.runtimeErrorWithException(exc)
+	}
 	return vm.runtimeError("uncaught exception: %s", exception.String())
 }
 
@@ -1498,6 +1515,9 @@ func (vm *VM) callBuiltin(fn *bytecode.Function, argCount int) InterpretResult {
 	// 检查返回值是否是异常
 	if result.Type == bytecode.ValException {
 		if !vm.handleException(result) {
+			if exc := result.AsException(); exc != nil {
+				return vm.runtimeErrorWithException(exc)
+			}
 			return vm.runtimeError("uncaught exception: %s", result.String())
 		}
 		return InterpretOK
@@ -1606,6 +1626,7 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
 			Name:          method.Name,
+			SourceFile:    method.SourceFile,
 			Arity:         method.Arity,
 			MinArity:      method.MinArity,
 			Chunk:         method.Chunk,
@@ -1632,18 +1653,70 @@ func (vm *VM) findMethodWithDefaults(class *bytecode.Class, name string, argCoun
 	return nil
 }
 
+// formatException 格式化异常为 Java/C# 风格的输出
+func (vm *VM) formatException(exc *bytecode.Exception) string {
+	var result string
+	
+	// 获取消息
+	message := exc.Message
+	if exc.Object != nil {
+		if msgVal, ok := exc.Object.Fields["message"]; ok {
+			message = msgVal.AsString()
+		}
+	}
+	
+	// 异常类型和消息
+	result = fmt.Sprintf("%s: %s\n", exc.Type, message)
+	
+	// 堆栈跟踪
+	for _, frame := range exc.StackFrames {
+		if frame.ClassName != "" {
+			result += fmt.Sprintf("    at %s.%s (%s:%d)\n", 
+				frame.ClassName, frame.FunctionName, frame.FileName, frame.LineNumber)
+		} else if frame.FileName != "" {
+			result += fmt.Sprintf("    at %s (%s:%d)\n", 
+				frame.FunctionName, frame.FileName, frame.LineNumber)
+		} else {
+			result += fmt.Sprintf("    at %s (line %d)\n", 
+				frame.FunctionName, frame.LineNumber)
+		}
+	}
+	
+	// 异常链
+	if exc.Cause != nil {
+		result += "\nCaused by: " + vm.formatException(exc.Cause)
+	}
+	
+	return result
+}
+
+// runtimeErrorWithException 输出异常错误（Java/C# 风格）
+func (vm *VM) runtimeErrorWithException(exc *bytecode.Exception) InterpretResult {
+	vm.hadError = true
+	vm.errorMessage = exc.Message
+	
+	// 输出格式化的异常信息
+	fmt.Print(vm.formatException(exc))
+	
+	return InterpretRuntimeError
+}
+
 // 运行时错误
 func (vm *VM) runtimeError(format string, args ...interface{}) InterpretResult {
 	vm.hadError = true
 	vm.errorMessage = fmt.Sprintf(format, args...)
 
-	// 打印调用栈
-	fmt.Printf(i18n.T(i18n.ErrRuntimeError, vm.errorMessage) + "\n")
-	for i := vm.frameCount - 1; i >= 0; i-- {
-		frame := &vm.frames[i]
-		fn := frame.Closure.Function
-		line := fn.Chunk.Lines[frame.IP-1]
-		fmt.Printf("  [line %d] in %s\n", line, fn.Name)
+	// 打印错误信息（Java/C# 风格）
+	fmt.Printf("%s\n", vm.errorMessage)
+	
+	// 打印堆栈跟踪
+	frames := vm.captureStackTrace()
+	for _, frame := range frames {
+		if frame.FileName != "" {
+			fmt.Printf("    at %s (%s:%d)\n", frame.FunctionName, frame.FileName, frame.LineNumber)
+		} else {
+			fmt.Printf("    at %s (line %d)\n", frame.FunctionName, frame.LineNumber)
+		}
 	}
 
 	return InterpretRuntimeError

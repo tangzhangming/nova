@@ -105,7 +105,8 @@ func (r *Runtime) Run(source, filename string) error {
 	// 运行
 	result := r.vm.Run(fn)
 	if result != vm.InterpretOK {
-		return fmt.Errorf("runtime error: %s", r.vm.GetError())
+		// VM 已经打印了详细的错误信息，这里返回空错误表示执行失败
+		return fmt.Errorf("")
 	}
 
 	return nil

@@ -33,17 +33,27 @@ type FixedArray struct {
 	Capacity int
 }
 
+// StackFrame 堆栈帧信息（用于堆栈跟踪）
+type StackFrame struct {
+	FunctionName string // 函数/方法名
+	FileName     string // 源文件名
+	LineNumber   int    // 行号
+	ClassName    string // 所属类名（可选，方法调用时有效）
+}
+
 // Exception 异常对象
 // 支持两种模式：
-// 1. 简单异常：只有 Type/Message/Code/Cause/Stack（用于原生异常或字符串异常）
+// 1. 简单异常：只有 Type/Message/Code/Cause/StackFrames（用于原生异常或字符串异常）
 // 2. 对象异常：包含一个 Sola Object（用于 throw new Exception(...) 创建的异常）
 type Exception struct {
-	Type    string     // 异常类型名 (如 "Exception", "RuntimeException")
-	Message string     // 异常消息
-	Code    int64      // 异常代码
-	Cause   *Exception // 链式异常：导致此异常的原因
-	Stack   []string   // 调用栈信息
-	Object  *Object    // 关联的 Sola 对象（如果异常是从类实例化的）
+	Type        string       // 异常类型名 (如 "Exception", "RuntimeException")
+	Message     string       // 异常消息
+	Code        int64        // 异常代码
+	Cause       *Exception   // 链式异常：导致此异常的原因
+	StackFrames []StackFrame // 结构化的调用栈信息
+	Object      *Object      // 关联的 Sola 对象（如果异常是从类实例化的）
+	File        string       // 异常抛出的文件
+	Line        int          // 异常抛出的行号
 }
 
 // NewException 创建异常值
@@ -111,9 +121,38 @@ func (e *Exception) IsObjectException() bool {
 	return e.Object != nil
 }
 
-// SetStack 设置异常的调用栈
-func (e *Exception) SetStack(stack []string) {
-	e.Stack = stack
+// SetStackFrames 设置异常的调用栈
+func (e *Exception) SetStackFrames(frames []StackFrame) {
+	e.StackFrames = frames
+	// 同时设置文件和行号（取第一帧）
+	if len(frames) > 0 {
+		e.File = frames[0].FileName
+		e.Line = frames[0].LineNumber
+	}
+	
+	// 如果有关联的 Sola 对象，同步更新其 stackTrace 字段
+	if e.Object != nil {
+		// 将 StackFrames 转换为 Sola 字符串数组
+		arr := make([]Value, len(frames))
+		for i, f := range frames {
+			var frameStr string
+			if f.ClassName != "" {
+				frameStr = fmt.Sprintf("%s.%s (%s:%d)", f.ClassName, f.FunctionName, f.FileName, f.LineNumber)
+			} else if f.FileName != "" {
+				frameStr = fmt.Sprintf("%s (%s:%d)", f.FunctionName, f.FileName, f.LineNumber)
+			} else {
+				frameStr = fmt.Sprintf("%s (line %d)", f.FunctionName, f.LineNumber)
+			}
+			arr[i] = NewString(frameStr)
+		}
+		e.Object.Fields["stackTrace"] = NewArray(arr)
+		
+		// 同时设置 file 和 line 字段（如果存在）
+		if len(frames) > 0 {
+			e.Object.Fields["file"] = NewString(frames[0].FileName)
+			e.Object.Fields["line"] = NewInt(int64(frames[0].LineNumber))
+		}
+	}
 }
 
 // GetFullMessage 获取包含异常链的完整消息
@@ -135,9 +174,15 @@ func (e *Exception) GetFullMessage() string {
 		}
 		
 		result += fmt.Sprintf("%s: %s", current.Type, message)
-		if len(current.Stack) > 0 {
-			for _, frame := range current.Stack {
-				result += fmt.Sprintf("\n    at %s", frame)
+		if len(current.StackFrames) > 0 {
+			for _, frame := range current.StackFrames {
+				if frame.ClassName != "" {
+					result += fmt.Sprintf("\n    at %s.%s (%s:%d)", 
+						frame.ClassName, frame.FunctionName, frame.FileName, frame.LineNumber)
+				} else {
+					result += fmt.Sprintf("\n    at %s (%s:%d)", 
+						frame.FunctionName, frame.FileName, frame.LineNumber)
+				}
 			}
 		}
 		current = current.Cause
@@ -146,6 +191,24 @@ func (e *Exception) GetFullMessage() string {
 		if depth > 10 {
 			result += "\n... (exception chain too deep)"
 			break
+		}
+	}
+	return result
+}
+
+// GetStackTraceAsString 获取格式化的堆栈跟踪字符串
+func (e *Exception) GetStackTraceAsString() string {
+	var result string
+	for i, frame := range e.StackFrames {
+		if i > 0 {
+			result += "\n"
+		}
+		if frame.ClassName != "" {
+			result += fmt.Sprintf("    at %s.%s (%s:%d)", 
+				frame.ClassName, frame.FunctionName, frame.FileName, frame.LineNumber)
+		} else {
+			result += fmt.Sprintf("    at %s (%s:%d)", 
+				frame.FunctionName, frame.FileName, frame.LineNumber)
 		}
 	}
 	return result
@@ -616,6 +679,7 @@ const (
 
 type Method struct {
 	Name          string
+	SourceFile    string   // 源文件路径
 	Arity         int      // 参数数量
 	MinArity      int      // 最小参数数量（考虑默认参数后）
 	IsStatic      bool
@@ -632,6 +696,7 @@ type BuiltinFn func(args []Value) Value
 
 type Function struct {
 	Name          string
+	SourceFile    string   // 源文件路径
 	Arity         int
 	MinArity      int      // 最小参数数量（考虑默认参数后）
 	Chunk         *Chunk
