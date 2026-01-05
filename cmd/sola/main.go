@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/lexer"
 	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
@@ -26,6 +27,14 @@ func main() {
 
 	// 初始化语言
 	InitLanguage(globalLang)
+
+	// 同步设置内部模块语言
+	switch GetLanguage() {
+	case LangChinese:
+		i18n.SetLanguage(i18n.LangChinese)
+	default:
+		i18n.SetLanguage(i18n.LangEnglish)
+	}
 
 	if len(args) < 1 {
 		printUsage()

@@ -5,6 +5,7 @@ import (
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/token"
 )
 
@@ -409,7 +410,7 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 		c.emit(bytecode.OpThrow)
 
 	default:
-		c.error(stmt.Pos(), "unsupported statement type")
+		c.error(stmt.Pos(), i18n.T(i18n.ErrUnsupportedStmt))
 	}
 }
 
@@ -425,7 +426,7 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 		actualType := c.inferExprType(s.Value)
 		if actualType != "unknown" && declaredType != "unknown" {
 			if !c.isTypeCompatible(actualType, declaredType) {
-				c.error(s.Value.Pos(), "cannot assign %s to variable of type %s", actualType, declaredType)
+				c.error(s.Value.Pos(), i18n.T(i18n.ErrCannotAssign, actualType, declaredType))
 			}
 		}
 	}
@@ -435,7 +436,7 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 		// 获取数组大小（必须是常量整数）
 		capacity := c.evalConstInt(arrType.Size)
 		if capacity < 0 {
-			c.error(arrType.Size.Pos(), "array size must be a non-negative constant")
+			c.error(arrType.Size.Pos(), i18n.T(i18n.ErrArraySizeNegative))
 			return
 		}
 		
@@ -444,7 +445,7 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 			if arr, ok := s.Value.(*ast.ArrayLiteral); ok {
 				// 数组字面量初始化
 				if len(arr.Elements) > capacity {
-					c.error(arr.Pos(), "too many elements in array initializer (max %d, got %d)", capacity, len(arr.Elements))
+					c.error(arr.Pos(), i18n.T(i18n.ErrArrayTooManyElements, capacity, len(arr.Elements)))
 					return
 				}
 				for _, elem := range arr.Elements {
@@ -772,7 +773,7 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 
 func (c *Compiler) compileBreakStmt() {
 	if c.loopDepth == 0 {
-		c.error(token.Position{}, "'break' outside of loop")
+		c.error(token.Position{}, i18n.T(i18n.ErrBreakOutsideLoop))
 		return
 	}
 	jump := c.emitJump(bytecode.OpJump)
@@ -781,7 +782,7 @@ func (c *Compiler) compileBreakStmt() {
 
 func (c *Compiler) compileContinueStmt() {
 	if c.loopDepth == 0 {
-		c.error(token.Position{}, "'continue' outside of loop")
+		c.error(token.Position{}, i18n.T(i18n.ErrContinueOutsideLoop))
 		return
 	}
 	c.emitLoop(c.loopStart)
@@ -796,14 +797,14 @@ func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
 		if c.expectedReturns == 0 {
 			// 预期无返回值 (void 或省略)
 			if actualReturns > 0 {
-				c.error(s.Pos(), "function declared without return type but returns %d value(s)", actualReturns)
+				c.error(s.Pos(), i18n.T(i18n.ErrNoReturnExpected, actualReturns))
 			}
 			c.emit(bytecode.OpReturnNull)
 			return
 		}
 		
 		if c.expectedReturns > 0 && actualReturns != c.expectedReturns {
-			c.error(s.Pos(), "function expects %d return value(s) but got %d", c.expectedReturns, actualReturns)
+			c.error(s.Pos(), i18n.T(i18n.ErrReturnCountMismatch, c.expectedReturns, actualReturns))
 		}
 		
 		// 检查返回值类型
@@ -1036,7 +1037,7 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 		c.compileArrowFuncExpr(e)
 
 	default:
-		c.error(expr.Pos(), "unsupported expression type")
+		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
 	}
 }
 
@@ -1049,7 +1050,7 @@ func (c *Compiler) compileVariable(v *ast.Variable) {
 
 	// 在闭包中不能访问全局变量（必须通过 use 引入）
 	if c.inClosure {
-		c.error(v.Pos(), "undefined variable '$"+v.Name+"' (use 'use' to capture external variables in closures)")
+		c.error(v.Pos(), i18n.T(i18n.ErrUndefinedVariable, v.Name))
 		return
 	}
 
@@ -1196,7 +1197,7 @@ func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
 		if varType != "" && varType != "unknown" {
 			rightType := c.inferExprType(e.Right)
 			if rightType != "unknown" && !c.isTypeCompatible(rightType, varType) {
-				c.error(e.Right.Pos(), "cannot assign %s to variable of type %s", rightType, varType)
+				c.error(e.Right.Pos(), i18n.T(i18n.ErrCannotAssign, rightType, varType))
 			}
 		}
 	}
@@ -1209,7 +1210,7 @@ func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
 		
 		// 复合赋值暂不支持索引操作
 		if e.Operator.Type != token.ASSIGN {
-			c.error(e.Pos(), "compound assignment to array element not yet supported")
+			c.error(e.Pos(), i18n.T(i18n.ErrCompoundAssignIndex))
 			return
 		}
 		
@@ -1383,7 +1384,7 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.ParentExpr:
 		className = "parent" // 特殊处理
 	default:
-		c.error(e.Pos(), "invalid static access")
+		c.error(e.Pos(), i18n.T(i18n.ErrInvalidStaticAccessC))
 		return
 	}
 	
@@ -1416,7 +1417,7 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 			c.currentChunk().WriteU8(byte(len(member.Arguments)), 0)
 		}
 	default:
-		c.error(e.Pos(), "invalid static member")
+		c.error(e.Pos(), i18n.T(i18n.ErrInvalidStaticMember))
 	}
 }
 
@@ -1499,7 +1500,7 @@ func (c *Compiler) declareVariableWithType(name string, typeName string) {
 			break
 		}
 		if local.Name == name {
-			c.error(token.Position{}, "variable already declared in this scope")
+			c.error(token.Position{}, i18n.T(i18n.ErrVariableRedeclared))
 			return
 		}
 	}
@@ -1522,7 +1523,7 @@ func (c *Compiler) addLocal(name string) {
 
 func (c *Compiler) addLocalWithType(name string, typeName string) {
 	if c.localCount >= 256 {
-		c.error(token.Position{}, "too many local variables")
+		c.error(token.Position{}, i18n.T(i18n.ErrTooManyLocals))
 		return
 	}
 	c.locals[c.localCount] = Local{
@@ -1723,7 +1724,7 @@ func (c *Compiler) checkReturnType(pos token.Position, expr ast.Expression, expe
 	
 	// 类型兼容性检查
 	if !c.isTypeCompatible(actualType, expectedTypeName) {
-		c.error(pos, "type mismatch: expected %s but got %s", expectedTypeName, actualType)
+		c.error(pos, i18n.T(i18n.ErrTypeMismatch, expectedTypeName, actualType))
 	}
 }
 
@@ -1793,7 +1794,7 @@ func (c *Compiler) evalConstInt(expr ast.Expression) int {
 			}
 		}
 	}
-	c.error(expr.Pos(), "array size must be a compile-time constant")
+	c.error(expr.Pos(), i18n.T(i18n.ErrArraySizeNotConst))
 	return -1
 }
 

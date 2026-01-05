@@ -7,6 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/token"
 )
 
@@ -188,7 +189,7 @@ func (l *Lexer) scanToken() {
 			if l.match('.') {
 				l.addToken(token.ELLIPSIS)
 			} else {
-				l.error("unexpected '..'")
+				l.error(i18n.T(i18n.ErrUnexpectedDoubleDot))
 			}
 		} else {
 			l.addToken(token.DOT)
@@ -238,7 +239,7 @@ func (l *Lexer) scanToken() {
 		} else if isAlpha(ch) {
 			l.identifier()
 		} else {
-			l.error(fmt.Sprintf("unexpected character '%c'", ch))
+			l.error(i18n.T(i18n.ErrUnexpectedChar, ch))
 		}
 	}
 }
@@ -274,7 +275,7 @@ func (l *Lexer) blockComment() {
 	}
 
 	if depth > 0 {
-		l.error("unterminated block comment")
+		l.error(i18n.T(i18n.ErrUnterminatedComment))
 	}
 }
 
@@ -288,13 +289,13 @@ func (l *Lexer) string(quote rune) {
 			break
 		}
 		if ch == '\n' {
-			l.error("unterminated string")
+			l.error(i18n.T(i18n.ErrUnterminatedString))
 			return
 		}
 		if ch == '\\' {
 			l.advance() // 跳过反斜杠
 			if l.isAtEnd() {
-				l.error("unterminated string")
+				l.error(i18n.T(i18n.ErrUnterminatedString))
 				return
 			}
 			escaped := l.advance()
@@ -322,7 +323,7 @@ func (l *Lexer) string(quote rune) {
 	}
 
 	if l.isAtEnd() {
-		l.error("unterminated string")
+		l.error(i18n.T(i18n.ErrUnterminatedString))
 		return
 	}
 
@@ -341,13 +342,13 @@ func (l *Lexer) interpString() {
 			break
 		}
 		if ch == '\n' {
-			l.error("unterminated interpolated string")
+			l.error(i18n.T(i18n.ErrUnterminatedInterp))
 			return
 		}
 		if ch == '\\' {
 			l.advance()
 			if l.isAtEnd() {
-				l.error("unterminated interpolated string")
+				l.error(i18n.T(i18n.ErrUnterminatedInterp))
 				return
 			}
 			escaped := l.advance()
@@ -375,7 +376,7 @@ func (l *Lexer) interpString() {
 	}
 
 	if l.isAtEnd() {
-		l.error("unterminated interpolated string")
+		l.error(i18n.T(i18n.ErrUnterminatedInterp))
 		return
 	}
 
@@ -399,7 +400,7 @@ func (l *Lexer) variable() {
 
 	literal := l.source[l.start:l.current]
 	if literal == "$" {
-		l.error("expected variable name after '$'")
+		l.error(i18n.T(i18n.ErrExpectedVarName))
 		return
 	}
 
@@ -417,7 +418,7 @@ func (l *Lexer) number() {
 		literal := l.source[l.start:l.current]
 		value, err := strconv.ParseInt(literal, 0, 64)
 		if err != nil {
-			l.error(fmt.Sprintf("invalid hex number: %s", literal))
+			l.error(i18n.T(i18n.ErrInvalidHexNumber, literal))
 			return
 		}
 		l.addTokenWithValue(token.INT, value)
@@ -433,7 +434,7 @@ func (l *Lexer) number() {
 		literal := l.source[l.start:l.current]
 		value, err := strconv.ParseInt(literal, 0, 64)
 		if err != nil {
-			l.error(fmt.Sprintf("invalid binary number: %s", literal))
+			l.error(i18n.T(i18n.ErrInvalidBinaryNumber, literal))
 			return
 		}
 		l.addTokenWithValue(token.INT, value)
@@ -463,7 +464,7 @@ func (l *Lexer) number() {
 			l.advance()
 		}
 		if !isDigit(l.peek()) {
-			l.error("invalid number: expected exponent")
+			l.error(i18n.T(i18n.ErrInvalidExponent))
 			return
 		}
 		for isDigit(l.peek()) {
@@ -475,14 +476,14 @@ func (l *Lexer) number() {
 	if isFloat {
 		value, err := strconv.ParseFloat(literal, 64)
 		if err != nil {
-			l.error(fmt.Sprintf("invalid float number: %s", literal))
+			l.error(i18n.T(i18n.ErrInvalidFloat, literal))
 			return
 		}
 		l.addTokenWithValue(token.FLOAT, value)
 	} else {
 		value, err := strconv.ParseInt(literal, 10, 64)
 		if err != nil {
-			l.error(fmt.Sprintf("invalid integer: %s", literal))
+			l.error(i18n.T(i18n.ErrInvalidInteger, literal))
 			return
 		}
 		l.addTokenWithValue(token.INT, value)

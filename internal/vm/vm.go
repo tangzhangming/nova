@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
+	"github.com/tangzhangming/nova/internal/i18n"
 )
 
 const (
@@ -187,13 +188,13 @@ func (vm *VM) execute() InterpretResult {
 	for {
 		// 安全检查：IP 越界
 		if frame.IP >= len(chunk.Code) {
-			return vm.runtimeError("instruction pointer out of bounds")
+			return vm.runtimeError(i18n.T(i18n.ErrIPOutOfBounds))
 		}
 
 		// 安全检查：指令计数
 		instructionCount++
 		if instructionCount > maxInstructions {
-			return vm.runtimeError("execution limit exceeded (infinite loop?)")
+			return vm.runtimeError(i18n.T(i18n.ErrExecutionLimit))
 		}
 		
 		// 周期性 GC 检查
@@ -257,7 +258,7 @@ func (vm *VM) execute() InterpretResult {
 			if value, ok := vm.globals[name]; ok {
 				vm.push(value)
 			} else {
-				return vm.runtimeError("undefined variable '%s'", name)
+				return vm.runtimeError(i18n.T(i18n.ErrUndefinedVar, name))
 			}
 
 		case bytecode.OpStoreGlobal:
@@ -300,7 +301,7 @@ func (vm *VM) execute() InterpretResult {
 			case bytecode.ValFloat:
 				vm.push(bytecode.NewFloat(-v.AsFloat()))
 			default:
-				return vm.runtimeError("operand must be a number")
+				return vm.runtimeError(i18n.T(i18n.ErrOperandMustBeNumber))
 			}
 
 		// 比较运算
@@ -460,7 +461,7 @@ func (vm *VM) execute() InterpretResult {
 			className := chunk.Constants[classIdx].AsString()
 			class, ok := vm.classes[className]
 			if !ok {
-				return vm.runtimeError("undefined class '%s'", className)
+				return vm.runtimeError(i18n.T(i18n.ErrUndefinedClass, className))
 			}
 			// 验证类约束（抽象类、接口实现）
 			if err := vm.validateClass(class); err != nil {
@@ -478,7 +479,7 @@ func (vm *VM) execute() InterpretResult {
 			
 			objVal := vm.pop()
 			if objVal.Type != bytecode.ValObject {
-				return vm.runtimeError("only objects have fields")
+				return vm.runtimeError(i18n.T(i18n.ErrOnlyObjectsHaveFields))
 			}
 			obj := objVal.AsObject()
 			
@@ -502,7 +503,7 @@ func (vm *VM) execute() InterpretResult {
 			objVal := vm.pop()
 			value := vm.pop()
 			if objVal.Type != bytecode.ValObject {
-				return vm.runtimeError("only objects have fields")
+				return vm.runtimeError(i18n.T(i18n.ErrOnlyObjectsHaveFields))
 			}
 			obj := objVal.AsObject()
 			
@@ -553,7 +554,7 @@ func (vm *VM) execute() InterpretResult {
 					vm.push(bytecode.NewEnumValue(className, name, val))
 					continue
 				}
-				return vm.runtimeError("undefined enum case '%s::%s'", className, name)
+				return vm.runtimeError(i18n.T(i18n.ErrUndefinedEnumCase, className, name))
 			}
 			
 			class, err := vm.resolveClassName(className)
@@ -605,7 +606,7 @@ func (vm *VM) execute() InterpretResult {
 			
 			method := vm.lookupMethodByArity(class, methodName, argCount)
 			if method == nil {
-				return vm.runtimeError("undefined static method '%s::%s' with %d arguments", class.Name, methodName, argCount)
+				return vm.runtimeError(i18n.T(i18n.ErrUndefinedStaticMethod, class.Name, methodName, argCount))
 			}
 			
 			// 创建方法的闭包并调用
@@ -677,14 +678,14 @@ func (vm *VM) execute() InterpretResult {
 				arr := arrVal.AsArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
-					return vm.runtimeError("array index out of bounds")
+					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexSimple))
 				}
 				vm.push(arr[i])
 			case bytecode.ValFixedArray:
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= fa.Capacity {
-					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, fa.Capacity)
+					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity))
 				}
 				vm.push(fa.Elements[i])
 			case bytecode.ValMap:
@@ -696,7 +697,7 @@ func (vm *VM) execute() InterpretResult {
 					vm.push(bytecode.NullValue)
 				}
 			default:
-				return vm.runtimeError("subscript operator requires array or map")
+				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
 
 		case bytecode.OpArraySet:
@@ -709,14 +710,14 @@ func (vm *VM) execute() InterpretResult {
 				arr := arrVal.AsArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
-					return vm.runtimeError("array index out of bounds")
+					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexSimple))
 				}
 				arr[i] = value
 			case bytecode.ValFixedArray:
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= fa.Capacity {
-					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, fa.Capacity)
+					return vm.runtimeError(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity))
 				}
 				fa.Elements[i] = value
 			case bytecode.ValMap:
@@ -724,7 +725,7 @@ func (vm *VM) execute() InterpretResult {
 				m := arrVal.AsMap()
 				m[idx] = value
 			default:
-				return vm.runtimeError("subscript operator requires array or map")
+				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
 			vm.push(value)
 
@@ -736,7 +737,7 @@ func (vm *VM) execute() InterpretResult {
 			case bytecode.ValFixedArray:
 				vm.push(bytecode.NewInt(int64(arrVal.AsFixedArray().Capacity)))
 			default:
-				return vm.runtimeError("length requires array")
+				return vm.runtimeError(i18n.T(i18n.ErrLengthRequiresArray))
 			}
 
 		// Map 操作
@@ -755,7 +756,7 @@ func (vm *VM) execute() InterpretResult {
 			key := vm.pop()
 			mapVal := vm.pop()
 			if mapVal.Type != bytecode.ValMap {
-				return vm.runtimeError("subscript operator requires map")
+				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresMap))
 			}
 			m := mapVal.AsMap()
 			if value, ok := m[key]; ok {
@@ -769,7 +770,7 @@ func (vm *VM) execute() InterpretResult {
 			key := vm.pop()
 			mapVal := vm.pop()
 			if mapVal.Type != bytecode.ValMap {
-				return vm.runtimeError("subscript operator requires map")
+				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresMap))
 			}
 			m := mapVal.AsMap()
 			m[key] = value
@@ -788,13 +789,13 @@ func (vm *VM) execute() InterpretResult {
 				idx := int(key.AsInt())
 				vm.push(bytecode.NewBool(idx >= 0 && idx < len(arr)))
 			default:
-				return vm.runtimeError("has() requires array or map")
+				return vm.runtimeError(i18n.T(i18n.ErrHasRequiresArrayOrMap))
 			}
 
 		case bytecode.OpMapLen:
 			mapVal := vm.pop()
 			if mapVal.Type != bytecode.ValMap {
-				return vm.runtimeError("length requires map")
+				return vm.runtimeError(i18n.T(i18n.ErrLengthRequiresMap))
 			}
 			vm.push(bytecode.NewInt(int64(len(mapVal.AsMap()))))
 
@@ -802,7 +803,7 @@ func (vm *VM) execute() InterpretResult {
 		case bytecode.OpIterInit:
 			v := vm.pop()
 			if v.Type != bytecode.ValArray && v.Type != bytecode.ValFixedArray && v.Type != bytecode.ValMap {
-				return vm.runtimeError("foreach requires array or map")
+				return vm.runtimeError(i18n.T(i18n.ErrForeachRequiresIterable))
 			}
 			iter := bytecode.NewIterator(v)
 			vm.push(vm.trackAllocation(bytecode.NewIteratorValue(iter)))
@@ -811,7 +812,7 @@ func (vm *VM) execute() InterpretResult {
 			iterVal := vm.peek(0) // 只读取，不弹出
 			iter := iterVal.AsIterator()
 			if iter == nil {
-				return vm.runtimeError("expected iterator")
+				return vm.runtimeError(i18n.T(i18n.ErrExpectedIterator))
 			}
 			hasNext := iter.Next()
 			vm.push(bytecode.NewBool(hasNext))
@@ -820,7 +821,7 @@ func (vm *VM) execute() InterpretResult {
 			iterVal := vm.peek(0) // 只读取，不弹出
 			iter := iterVal.AsIterator()
 			if iter == nil {
-				return vm.runtimeError("expected iterator")
+				return vm.runtimeError(i18n.T(i18n.ErrExpectedIterator))
 			}
 			vm.push(iter.Key())
 
@@ -828,7 +829,7 @@ func (vm *VM) execute() InterpretResult {
 			iterVal := vm.peek(0) // 只读取，不弹出
 			iter := iterVal.AsIterator()
 			if iter == nil {
-				return vm.runtimeError("expected iterator")
+				return vm.runtimeError(i18n.T(i18n.ErrExpectedIterator))
 			}
 			vm.push(iter.CurrentValue())
 
@@ -837,7 +838,7 @@ func (vm *VM) execute() InterpretResult {
 			value := vm.pop()
 			arrVal := vm.pop()
 			if arrVal.Type != bytecode.ValArray {
-				return vm.runtimeError("push requires array")
+				return vm.runtimeError(i18n.T(i18n.ErrPushRequiresArray))
 			}
 			arr := arrVal.AsArray()
 			arr = append(arr, value)
@@ -847,7 +848,7 @@ func (vm *VM) execute() InterpretResult {
 			idx := vm.pop()
 			arrVal := vm.pop()
 			if arrVal.Type != bytecode.ValArray {
-				return vm.runtimeError("has requires array")
+				return vm.runtimeError(i18n.T(i18n.ErrHasRequiresArray))
 			}
 			arr := arrVal.AsArray()
 			i := int(idx.AsInt())
@@ -982,7 +983,7 @@ func (vm *VM) execute() InterpretResult {
 			
 			if !vm.checkValueType(value, expectedType) {
 				actualType := vm.getValueTypeName(value)
-				return vm.runtimeError("type error: expected %s but got %s", expectedType, actualType)
+				return vm.runtimeError(i18n.T(i18n.ErrTypeError, expectedType, actualType))
 			}
 			
 		case bytecode.OpCast:
@@ -994,7 +995,7 @@ func (vm *VM) execute() InterpretResult {
 			result, ok := vm.castValue(value, targetType)
 			if !ok {
 				actualType := vm.getValueTypeName(value)
-				return vm.runtimeError("cannot cast %s to %s", actualType, targetType)
+				return vm.runtimeError(i18n.T(i18n.ErrCannotCast, actualType, targetType))
 			}
 			vm.push(result)
 
@@ -1006,7 +1007,7 @@ func (vm *VM) execute() InterpretResult {
 			return InterpretOK
 
 		default:
-			return vm.runtimeError("unknown opcode: %d", instruction)
+			return vm.runtimeError(i18n.T(i18n.ErrUnknownOpcode, instruction))
 		}
 	}
 }
@@ -1128,12 +1129,12 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 			vm.push(bytecode.NewInt(ai * bi))
 		case bytecode.OpDiv:
 			if bi == 0 {
-				return vm.runtimeError("division by zero")
+				return vm.runtimeError(i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewInt(ai / bi))
 		case bytecode.OpMod:
 			if bi == 0 {
-				return vm.runtimeError("division by zero")
+				return vm.runtimeError(i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewInt(ai % bi))
 		}
@@ -1153,16 +1154,16 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 			vm.push(bytecode.NewFloat(af * bf))
 		case bytecode.OpDiv:
 			if bf == 0 {
-				return vm.runtimeError("division by zero")
+				return vm.runtimeError(i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewFloat(af / bf))
 		case bytecode.OpMod:
-			return vm.runtimeError("modulo not supported for floats")
+			return vm.runtimeError(i18n.T(i18n.ErrModuloNotForFloats))
 		}
 		return InterpretOK
 	}
 
-	return vm.runtimeError("operands must be numbers")
+	return vm.runtimeError(i18n.T(i18n.ErrOperandsMustBeNumbers))
 }
 
 // 比较运算
@@ -1207,7 +1208,7 @@ func (vm *VM) compareOp(op bytecode.OpCode) InterpretResult {
 		return InterpretOK
 	}
 
-	return vm.runtimeError("operands must be comparable")
+	return vm.runtimeError(i18n.T(i18n.ErrOperandsMustBeComparable))
 }
 
 // 调用值
@@ -1224,7 +1225,7 @@ func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 		closure := &bytecode.Closure{Function: fn}
 		return vm.call(closure, argCount)
 	default:
-		return vm.runtimeError("can only call functions")
+		return vm.runtimeError(i18n.T(i18n.ErrCanOnlyCallFunctions))
 	}
 }
 
@@ -1288,23 +1289,20 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	if fn.IsVariadic {
 		// 可变参数函数：至少需要 MinArity 个参数
 		if argCount < fn.MinArity {
-			return vm.runtimeError("expected at least %d arguments but got %d",
-				fn.MinArity, argCount)
+			return vm.runtimeError(i18n.T(i18n.ErrArgumentCountMin, fn.MinArity, argCount))
 		}
 	} else {
 		// 普通函数：检查参数数量范围
 		if argCount < fn.MinArity {
-			return vm.runtimeError("expected at least %d arguments but got %d",
-				fn.MinArity, argCount)
+			return vm.runtimeError(i18n.T(i18n.ErrArgumentCountMin, fn.MinArity, argCount))
 		}
 		if argCount > fn.Arity {
-			return vm.runtimeError("expected at most %d arguments but got %d",
-				fn.Arity, argCount)
+			return vm.runtimeError(i18n.T(i18n.ErrArgumentCountMax, fn.Arity, argCount))
 		}
 	}
 
 	if vm.frameCount == FramesMax {
-		return vm.runtimeError("stack overflow")
+		return vm.runtimeError(i18n.T(i18n.ErrStackOverflow))
 	}
 
 	// 处理默认参数：填充缺失的参数
@@ -1363,14 +1361,14 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	receiver := vm.peek(argCount)
 	if receiver.Type != bytecode.ValObject {
-		return vm.runtimeError("only objects have methods")
+		return vm.runtimeError(i18n.T(i18n.ErrOnlyObjectsHaveMethods))
 	}
 	
 	obj := receiver.AsObject()
 	// 使用参数数量查找重载方法（考虑默认参数）
 	method := vm.findMethodWithDefaults(obj.Class, name, argCount)
 	if method == nil {
-		return vm.runtimeError("undefined method '%s' with %d arguments", name, argCount)
+		return vm.runtimeError(i18n.T(i18n.ErrUndefinedMethod, name, argCount))
 	}
 
 	// 检查方法访问权限
@@ -1414,7 +1412,7 @@ func (vm *VM) runtimeError(format string, args ...interface{}) InterpretResult {
 	vm.errorMessage = fmt.Sprintf(format, args...)
 
 	// 打印调用栈
-	fmt.Printf("Runtime error: %s\n", vm.errorMessage)
+	fmt.Printf(i18n.T(i18n.ErrRuntimeError, vm.errorMessage) + "\n")
 	for i := vm.frameCount - 1; i >= 0; i-- {
 		frame := &vm.frames[i]
 		fn := frame.Closure.Function

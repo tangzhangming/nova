@@ -14,6 +14,7 @@ import (
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/compiler"
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
 	"github.com/tangzhangming/nova/internal/vm"
@@ -64,7 +65,7 @@ func (r *Runtime) Run(source, filename string) error {
 	var err error
 	r.loader, err = loader.New(filename)
 	if err != nil {
-		return fmt.Errorf("failed to create loader: %w", err)
+		return fmt.Errorf(i18n.T(i18n.ErrFailedCreateLoader, err))
 	}
 
 	// 解析入口文件
@@ -73,15 +74,15 @@ func (r *Runtime) Run(source, filename string) error {
 
 	if p.HasErrors() {
 		for _, e := range p.Errors() {
-			fmt.Printf("Parse error: %s\n", e)
+			fmt.Printf(i18n.T(i18n.ErrParseError, e) + "\n")
 		}
-		return fmt.Errorf("parse failed")
+		return fmt.Errorf(i18n.T(i18n.ErrParseFailed))
 	}
 
 	// 处理 use 声明，加载依赖
 	for _, use := range file.Uses {
 		if err := r.loadDependency(use.Path); err != nil {
-			return fmt.Errorf("failed to load %s: %w", use.Path, err)
+			return fmt.Errorf(i18n.T(i18n.ErrLoadFailed, use.Path, err))
 		}
 	}
 
@@ -91,9 +92,9 @@ func (r *Runtime) Run(source, filename string) error {
 
 	if len(errs) > 0 {
 		for _, e := range errs {
-			fmt.Printf("Compile error: %s\n", e)
+			fmt.Printf(i18n.T(i18n.ErrCompileError, e) + "\n")
 		}
-		return fmt.Errorf("compile failed")
+		return fmt.Errorf(i18n.T(i18n.ErrCompileFailed))
 	}
 
 	// 注册编译的类
@@ -148,7 +149,7 @@ func (r *Runtime) loadDependency(importPath string) error {
 	// 加载文件内容
 	source, err := r.loader.LoadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %w", filePath, err)
+		return fmt.Errorf(i18n.T(i18n.ErrReadFailed, filePath, err))
 	}
 	
 	// 解析
@@ -156,9 +157,9 @@ func (r *Runtime) loadDependency(importPath string) error {
 	file := p.Parse()
 	if p.HasErrors() {
 		for _, e := range p.Errors() {
-			fmt.Printf("Parse error: %s\n", e)
+			fmt.Printf(i18n.T(i18n.ErrParseError, e) + "\n")
 		}
-		return fmt.Errorf("parse failed for %s", importPath)
+		return fmt.Errorf(i18n.T(i18n.ErrParseFailedFor, importPath))
 	}
 	
 	// 递归加载依赖
@@ -173,9 +174,9 @@ func (r *Runtime) loadDependency(importPath string) error {
 	_, errs := c.Compile(file)
 	if len(errs) > 0 {
 		for _, e := range errs {
-			fmt.Printf("Compile error: %s\n", e)
+			fmt.Printf(i18n.T(i18n.ErrCompileError, e) + "\n")
 		}
-		return fmt.Errorf("compile failed for %s", importPath)
+		return fmt.Errorf(i18n.T(i18n.ErrCompileFailedFor, importPath))
 	}
 	
 	// 注册类
@@ -211,14 +212,14 @@ func (r *Runtime) CompileOnly(source, filename string) (*bytecode.Function, erro
 	file := p.Parse()
 
 	if p.HasErrors() {
-		return nil, fmt.Errorf("parse failed")
+		return nil, fmt.Errorf(i18n.T(i18n.ErrParseFailed))
 	}
 
 	c := compiler.New()
 	fn, errs := c.Compile(file)
 
 	if len(errs) > 0 {
-		return nil, fmt.Errorf("compile failed")
+		return nil, fmt.Errorf(i18n.T(i18n.ErrCompileFailed))
 	}
 
 	return fn, nil
@@ -230,7 +231,7 @@ func (r *Runtime) ParseOnly(source, filename string) (*ast.File, error) {
 	file := p.Parse()
 
 	if p.HasErrors() {
-		return nil, fmt.Errorf("parse failed")
+		return nil, fmt.Errorf(i18n.T(i18n.ErrParseFailed))
 	}
 
 	return file, nil
@@ -242,14 +243,14 @@ func (r *Runtime) Disassemble(source, filename string) (string, error) {
 	p := parser.New(source, filename)
 	file := p.Parse()
 	if p.HasErrors() {
-		return "", fmt.Errorf("parse failed")
+		return "", fmt.Errorf(i18n.T(i18n.ErrParseFailed))
 	}
 
 	// 编译
 	c := compiler.New()
 	fn, errs := c.Compile(file)
 	if len(errs) > 0 {
-		return "", fmt.Errorf("compile failed")
+		return "", fmt.Errorf(i18n.T(i18n.ErrCompileFailed))
 	}
 	
 	result := fn.Chunk.Disassemble(filename)

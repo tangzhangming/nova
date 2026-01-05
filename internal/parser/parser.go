@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/lexer"
 	"github.com/tangzhangming/nova/internal/token"
 )
@@ -224,7 +225,7 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 			Name: p.advance(),
 		}
 	default:
-		p.error("expected type")
+		p.error(i18n.T(i18n.ErrExpectedType))
 		return nil
 	}
 
@@ -275,7 +276,7 @@ func (p *Parser) parseFuncType() *ast.FuncType {
 func (p *Parser) parseReturnType() ast.TypeNode {
 	// 检查是否是 void，如果是则报错
 	if p.check(token.VOID) {
-		p.error("'void' is not allowed as return type; omit the return type instead")
+		p.error(i18n.T(i18n.ErrVoidNotAllowed))
 		p.advance() // 跳过 void
 		return nil
 	}
@@ -453,7 +454,7 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 	case token.FUNCTION:
 		return p.parseClosureExpr()
 	default:
-		p.error(fmt.Sprintf("unexpected token: %s", p.peek().Type))
+		p.error(i18n.T(i18n.ErrUnexpectedToken, p.peek().Type))
 		return nil
 	}
 }
@@ -858,7 +859,7 @@ func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 			}
 		}
 	} else {
-		p.error("expected static member name")
+		p.error(i18n.T(i18n.ErrInvalidStaticMember))
 		return left
 	}
 
@@ -1096,7 +1097,7 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 		if !p.check(token.VARIABLE) {
 			// 不是多变量声明，回溯
 			// 实际上这种情况应该是语法错误
-			p.error("expected variable name after ','")
+			p.error(i18n.T(i18n.ErrExpectedParamName))
 			break
 		}
 		varToken := p.advance()
@@ -1129,7 +1130,7 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 	// 需要重新解析
 	if len(vars) > 1 {
 		// 多变量但不是 :=，这是错误
-		p.error("expected ':=' for multi-variable declaration")
+		p.error(i18n.T(i18n.ErrExpectedToken, "':='"))
 	}
 
 	// 将第一个变量作为表达式的开始
@@ -1242,7 +1243,7 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 				Body:         body,
 			}
 		} else {
-			p.error("expected 'case' or 'default'")
+			p.error(i18n.T(i18n.ErrExpectedCaseDefault))
 			break
 		}
 	}
@@ -1493,7 +1494,7 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 	case token.ENUM:
 		return p.parseEnum()
 	default:
-		p.error("expected class, interface or enum declaration")
+		p.error(i18n.T(i18n.ErrExpectedToken, "'class', 'interface' or 'enum'"))
 		return nil
 	}
 }
