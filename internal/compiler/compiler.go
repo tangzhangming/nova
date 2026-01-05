@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
@@ -1823,6 +1824,14 @@ func (c *Compiler) getTypeName(t ast.TypeNode) string {
 		return c.getTypeName(typ.Inner)
 	case *ast.TupleType:
 		return "tuple"
+	case *ast.UnionType:
+		var names []string
+		for _, t := range typ.Types {
+			names = append(names, c.getTypeName(t))
+		}
+		return strings.Join(names, "|")
+	case *ast.NullType:
+		return "null"
 	default:
 		return "unknown"
 	}
@@ -1846,8 +1855,37 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 	if actual == expected {
 		return true
 	}
-	// null 可以赋值给任何可空类型
+	// null 可以赋值给任何可空类型或包含 null 的联合类型
 	if actual == "null" {
+		// 检查 expected 是否包含 null
+		if strings.Contains(expected, "|") {
+			expectedTypes := strings.Split(expected, "|")
+			for _, t := range expectedTypes {
+				if strings.TrimSpace(t) == "null" {
+					return true
+				}
+			}
+		}
+		return true
+	}
+	// 检查 expected 是否是联合类型
+	if strings.Contains(expected, "|") {
+		expectedTypes := strings.Split(expected, "|")
+		for _, t := range expectedTypes {
+			if c.isTypeCompatible(actual, strings.TrimSpace(t)) {
+				return true
+			}
+		}
+		return false
+	}
+	// 检查 actual 是否是联合类型（赋值给非联合类型时需要所有成员都兼容）
+	if strings.Contains(actual, "|") {
+		actualTypes := strings.Split(actual, "|")
+		for _, t := range actualTypes {
+			if !c.isTypeCompatible(strings.TrimSpace(t), expected) {
+				return false
+			}
+		}
 		return true
 	}
 	// int 可以隐式转换为 float

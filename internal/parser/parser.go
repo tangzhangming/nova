@@ -175,13 +175,39 @@ func (p *Parser) synchronize() {
 // ============================================================================
 
 func (p *Parser) parseType() ast.TypeNode {
-	// 可空类型
+	// 解析第一个类型（可能是可空类型或基础类型）
+	firstType := p.parseSingleType()
+	if firstType == nil {
+		return nil
+	}
+
+	// 检查是否是联合类型 (Type1 | Type2)
+	if p.check(token.BIT_OR) {
+		types := []ast.TypeNode{firstType}
+		for p.match(token.BIT_OR) {
+			nextType := p.parseSingleType()
+			if nextType == nil {
+				return nil
+			}
+			types = append(types, nextType)
+		}
+		return &ast.UnionType{Types: types}
+	}
+
+	return firstType
+}
+
+// parseSingleType 解析单个类型（可空类型或基础类型，包括数组）
+func (p *Parser) parseSingleType() ast.TypeNode {
+	// 可空类型 ?Type 转换为 Type | null
 	if p.match(token.QUESTION) {
-		question := p.previous()
 		inner := p.parseBaseType()
-		return &ast.NullableType{
-			Question: question,
-			Inner:    inner,
+		if inner == nil {
+			return nil
+		}
+		// 转换为联合类型: Type | null
+		return &ast.UnionType{
+			Types: []ast.TypeNode{inner, &ast.NullType{}},
 		}
 	}
 
@@ -219,6 +245,11 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 		baseType = &ast.SimpleType{
 			Token: p.previous(),
 			Name:  p.previous().Literal,
+		}
+	case p.match(token.NULL):
+		// null 类型（用于联合类型 Type | null）
+		baseType = &ast.NullType{
+			Token: p.previous(),
 		}
 	case p.check(token.IDENT):
 		baseType = &ast.ClassType{

@@ -150,6 +150,32 @@ func (t *ClassType) End() token.Position { return t.Name.Pos }
 func (t *ClassType) String() string      { return t.Name.Literal }
 func (t *ClassType) typeNode()           {}
 
+// UnionType 联合类型 (Type1 | Type2)
+type UnionType struct {
+	Types []TypeNode // 联合的类型列表（至少2个）
+}
+
+func (t *UnionType) Pos() token.Position { return t.Types[0].Pos() }
+func (t *UnionType) End() token.Position { return t.Types[len(t.Types)-1].End() }
+func (t *UnionType) String() string {
+	var parts []string
+	for _, typ := range t.Types {
+		parts = append(parts, typ.String())
+	}
+	return strings.Join(parts, " | ")
+}
+func (t *UnionType) typeNode() {}
+
+// NullType null 类型（用于联合类型中表示 null）
+type NullType struct {
+	Token token.Token // null token (可选)
+}
+
+func (t *NullType) Pos() token.Position { return t.Token.Pos }
+func (t *NullType) End() token.Position { return t.Token.Pos }
+func (t *NullType) String() string      { return "null" }
+func (t *NullType) typeNode()           {}
+
 // ============================================================================
 // 表达式节点
 // ============================================================================

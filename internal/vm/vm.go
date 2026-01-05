@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/i18n"
@@ -1945,6 +1946,17 @@ func (vm *VM) checkValueType(v bytecode.Value, expectedType string) bool {
 	// null 可以匹配任何可空类型（以 ? 开头的类型名会被处理掉 ?）
 	if actualType == "null" {
 		return true // null 可以赋值给任何类型（在运行时）
+	}
+	
+	// 联合类型检查 (type1|type2|type3)
+	if strings.Contains(expectedType, "|") {
+		expectedTypes := strings.Split(expectedType, "|")
+		for _, t := range expectedTypes {
+			if vm.checkValueType(v, strings.TrimSpace(t)) {
+				return true
+			}
+		}
+		return false
 	}
 	
 	// 数值类型兼容性
