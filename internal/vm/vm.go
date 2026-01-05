@@ -666,62 +666,60 @@ func (vm *VM) execute() InterpretResult {
 			idx := vm.pop()
 			arrVal := vm.pop()
 			
-			var arr []bytecode.Value
-			var capacity int = -1
-			
 			switch arrVal.Type {
 			case bytecode.ValArray:
-				arr = arrVal.AsArray()
-			case bytecode.ValFixedArray:
-				fa := arrVal.AsFixedArray()
-				arr = fa.Elements
-				capacity = fa.Capacity
-			default:
-				return vm.runtimeError("subscript operator requires array")
-			}
-			
-			i := int(idx.AsInt())
-			if capacity > 0 {
-				if i < 0 || i >= capacity {
-					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, capacity)
-				}
-			} else {
+				arr := arrVal.AsArray()
+				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
 					return vm.runtimeError("array index out of bounds")
 				}
+				vm.push(arr[i])
+			case bytecode.ValFixedArray:
+				fa := arrVal.AsFixedArray()
+				i := int(idx.AsInt())
+				if i < 0 || i >= fa.Capacity {
+					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, fa.Capacity)
+				}
+				vm.push(fa.Elements[i])
+			case bytecode.ValMap:
+				// Map 索引支持
+				m := arrVal.AsMap()
+				if value, ok := m[idx]; ok {
+					vm.push(value)
+				} else {
+					vm.push(bytecode.NullValue)
+				}
+			default:
+				return vm.runtimeError("subscript operator requires array or map")
 			}
-			vm.push(arr[i])
 
 		case bytecode.OpArraySet:
 			value := vm.pop()
 			idx := vm.pop()
 			arrVal := vm.pop()
 			
-			var arr []bytecode.Value
-			var capacity int = -1
-			
 			switch arrVal.Type {
 			case bytecode.ValArray:
-				arr = arrVal.AsArray()
-			case bytecode.ValFixedArray:
-				fa := arrVal.AsFixedArray()
-				arr = fa.Elements
-				capacity = fa.Capacity
-			default:
-				return vm.runtimeError("subscript operator requires array")
-			}
-			
-			i := int(idx.AsInt())
-			if capacity > 0 {
-				if i < 0 || i >= capacity {
-					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, capacity)
-				}
-			} else {
+				arr := arrVal.AsArray()
+				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
 					return vm.runtimeError("array index out of bounds")
 				}
+				arr[i] = value
+			case bytecode.ValFixedArray:
+				fa := arrVal.AsFixedArray()
+				i := int(idx.AsInt())
+				if i < 0 || i >= fa.Capacity {
+					return vm.runtimeError("array index %d out of bounds (capacity %d)", i, fa.Capacity)
+				}
+				fa.Elements[i] = value
+			case bytecode.ValMap:
+				// Map 设置
+				m := arrVal.AsMap()
+				m[idx] = value
+			default:
+				return vm.runtimeError("subscript operator requires array or map")
 			}
-			arr[i] = value
 			vm.push(value)
 
 		case bytecode.OpArrayLen:
