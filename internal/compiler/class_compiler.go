@@ -349,6 +349,7 @@ func (c *Compiler) evalBinaryConstant(op token.TokenType, left, right bytecode.V
 func (c *Compiler) CompileInterface(decl *ast.InterfaceDecl) *bytecode.Class {
 	// 接口在 Sola 中作为特殊的类处理
 	class := bytecode.NewClass(decl.Name.Name)
+	class.IsInterface = true
 	
 	// 接口的方法都是抽象的
 	for _, method := range decl.Methods {

@@ -52,6 +52,9 @@ var messagesEN = map[string]string{
 	ErrInvalidStaticAccessC: "invalid static access",
 	ErrInvalidBinaryOp:      "operator '%s' cannot be applied to %s and %s",
 	ErrNativeFuncRestricted: "native function '%s' can only be called from standard library (sola.*)",
+	ErrMapKeyTypeMismatch:   "map key type mismatch: expected %s but got %s",
+	ErrMapValueTypeMismatch: "map value type mismatch: expected %s but got %s",
+	ErrCannotInferInterface: "cannot infer type for interface '%s', explicit type declaration required",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

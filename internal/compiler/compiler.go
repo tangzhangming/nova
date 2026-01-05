@@ -1056,6 +1056,35 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 		c.emitU16(bytecode.OpNewArray, uint16(len(e.Elements)))
 
 	case *ast.MapLiteral:
+		// Map 类型一致性检查
+		if len(e.Pairs) > 0 {
+			// 从第一个元素推断类型
+			firstKeyType := c.inferExprType(e.Pairs[0].Key)
+			firstValueType := c.inferExprType(e.Pairs[0].Value)
+			
+			// 检查 interface 类型不允许推导
+			if c.isInterfaceType(firstKeyType) {
+				c.error(e.Pairs[0].Key.Pos(), i18n.T(i18n.ErrCannotInferInterface, firstKeyType))
+			}
+			if c.isInterfaceType(firstValueType) {
+				c.error(e.Pairs[0].Value.Pos(), i18n.T(i18n.ErrCannotInferInterface, firstValueType))
+			}
+			
+			// 检查后续元素类型一致性
+			for i := 1; i < len(e.Pairs); i++ {
+				keyType := c.inferExprType(e.Pairs[i].Key)
+				valueType := c.inferExprType(e.Pairs[i].Value)
+				
+				if keyType != "unknown" && firstKeyType != "unknown" && keyType != firstKeyType {
+					c.error(e.Pairs[i].Key.Pos(), i18n.T(i18n.ErrMapKeyTypeMismatch, firstKeyType, keyType))
+				}
+				if valueType != "unknown" && firstValueType != "unknown" && valueType != firstValueType {
+					c.error(e.Pairs[i].Value.Pos(), i18n.T(i18n.ErrMapValueTypeMismatch, firstValueType, valueType))
+				}
+			}
+		}
+		
+		// 继续正常编译
 		for _, pair := range e.Pairs {
 			c.compileExpr(pair.Key)
 			c.compileExpr(pair.Value)
@@ -1805,6 +1834,14 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	default:
 		return "unknown"
 	}
+}
+
+// isInterfaceType 检查类型名是否为已声明的接口
+func (c *Compiler) isInterfaceType(typeName string) bool {
+	if class, ok := c.classes[typeName]; ok {
+		return class.IsInterface
+	}
+	return false
 }
 
 // checkBinaryOpTypes 检查二元运算符的操作数类型是否兼容

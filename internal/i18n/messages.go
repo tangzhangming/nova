@@ -53,6 +53,9 @@ const (
 	ErrInvalidStaticAccessC  = "compiler.invalid_static_access"
 	ErrInvalidBinaryOp       = "compiler.invalid_binary_op"
 	ErrNativeFuncRestricted  = "compiler.native_func_restricted"
+	ErrMapKeyTypeMismatch    = "compiler.map_key_type_mismatch"
+	ErrMapValueTypeMismatch  = "compiler.map_value_type_mismatch"
+	ErrCannotInferInterface  = "compiler.cannot_infer_interface"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

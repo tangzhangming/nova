@@ -635,6 +635,7 @@ type Class struct {
 	Parent         *Class
 	Implements     []string // 实现的接口名
 	IsAbstract     bool     // 是否是抽象类
+	IsInterface    bool     // 是否是接口
 	Annotations    []*Annotation         // 类注解
 	Constants      map[string]Value
 	StaticVars     map[string]Value

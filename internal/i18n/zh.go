@@ -52,6 +52,9 @@ var messagesZH = map[string]string{
 	ErrInvalidStaticAccessC: "无效的静态访问",
 	ErrInvalidBinaryOp:      "运算符 '%s' 不能用于 %s 和 %s 类型",
 	ErrNativeFuncRestricted: "原生函数 '%s' 只能在标准库 (sola.*) 中调用",
+	ErrMapKeyTypeMismatch:   "Map 键类型不一致: 期望 %s 但得到 %s",
+	ErrMapValueTypeMismatch: "Map 值类型不一致: 期望 %s 但得到 %s",
+	ErrCannotInferInterface: "无法推断接口 '%s' 的类型，需要显式声明类型",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",
