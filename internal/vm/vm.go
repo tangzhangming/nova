@@ -1097,8 +1097,8 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	}
 	
 	obj := receiver.AsObject()
-	// 使用参数数量查找重载方法
-	method := obj.Class.GetMethodByArity(name, argCount)
+	// 使用参数数量查找重载方法（考虑默认参数）
+	method := vm.findMethodWithDefaults(obj.Class, name, argCount)
 	if method == nil {
 		return vm.runtimeError("undefined method '%s' with %d arguments", name, argCount)
 	}
@@ -1108,17 +1108,34 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 		return vm.runtimeError("%v", err)
 	}
 
-	// 创建方法的闭包
+	// 创建方法的闭包，包含默认参数信息
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
-			Name:       method.Name,
-			Arity:      method.Arity,
-			Chunk:      method.Chunk,
-			LocalCount: method.LocalCount,
+			Name:          method.Name,
+			Arity:         method.Arity,
+			MinArity:      method.MinArity,
+			Chunk:         method.Chunk,
+			LocalCount:    method.LocalCount,
+			DefaultValues: method.DefaultValues,
 		},
 	}
 
 	return vm.call(closure, argCount)
+}
+
+// findMethodWithDefaults 查找方法，考虑默认参数
+func (vm *VM) findMethodWithDefaults(class *bytecode.Class, name string, argCount int) *bytecode.Method {
+	for c := class; c != nil; c = c.Parent {
+		if methods, ok := c.Methods[name]; ok {
+			for _, m := range methods {
+				// 检查参数数量是否在有效范围内
+				if argCount >= m.MinArity && argCount <= m.Arity {
+					return m
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // 运行时错误

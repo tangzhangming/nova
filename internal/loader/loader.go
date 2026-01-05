@@ -8,6 +8,13 @@ import (
 	"strings"
 )
 
+// 常量定义
+const (
+	SourceFileExtension = ".sola"       // 源码文件后缀
+	ProjectConfigFile   = "project.toml" // 项目配置文件名
+	StdLibPrefix        = "sola"         // 标准库导入前缀
+)
+
 // ProjectConfig 项目配置
 type ProjectConfig struct {
 	Name      string
@@ -38,7 +45,7 @@ func New(entryFile string) (*Loader, error) {
 	}
 
 	// 尝试加载项目配置
-	configFile := filepath.Join(rootDir, "project.toml")
+	configFile := filepath.Join(rootDir, ProjectConfigFile)
 	if _, err := os.Stat(configFile); err == nil {
 		config, err := loadProjectConfig(configFile)
 		if err != nil {
@@ -54,14 +61,14 @@ func New(entryFile string) (*Loader, error) {
 func findProjectRoot(startPath string) (string, error) {
 	dir := filepath.Dir(startPath)
 	for {
-		configFile := filepath.Join(dir, "project.toml")
+		configFile := filepath.Join(dir, ProjectConfigFile)
 		if _, err := os.Stat(configFile); err == nil {
 			return dir, nil
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("project.toml not found")
+			return "", fmt.Errorf("%s not found", ProjectConfigFile)
 		}
 		dir = parent
 	}
@@ -71,7 +78,7 @@ func findProjectRoot(startPath string) (string, error) {
 func loadProjectConfig(path string) (*ProjectConfig, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open project.toml: %w", err)
+		return nil, fmt.Errorf("failed to open %s: %w", ProjectConfigFile, err)
 	}
 	defer file.Close()
 
@@ -98,7 +105,7 @@ func loadProjectConfig(path string) (*ProjectConfig, error) {
 	}
 	
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read project.toml: %w", err)
+		return nil, fmt.Errorf("failed to read %s: %w", ProjectConfigFile, err)
 	}
 	
 	return config, nil
@@ -109,10 +116,10 @@ func (l *Loader) ResolveImport(importPath string) (string, error) {
 	// 将点分隔路径转换为文件路径
 	parts := strings.Split(importPath, ".")
 
-	// nova 开头的是标准库
-	if parts[0] == "nova" {
-		// 标准库路径：lib/nova/math/Math.nova
-		libPath := filepath.Join(l.libDir, filepath.Join(parts...) + ".nova")
+	// sola 开头的是标准库
+	if parts[0] == StdLibPrefix {
+		// 标准库路径：去掉 sola 前缀，例如 sola.math.Math -> lib/math/Math.sola
+		libPath := filepath.Join(l.libDir, filepath.Join(parts[1:]...) + SourceFileExtension)
 		if _, err := os.Stat(libPath); err == nil {
 			return libPath, nil
 		}
@@ -123,14 +130,14 @@ func (l *Loader) ResolveImport(importPath string) (string, error) {
 	if l.config != nil && strings.HasPrefix(importPath, l.config.Namespace) {
 		relativePath := strings.TrimPrefix(importPath, l.config.Namespace+".")
 		parts := strings.Split(relativePath, ".")
-		filePath := filepath.Join(l.rootDir, filepath.Join(parts...) + ".nova")
+		filePath := filepath.Join(l.rootDir, filepath.Join(parts...) + SourceFileExtension)
 		if _, err := os.Stat(filePath); err == nil {
 			return filePath, nil
 		}
 	}
 
 	// 尝试在项目根目录查找
-	filePath := filepath.Join(l.rootDir, filepath.Join(parts...) + ".nova")
+	filePath := filepath.Join(l.rootDir, filepath.Join(parts...) + SourceFileExtension)
 	if _, err := os.Stat(filePath); err == nil {
 		return filePath, nil
 	}

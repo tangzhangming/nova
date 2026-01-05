@@ -506,13 +506,15 @@ const (
 )
 
 type Method struct {
-	Name        string
-	Arity       int // 参数数量
-	IsStatic    bool
-	Visibility  Visibility // 访问修饰符
-	Annotations []*Annotation
-	Chunk       *Chunk
-	LocalCount  int // 局部变量数量
+	Name          string
+	Arity         int      // 参数数量
+	MinArity      int      // 最小参数数量（考虑默认参数后）
+	IsStatic      bool
+	Visibility    Visibility // 访问修饰符
+	Annotations   []*Annotation
+	Chunk         *Chunk
+	LocalCount    int     // 局部变量数量
+	DefaultValues []Value // 默认参数值（从第 MinArity 个参数开始）
 }
 
 // Function 函数定义

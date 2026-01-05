@@ -180,13 +180,15 @@ func (vm *VM) callParentMethod(class *bytecode.Class, methodName string, argCoun
 		return vm.runtimeError("undefined method '%s' in parent class", methodName)
 	}
 	
-	// 创建方法的闭包并调用
+	// 创建方法的闭包并调用，包含默认参数信息
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
-			Name:       method.Name,
-			Arity:      method.Arity,
-			Chunk:      method.Chunk,
-			LocalCount: method.LocalCount,
+			Name:          method.Name,
+			Arity:         method.Arity,
+			MinArity:      method.MinArity,
+			Chunk:         method.Chunk,
+			LocalCount:    method.LocalCount,
+			DefaultValues: method.DefaultValues,
 		},
 	}
 	
@@ -205,13 +207,25 @@ func (vm *VM) callConstructor(obj *bytecode.Object, argCount int) InterpretResul
 		return InterpretOK
 	}
 	
-	// 调用构造函数
+	// 检查参数数量是否在有效范围内（考虑默认参数）
+	if argCount < method.MinArity {
+		return vm.runtimeError("constructor expected at least %d arguments but got %d",
+			method.MinArity, argCount)
+	}
+	if argCount > method.Arity {
+		return vm.runtimeError("constructor expected at most %d arguments but got %d",
+			method.Arity, argCount)
+	}
+	
+	// 调用构造函数，包含默认参数信息
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
-			Name:       method.Name,
-			Arity:      method.Arity,
-			Chunk:      method.Chunk,
-			LocalCount: method.LocalCount,
+			Name:          method.Name,
+			Arity:         method.Arity,
+			MinArity:      method.MinArity,
+			Chunk:         method.Chunk,
+			LocalCount:    method.LocalCount,
+			DefaultValues: method.DefaultValues,
 		},
 	}
 	
@@ -220,13 +234,15 @@ func (vm *VM) callConstructor(obj *bytecode.Object, argCount int) InterpretResul
 
 // invokeDestructor 调用析构函数
 func (vm *VM) invokeDestructor(obj *bytecode.Object, method *bytecode.Method) InterpretResult {
-	// 创建方法的闭包
+	// 创建方法的闭包（析构函数通常无参数，但保持一致性）
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
-			Name:       method.Name,
-			Arity:      method.Arity,
-			Chunk:      method.Chunk,
-			LocalCount: method.LocalCount,
+			Name:          method.Name,
+			Arity:         method.Arity,
+			MinArity:      method.MinArity,
+			Chunk:         method.Chunk,
+			LocalCount:    method.LocalCount,
+			DefaultValues: method.DefaultValues,
 		},
 	}
 	

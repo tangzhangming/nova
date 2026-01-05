@@ -116,9 +116,18 @@ func toByteVisibility(v ast.Visibility) bytecode.Visibility {
 
 // compileMethod 编译方法
 func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *bytecode.Method {
+	// 计算最小参数数量（考虑默认参数）
+	minArity := len(decl.Parameters)
+	for i, param := range decl.Parameters {
+		if param.Default != nil && minArity == len(decl.Parameters) {
+			minArity = i
+		}
+	}
+
 	method := &bytecode.Method{
 		Name:        decl.Name.Name,
 		Arity:       len(decl.Parameters),
+		MinArity:    minArity,
 		IsStatic:    decl.Static,
 		Visibility:  toByteVisibility(decl.Visibility),
 		Annotations: c.compileAnnotations(decl.Annotations),
@@ -129,6 +138,16 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	if decl.Abstract || decl.Body == nil {
 		return method
 	}
+
+	// 收集默认参数值
+	var defaultValues []bytecode.Value
+	for _, param := range decl.Parameters {
+		if param.Default != nil {
+			defaultVal := c.evaluateConstExpr(param.Default)
+			defaultValues = append(defaultValues, defaultVal)
+		}
+	}
+	method.DefaultValues = defaultValues
 
 	// 保存当前状态
 	prevFn := c.function
@@ -298,7 +317,7 @@ func (c *Compiler) evalBinaryConstant(op token.TokenType, left, right bytecode.V
 
 // CompileInterface 编译接口声明
 func (c *Compiler) CompileInterface(decl *ast.InterfaceDecl) *bytecode.Class {
-	// 接口在 Nova 中作为特殊的类处理
+	// 接口在 Sola 中作为特殊的类处理
 	class := bytecode.NewClass(decl.Name.Name)
 	
 	// 接口的方法都是抽象的

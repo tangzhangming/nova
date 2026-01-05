@@ -1,5 +1,5 @@
 // Nova 标准库 - 控制台 IO
-namespace nova.io
+namespace sola.io
 
 public class Console {
     // 输出一行文本

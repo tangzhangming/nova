@@ -1,10 +1,15 @@
 package runtime
 
 import (
+	"bufio"
 	"fmt"
 	"math"
+	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
@@ -14,7 +19,22 @@ import (
 	"github.com/tangzhangming/nova/internal/vm"
 )
 
-// Runtime Nova 运行时
+// ============================================================================
+// TCP 连接池管理 (用于 native_tcp_* 函数)
+// ============================================================================
+
+type tcpConnection struct {
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
+var (
+	tcpConnections = make(map[int64]*tcpConnection)
+	tcpConnMutex   sync.RWMutex
+	nextConnID     int64 = 1
+)
+
+// Runtime Sola 运行时
 type Runtime struct {
 	vm       *vm.VM
 	builtins map[string]BuiltinFunc
@@ -275,11 +295,11 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["is_map"] = builtinIsMap
 	r.builtins["is_object"] = builtinIsObject
 
-	// 转换函数
-	r.builtins["int"] = builtinToInt
-	r.builtins["float"] = builtinToFloat
-	r.builtins["string"] = builtinToString
-	r.builtins["bool"] = builtinToBool
+	// 转换函数 (使用 to_ 前缀避免与类型关键字冲突)
+	r.builtins["to_int"] = builtinToInt
+	r.builtins["to_float"] = builtinToFloat
+	r.builtins["to_string"] = builtinToString
+	r.builtins["to_bool"] = builtinToBool
 
 	// 反射/注解函数
 	r.builtins["get_class"] = builtinGetClass
@@ -325,6 +345,14 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["floor"] = builtinFloor
 	r.builtins["ceil"] = builtinCeil
 	r.builtins["round"] = builtinRound
+
+	// Native TCP 函数 (仅供标准库使用)
+	r.builtins["native_tcp_connect"] = nativeTcpConnect
+	r.builtins["native_tcp_write"] = nativeTcpWrite
+	r.builtins["native_tcp_read"] = nativeTcpRead
+	r.builtins["native_tcp_read_line"] = nativeTcpReadLine
+	r.builtins["native_tcp_close"] = nativeTcpClose
+	r.builtins["native_tcp_set_timeout"] = nativeTcpSetTimeout
 }
 
 func (r *Runtime) registerBuiltinsToVM() {
@@ -456,7 +484,16 @@ func builtinToInt(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.ZeroValue
 	}
-	return bytecode.NewInt(args[0].AsInt())
+	v := args[0]
+	if v.Type == bytecode.ValString {
+		s := strings.TrimSpace(v.AsString())
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return bytecode.ZeroValue
+		}
+		return bytecode.NewInt(n)
+	}
+	return bytecode.NewInt(v.AsInt())
 }
 
 func builtinToFloat(args []bytecode.Value) bytecode.Value {
@@ -913,5 +950,117 @@ func annotationsToArray(annotations []*bytecode.Annotation) bytecode.Value {
 	}
 	
 	return bytecode.NewArray(result)
+}
+
+// ============================================================================
+// Native TCP 函数实现 (仅供标准库使用)
+// ============================================================================
+
+func nativeTcpConnect(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewInt(-1)
+	}
+	host := args[0].AsString()
+	port := args[1].AsInt()
+	address := fmt.Sprintf("%s:%d", host, port)
+	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	tcpConnMutex.Lock()
+	connID := nextConnID
+	nextConnID++
+	tcpConnections[connID] = &tcpConnection{conn: conn, reader: bufio.NewReader(conn)}
+	tcpConnMutex.Unlock()
+	return bytecode.NewInt(connID)
+}
+
+func nativeTcpWrite(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewInt(-1)
+	}
+	connID := args[0].AsInt()
+	data := args[1].AsString()
+	tcpConnMutex.RLock()
+	tc, ok := tcpConnections[connID]
+	tcpConnMutex.RUnlock()
+	if !ok {
+		return bytecode.NewInt(-1)
+	}
+	n, err := tc.conn.Write([]byte(data))
+	if err != nil {
+		return bytecode.NewInt(-1)
+	}
+	return bytecode.NewInt(int64(n))
+}
+
+func nativeTcpRead(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewString("")
+	}
+	connID := args[0].AsInt()
+	length := int(args[1].AsInt())
+	tcpConnMutex.RLock()
+	tc, ok := tcpConnections[connID]
+	tcpConnMutex.RUnlock()
+	if !ok {
+		return bytecode.NewString("")
+	}
+	buf := make([]byte, length)
+	n, err := tc.reader.Read(buf)
+	if err != nil {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(string(buf[:n]))
+}
+
+func nativeTcpReadLine(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewString("")
+	}
+	connID := args[0].AsInt()
+	tcpConnMutex.RLock()
+	tc, ok := tcpConnections[connID]
+	tcpConnMutex.RUnlock()
+	if !ok {
+		return bytecode.NewString("")
+	}
+	line, err := tc.reader.ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return bytecode.NewString("")
+	}
+	return bytecode.NewString(line)
+}
+
+func nativeTcpClose(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.FalseValue
+	}
+	connID := args[0].AsInt()
+	tcpConnMutex.Lock()
+	tc, ok := tcpConnections[connID]
+	if ok {
+		tc.conn.Close()
+		delete(tcpConnections, connID)
+	}
+	tcpConnMutex.Unlock()
+	return bytecode.NewBool(ok)
+}
+
+func nativeTcpSetTimeout(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.FalseValue
+	}
+	connID := args[0].AsInt()
+	seconds := args[1].AsInt()
+	tcpConnMutex.RLock()
+	tc, ok := tcpConnections[connID]
+	tcpConnMutex.RUnlock()
+	if !ok {
+		return bytecode.FalseValue
+	}
+	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
+	err := tc.conn.SetDeadline(deadline)
+	return bytecode.NewBool(err == nil)
 }
 

@@ -1,0 +1,616 @@
+// sola 标准库 - Redis 客户端
+// 实现 RESP (Redis Serialization Protocol) 协议
+namespace sola.data
+
+public class Redis {
+    // 连接ID
+    private int $connId = -1;
+    
+    // 主机地址
+    private string $host;
+    
+    // 端口号
+    private int $port;
+    
+    // 连接超时时间（秒）
+    private int $timeout = 10;
+    
+    // 最后一次错误信息
+    private string $lastError = "";
+    
+    // 构造函数
+    public function __construct(string $host = "127.0.0.1", int $port = 6379) {
+        $this->host = $host;
+        $this->port = $port;
+    }
+    
+    // ========================================================================
+    // 连接管理
+    // ========================================================================
+    
+    // 连接到 Redis 服务器
+    public function connect(): bool {
+        $this->connId = native_tcp_connect($this->host, $this->port);
+        if ($this->connId < 0) {
+            $this->lastError = "Failed to connect to Redis server";
+            return false;
+        }
+        
+        if ($this->timeout > 0) {
+            native_tcp_set_timeout($this->connId, $this->timeout);
+        }
+        
+        return true;
+    }
+    
+    // 关闭连接
+    public function close(): bool {
+        if ($this->connId < 0) {
+            return false;
+        }
+        $result := native_tcp_close($this->connId);
+        $this->connId = -1;
+        return $result;
+    }
+    
+    // 检查是否已连接
+    public function isConnected(): bool {
+        return $this->connId >= 0;
+    }
+    
+    // 获取连接ID（调试用）
+    public function getConnId(): int {
+        return $this->connId;
+    }
+    
+    // 设置超时时间
+    public function setTimeout(int $seconds): bool {
+        $this->timeout = $seconds;
+        if ($this->connId >= 0) {
+            return native_tcp_set_timeout($this->connId, $seconds);
+        }
+        return true;
+    }
+    
+    // 获取最后一次错误信息
+    public function getLastError(): string {
+        return $this->lastError;
+    }
+    
+    // ========================================================================
+    // 基础命令
+    // ========================================================================
+    
+    // PING 命令
+    public function ping(): bool {
+        $response := $this->executeCommand("PING");
+        return $response == "PONG";
+    }
+    
+    // 原始 PING 命令（调试用）
+    public function rawPing(): string {
+        return $this->executeCommand("PING");
+    }
+    
+    
+    // SELECT 选择数据库
+    public function select(int $db): bool {
+        $response := $this->executeCommand("SELECT", to_string($db));
+        return $response == "OK";
+    }
+    
+    // AUTH 认证
+    public function auth(string $password): bool {
+        $response := $this->executeCommand("AUTH", $password);
+        return $response == "OK";
+    }
+    
+    // DBSIZE 获取当前数据库的键数量
+    public function dbsize(): int {
+        $response := $this->executeCommand("DBSIZE");
+        return to_int($response);
+    }
+    
+    // FLUSHDB 清空当前数据库
+    public function flushdb(): bool {
+        $response := $this->executeCommand("FLUSHDB");
+        return $response == "OK";
+    }
+    
+    // ========================================================================
+    // 字符串命令
+    // ========================================================================
+    
+    // GET 获取键值
+    public function get(string $key): string {
+        return $this->executeCommand("GET", $key);
+    }
+    
+    // SET 设置键值
+    public function set(string $key, string $value): bool {
+        $response := $this->executeCommand("SET", $key, $value);
+        return $response == "OK";
+    }
+    
+    // SETEX 设置键值并设置过期时间（秒）
+    public function setex(string $key, int $seconds, string $value): bool {
+        $response := $this->executeCommand("SETEX", $key, to_string($seconds), $value);
+        return $response == "OK";
+    }
+    
+    // SETNX 仅当键不存在时设置
+    public function setnx(string $key, string $value): bool {
+        $response := $this->executeCommand("SETNX", $key, $value);
+        return $response == "1";
+    }
+    
+    // MGET 获取多个键值（简化版，最多支持3个键）
+    public function mget(string $key1, string $key2 = "", string $key3 = ""): string[] {
+        $args := ["MGET", $key1];
+        if ($key2 != "") {
+            $args = push($args, $key2);
+        }
+        if ($key3 != "") {
+            $args = push($args, $key3);
+        }
+        
+        $response := $this->executeArrayCommand($args);
+        return $response;
+    }
+    
+    // INCR 自增
+    public function incr(string $key): int {
+        $response := $this->executeCommand("INCR", $key);
+        return to_int($response);
+    }
+    
+    // INCRBY 增加指定值
+    public function incrby(string $key, int $increment): int {
+        $response := $this->executeCommand("INCRBY", $key, to_string($increment));
+        return to_int($response);
+    }
+    
+    // DECR 自减
+    public function decr(string $key): int {
+        $response := $this->executeCommand("DECR", $key);
+        return to_int($response);
+    }
+    
+    // DECRBY 减少指定值
+    public function decrby(string $key, int $decrement): int {
+        $response := $this->executeCommand("DECRBY", $key, to_string($decrement));
+        return to_int($response);
+    }
+    
+    // APPEND 追加值
+    public function append(string $key, string $value): int {
+        $response := $this->executeCommand("APPEND", $key, $value);
+        return to_int($response);
+    }
+    
+    // STRLEN 获取字符串长度
+    public function strlen(string $key): int {
+        $response := $this->executeCommand("STRLEN", $key);
+        return to_int($response);
+    }
+    
+    // ========================================================================
+    // 键命令
+    // ========================================================================
+    
+    // DEL 删除键
+    public function del(string $key): bool {
+        $response := $this->executeCommand("DEL", $key);
+        return $response == "1";
+    }
+    
+    // EXISTS 检查键是否存在
+    public function exists(string $key): bool {
+        $response := $this->executeCommand("EXISTS", $key);
+        return $response == "1";
+    }
+    
+    // EXPIRE 设置过期时间（秒）
+    public function expire(string $key, int $seconds): bool {
+        $response := $this->executeCommand("EXPIRE", $key, to_string($seconds));
+        return $response == "1";
+    }
+    
+    // EXPIREAT 设置过期时间戳
+    public function expireat(string $key, int $timestamp): bool {
+        $response := $this->executeCommand("EXPIREAT", $key, to_string($timestamp));
+        return $response == "1";
+    }
+    
+    // TTL 获取剩余生存时间（秒）
+    public function ttl(string $key): int {
+        $response := $this->executeCommand("TTL", $key);
+        return to_int($response);
+    }
+    
+    // PTTL 获取剩余生存时间（毫秒）
+    public function pttl(string $key): int {
+        $response := $this->executeCommand("PTTL", $key);
+        return to_int($response);
+    }
+    
+    // PERSIST 移除过期时间
+    public function persist(string $key): bool {
+        $response := $this->executeCommand("PERSIST", $key);
+        return $response == "1";
+    }
+    
+    // KEYS 查找匹配的键
+    public function keys(string $pattern): string[] {
+        $args := ["KEYS", $pattern];
+        return $this->executeArrayCommand($args);
+    }
+    
+    // TYPE 获取键类型
+    public function type(string $key): string {
+        return $this->executeCommand("TYPE", $key);
+    }
+    
+    // RENAME 重命名键
+    public function rename(string $key, string $newKey): bool {
+        $response := $this->executeCommand("RENAME", $key, $newKey);
+        return $response == "OK";
+    }
+    
+    // ========================================================================
+    // 列表命令
+    // ========================================================================
+    
+    // LPUSH 从左边插入
+    public function lpush(string $key, string $value): int {
+        $response := $this->executeCommand("LPUSH", $key, $value);
+        return to_int($response);
+    }
+    
+    // RPUSH 从右边插入
+    public function rpush(string $key, string $value): int {
+        $response := $this->executeCommand("RPUSH", $key, $value);
+        return to_int($response);
+    }
+    
+    // LPOP 从左边弹出
+    public function lpop(string $key): string {
+        return $this->executeCommand("LPOP", $key);
+    }
+    
+    // RPOP 从右边弹出
+    public function rpop(string $key): string {
+        return $this->executeCommand("RPOP", $key);
+    }
+    
+    // LLEN 获取列表长度
+    public function llen(string $key): int {
+        $response := $this->executeCommand("LLEN", $key);
+        return to_int($response);
+    }
+    
+    // LRANGE 获取列表范围
+    public function lrange(string $key, int $start, int $stop): string[] {
+        $args := ["LRANGE", $key, to_string($start), to_string($stop)];
+        return $this->executeArrayCommand($args);
+    }
+    
+    // LINDEX 获取指定索引的元素
+    public function lindex(string $key, int $index): string {
+        return $this->executeCommand("LINDEX", $key, to_string($index));
+    }
+    
+    // LSET 设置指定索引的值
+    public function lset(string $key, int $index, string $value): bool {
+        $response := $this->executeCommand("LSET", $key, to_string($index), $value);
+        return $response == "OK";
+    }
+    
+    // ========================================================================
+    // 哈希命令
+    // ========================================================================
+    
+    // HGET 获取哈希字段值
+    public function hget(string $key, string $field): string {
+        return $this->executeCommand("HGET", $key, $field);
+    }
+    
+    // HSET 设置哈希字段值
+    public function hset(string $key, string $field, string $value): bool {
+        $response := $this->executeCommand("HSET", $key, $field, $value);
+        // HSET 返回 0（更新）或 1（新建）
+        return $response == "0" || $response == "1";
+    }
+    
+    // HDEL 删除哈希字段
+    public function hdel(string $key, string $field): bool {
+        $response := $this->executeCommand("HDEL", $key, $field);
+        return $response == "1";
+    }
+    
+    // HEXISTS 检查哈希字段是否存在
+    public function hexists(string $key, string $field): bool {
+        $response := $this->executeCommand("HEXISTS", $key, $field);
+        return $response == "1";
+    }
+    
+    // HGETALL 获取所有哈希字段和值
+    public function hgetall(string $key): string[] {
+        $args := ["HGETALL", $key];
+        return $this->executeArrayCommand($args);
+    }
+    
+    // HKEYS 获取所有哈希字段
+    public function hkeys(string $key): string[] {
+        $args := ["HKEYS", $key];
+        return $this->executeArrayCommand($args);
+    }
+    
+    // HVALS 获取所有哈希值
+    public function hvals(string $key): string[] {
+        $args := ["HVALS", $key];
+        return $this->executeArrayCommand($args);
+    }
+    
+    // HLEN 获取哈希字段数量
+    public function hlen(string $key): int {
+        $response := $this->executeCommand("HLEN", $key);
+        return to_int($response);
+    }
+    
+    // HINCRBY 增加哈希字段的整数值
+    public function hincrby(string $key, string $field, int $increment): int {
+        $response := $this->executeCommand("HINCRBY", $key, $field, to_string($increment));
+        return to_int($response);
+    }
+    
+    // ========================================================================
+    // 集合命令
+    // ========================================================================
+    
+    // SADD 添加集合成员
+    public function sadd(string $key, string $member): bool {
+        $response := $this->executeCommand("SADD", $key, $member);
+        return $response == "1";
+    }
+    
+    // SREM 删除集合成员
+    public function srem(string $key, string $member): bool {
+        $response := $this->executeCommand("SREM", $key, $member);
+        return $response == "1";
+    }
+    
+    // SMEMBERS 获取所有集合成员
+    public function smembers(string $key): string[] {
+        $args := ["SMEMBERS", $key];
+        return $this->executeArrayCommand($args);
+    }
+    
+    // SISMEMBER 检查是否是集合成员
+    public function sismember(string $key, string $member): bool {
+        $response := $this->executeCommand("SISMEMBER", $key, $member);
+        return $response == "1";
+    }
+    
+    // SCARD 获取集合成员数量
+    public function scard(string $key): int {
+        $response := $this->executeCommand("SCARD", $key);
+        return to_int($response);
+    }
+    
+    // ========================================================================
+    // RESP 协议实现
+    // ========================================================================
+    
+    // 执行命令（最多3个参数）
+    private function executeCommand(string $cmd, string $arg1 = "", string $arg2 = "", string $arg3 = ""): string {
+        if ($this->connId < 0) {
+            $this->lastError = "Not connected";
+            return "";
+        }
+        
+        // 构建 RESP 命令
+        $request := $this->buildCommand($cmd, $arg1, $arg2, $arg3);
+        
+        // 发送命令
+        $written := native_tcp_write($this->connId, $request);
+        if ($written < 0) {
+            $this->lastError = "Failed to send command";
+            return "";
+        }
+        
+        // 读取响应
+        return $this->readResponse();
+    }
+    
+    // 执行数组参数命令
+    private function executeArrayCommand(string[] $args): string[] {
+        $empty := [];
+        if ($this->connId < 0) {
+            $this->lastError = "Not connected";
+            return $empty;
+        }
+        
+        // 构建 RESP 命令
+        $request := $this->buildArrayCommand($args);
+        
+        // 发送命令
+        $written := native_tcp_write($this->connId, $request);
+        if ($written < 0) {
+            $this->lastError = "Failed to send command";
+            return $empty;
+        }
+        
+        // 读取数组响应
+        return $this->readArrayResponse();
+    }
+    
+    // 检查参数是否为空（处理默认参数变成 null 的问题）
+    private function isEmptyArg(string $arg): bool {
+        if ($arg == "") {
+            return true;
+        }
+        if ($arg == null) {
+            return true;
+        }
+        return false;
+    }
+    
+    // 构建 RESP 命令（最多4个参数：命令 + 3个参数）
+    private function buildCommand(string $cmd, string $arg1, string $arg2, string $arg3): string {
+        $argc := 1;
+        if (!$this->isEmptyArg($arg1)) {
+            $argc = $argc + 1;
+        }
+        if (!$this->isEmptyArg($arg2)) {
+            $argc = $argc + 1;
+        }
+        if (!$this->isEmptyArg($arg3)) {
+            $argc = $argc + 1;
+        }
+        
+        $request := "*" + to_string($argc) + "\r\n";
+        $request = $request + "$" + to_string(strlen($cmd)) + "\r\n" + $cmd + "\r\n";
+        
+        if (!$this->isEmptyArg($arg1)) {
+            $request = $request + "$" + to_string(strlen($arg1)) + "\r\n" + $arg1 + "\r\n";
+        }
+        if (!$this->isEmptyArg($arg2)) {
+            $request = $request + "$" + to_string(strlen($arg2)) + "\r\n" + $arg2 + "\r\n";
+        }
+        if (!$this->isEmptyArg($arg3)) {
+            $request = $request + "$" + to_string(strlen($arg3)) + "\r\n" + $arg3 + "\r\n";
+        }
+        
+        return $request;
+    }
+    
+    // 构建数组参数的 RESP 命令
+    private function buildArrayCommand(string[] $args): string {
+        $argc := len($args);
+        $request := "*" + to_string($argc) + "\r\n";
+        
+        foreach ($args as $arg) {
+            $request = $request + "$" + to_string(strlen($arg)) + "\r\n" + $arg + "\r\n";
+        }
+        
+        return $request;
+    }
+    
+    // 读取响应
+    private function readResponse(): string {
+        $line := native_tcp_read_line($this->connId);
+        if ($line == "") {
+            $this->lastError = "Failed to read response";
+            return "";
+        }
+        
+        // 移除 \r\n
+        $line = str_trim($line);
+        
+        if (strlen($line) == 0) {
+            return "";
+        }
+        
+        // 获取响应类型（第一个字符）
+        $type := substr($line, 0, 1);
+        $data := substr($line, 1, strlen($line) - 1);
+        
+        if ($type == "+") {
+            // 简单字符串
+            return $data;
+        } elseif ($type == "-") {
+            // 错误
+            $this->lastError = $data;
+            return "";
+        } elseif ($type == ":") {
+            // 整数
+            return $data;
+        } elseif ($type == "$") {
+            // 批量字符串
+            $length := to_int($data);
+            if ($length < 0) {
+                return ""; // nil
+            }
+            
+            // 读取数据
+            $result := "";
+            $remaining := $length;
+            while ($remaining > 0) {
+                $chunk := native_tcp_read($this->connId, $remaining);
+                if ($chunk == "") {
+                    break;
+                }
+                $result = $result + $chunk;
+                $remaining = $remaining - strlen($chunk);
+            }
+            
+            // 读取尾部 \r\n
+            native_tcp_read_line($this->connId);
+            
+            return $result;
+        } elseif ($type == "*") {
+            // 数组 - 对于简单命令，返回第一个元素或空
+            $count := to_int($data);
+            if ($count <= 0) {
+                return "";
+            }
+            
+            // 读取第一个元素
+            return $this->readResponse();
+        }
+        
+        return "";
+    }
+    
+    // 读取数组响应
+    private function readArrayResponse(): string[] {
+        $result := [];
+        
+        $line := native_tcp_read_line($this->connId);
+        if ($line == "") {
+            $this->lastError = "Failed to read response";
+            return $result;
+        }
+        
+        // 移除 \r\n
+        $line = str_trim($line);
+        
+        if (strlen($line) == 0) {
+            return $result;
+        }
+        
+        // 获取响应类型
+        $type := substr($line, 0, 1);
+        $data := substr($line, 1, strlen($line) - 1);
+        
+        if ($type != "*") {
+            // 不是数组响应
+            if ($type == "-") {
+                $this->lastError = $data;
+            }
+            return $result;
+        }
+        
+        $count := to_int($data);
+        if ($count <= 0) {
+            return $result;
+        }
+        
+        // 读取每个元素
+        for ($i := 0; $i < $count; $i++) {
+            $elem := $this->readResponse();
+            $result = push($result, $elem);
+        }
+        
+        return $result;
+    }
+    
+    // 析构函数
+    public function __destruct() {
+        if ($this->connId >= 0) {
+            native_tcp_close($this->connId);
+        }
+    }
+}
+

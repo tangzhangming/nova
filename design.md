@@ -1,6 +1,6 @@
-# Nova 语言设计文档
+# Sola 语言设计文档
 
-Nova 是一门编译型静态类型语言，语法接近 PHP，运行于自定义虚拟机。
+Sola 是一门编译型静态类型语言，语法接近 PHP，运行于自定义虚拟机。
 
 ## 类
 ```
@@ -433,7 +433,7 @@ use tencent.sdk.redis.Client;
 use company.project.models.UserModel;
 
 // 命名空间逻辑
-// nova开头的，全是标准库，在lib目录下找
+// sola 开头的，全是标准库，在lib目录下找
 
 // 在项目根目录下定义project.toml，里面存在当前项目的命名空间，其原理与golang的go.mod相同
 // 从入口文件一直向上找到project.toml

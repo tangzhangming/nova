@@ -1,5 +1,7 @@
-# Nova 项目配置
+# Sola 项目配置
 [project]
-name = "nova"
-namespace = "nova"
+name = "sola"
+namespace = "sola"
+
+
 
