@@ -1,0 +1,85 @@
+{
+    "scope": "source.sola",
+    "completions": [
+        // Keywords
+        { "trigger": "if", "contents": "if (${1:condition}) {\n\t${2}\n}" },
+        { "trigger": "ifelse", "contents": "if (${1:condition}) {\n\t${2}\n} else {\n\t${3}\n}" },
+        { "trigger": "elseif", "contents": "elseif (${1:condition}) {\n\t${2}\n}" },
+        { "trigger": "for", "contents": "for (${1:\\$i} := 0; ${1:\\$i} < ${2:count}; ${1:\\$i}++) {\n\t${3}\n}" },
+        { "trigger": "foreach", "contents": "foreach (${1:\\$array} as ${2:\\$item}) {\n\t${3}\n}" },
+        { "trigger": "foreachkv", "contents": "foreach (${1:\\$array} as ${2:\\$key} => ${3:\\$value}) {\n\t${4}\n}" },
+        { "trigger": "while", "contents": "while (${1:condition}) {\n\t${2}\n}" },
+        { "trigger": "dowhile", "contents": "do {\n\t${1}\n} while (${2:condition});" },
+        { "trigger": "switch", "contents": "switch (${1:\\$var}) {\n\tcase ${2:value}:\n\t\t${3}\n\t\tbreak;\n\tdefault:\n\t\t${4}\n}" },
+        { "trigger": "try", "contents": "try {\n\t${1}\n} catch (Exception \\$e) {\n\t${2}\n}" },
+        { "trigger": "trycf", "contents": "try {\n\t${1}\n} catch (Exception \\$e) {\n\t${2}\n} finally {\n\t${3}\n}" },
+        { "trigger": "throw", "contents": "throw new ${1:Exception}(\"${2:message}\");" },
+        
+        // Declarations
+        { "trigger": "fn", "contents": "function ${1:name}(${2:params}): ${3:void} {\n\t${4}\n}" },
+        { "trigger": "pfn", "contents": "public function ${1:name}(${2:params}): ${3:void} {\n\t${4}\n}" },
+        { "trigger": "sfn", "contents": "public static function ${1:name}(${2:params}): ${3:void} {\n\t${4}\n}" },
+        { "trigger": "class", "contents": "class ${1:ClassName} {\n\t${2}\n}" },
+        { "trigger": "classext", "contents": "class ${1:ClassName} extends ${2:ParentClass} {\n\t${3}\n}" },
+        { "trigger": "interface", "contents": "interface ${1:InterfaceName} {\n\t${2}\n}" },
+        { "trigger": "enum", "contents": "enum ${1:EnumName} {\n\t${2:VALUE1},\n\t${3:VALUE2}\n}" },
+        { "trigger": "abstract", "contents": "abstract class ${1:ClassName} {\n\t${2}\n}" },
+        { "trigger": "construct", "contents": "public function __construct(${1:params}) {\n\t${2}\n}" },
+        { "trigger": "destruct", "contents": "public function __destruct() {\n\t${1}\n}" },
+        
+        // Use/Namespace
+        { "trigger": "namespace", "contents": "namespace ${1:sola.pkg}" },
+        { "trigger": "use", "contents": "use ${1:sola.lang.Exception};" },
+        { "trigger": "useex", "contents": "use sola.lang.Exception;\nuse sola.lang.RuntimeException;" },
+        
+        // Variables
+        { "trigger": "var", "contents": "${1:type} \\$${2:name} = ${3:value};" },
+        { "trigger": "vardecl", "contents": "\\$${1:name} := ${2:value};" },
+        { "trigger": "arr", "contents": "${1:type}[] \\$${2:name} = [${3}];" },
+        { "trigger": "map", "contents": "map<${1:string}, ${2:int}> \\$${3:name} = [${4}];" },
+        
+        // Types
+        "int", "i8", "i16", "i32", "i64",
+        "uint", "u8", "u16", "u32", "u64",
+        "float", "f32", "f64",
+        "bool", "string", "void", "null",
+        "array", "map", "object", "func",
+        
+        // Built-in Functions
+        { "trigger": "print", "contents": "print(${1});" },
+        { "trigger": "echo", "contents": "echo ${1};" },
+        { "trigger": "typeof", "contents": "typeof(${1:\\$var})" },
+        { "trigger": "len", "contents": "len(${1:\\$arr})" },
+        { "trigger": "push", "contents": "push(${1:\\$arr}, ${2:value})" },
+        { "trigger": "pop", "contents": "pop(${1:\\$arr})" },
+        { "trigger": "strlen", "contents": "strlen(${1:\\$str})" },
+        { "trigger": "substr", "contents": "substr(${1:\\$str}, ${2:start}, ${3:length})" },
+        { "trigger": "str_split", "contents": "str_split(${1:\\$str}, ${2:delimiter})" },
+        { "trigger": "str_join", "contents": "str_join(${1:\\$arr}, ${2:delimiter})" },
+        { "trigger": "str_replace", "contents": "str_replace(${1:\\$str}, ${2:old}, ${3:new})" },
+        { "trigger": "to_int", "contents": "to_int(${1:\\$val})" },
+        { "trigger": "to_float", "contents": "to_float(${1:\\$val})" },
+        { "trigger": "to_string", "contents": "to_string(${1:\\$val})" },
+        { "trigger": "to_bool", "contents": "to_bool(${1:\\$val})" },
+        
+        // Exception classes
+        "Throwable",
+        "Exception",
+        "RuntimeException",
+        "Error",
+        
+        // Common patterns
+        { "trigger": "getset", "contents": "private ${1:type} \\$${2:name};\n\npublic function get${3:Name}(): ${1:type} {\n\treturn \\$this->${2:name};\n}\n\npublic function set${3:Name}(${1:type} \\$value): void {\n\t\\$this->${2:name} = \\$value;\n}" },
+        
+        // Modifiers
+        "public", "private", "protected", "static", "final", "readonly", "abstract",
+        
+        // Boolean/Null
+        "true", "false", "null",
+        
+        // Keywords
+        "return", "break", "continue", "new", "instanceof", "const",
+        "extends", "implements", "this", "self", "parent"
+    ]
+}
+

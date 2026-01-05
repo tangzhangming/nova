@@ -1,0 +1,191 @@
+%YAML 1.2
+---
+# Sola Language Syntax Definition for Sublime Text
+# https://www.sublimetext.com/docs/syntax.html
+name: Sola
+file_extensions:
+  - sola
+scope: source.sola
+
+variables:
+  identifier: '[a-zA-Z_][a-zA-Z0-9_]*'
+  variable: '\$[a-zA-Z_][a-zA-Z0-9_]*'
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: types
+    - include: operators
+    - include: variables
+    - include: functions
+    - include: classes
+    - include: constants
+
+  comments:
+    # Single line comment
+    - match: '//'
+      scope: punctuation.definition.comment.sola
+      push:
+        - meta_scope: comment.line.double-slash.sola
+        - match: $\n?
+          pop: true
+    # Multi-line comment
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.sola
+      push:
+        - meta_scope: comment.block.sola
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.sola
+          pop: true
+    # Doc comment
+    - match: '/\*\*'
+      scope: punctuation.definition.comment.begin.sola
+      push:
+        - meta_scope: comment.block.documentation.sola
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.sola
+          pop: true
+
+  strings:
+    # Interpolated string
+    - match: '#"'
+      scope: punctuation.definition.string.begin.sola
+      push:
+        - meta_scope: string.quoted.double.interpolated.sola
+        - match: '"'
+          scope: punctuation.definition.string.end.sola
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.sola
+        - match: '\{(\${{identifier}})\}'
+          captures:
+            1: variable.other.sola
+    # Double quoted string
+    - match: '"'
+      scope: punctuation.definition.string.begin.sola
+      push:
+        - meta_scope: string.quoted.double.sola
+        - match: '"'
+          scope: punctuation.definition.string.end.sola
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.sola
+    # Single quoted string
+    - match: "'"
+      scope: punctuation.definition.string.begin.sola
+      push:
+        - meta_scope: string.quoted.single.sola
+        - match: "'"
+          scope: punctuation.definition.string.end.sola
+          pop: true
+        - match: '\\.'
+          scope: constant.character.escape.sola
+
+  numbers:
+    # Hexadecimal
+    - match: '\b0[xX][0-9a-fA-F]+\b'
+      scope: constant.numeric.hex.sola
+    # Binary
+    - match: '\b0[bB][01]+\b'
+      scope: constant.numeric.binary.sola
+    # Float
+    - match: '\b[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?\b'
+      scope: constant.numeric.float.sola
+    # Integer
+    - match: '\b[0-9]+\b'
+      scope: constant.numeric.integer.sola
+
+  keywords:
+    # Control flow
+    - match: '\b(if|else|elseif|switch|case|default|for|foreach|while|do|break|continue|return|throw|try|catch|finally)\b'
+      scope: keyword.control.sola
+    # Declaration
+    - match: '\b(function|class|interface|enum|abstract|extends|implements|namespace|use|as|new|const)\b'
+      scope: keyword.declaration.sola
+    # Modifier
+    - match: '\b(public|private|protected|static|final|readonly)\b'
+      scope: storage.modifier.sola
+    # Other keywords
+    - match: '\b(echo|print|isset|unset|instanceof)\b'
+      scope: keyword.other.sola
+
+  types:
+    # Primitive types
+    - match: '\b(int|i8|i16|i32|i64|uint|u8|u16|u32|u64|float|f32|f64|bool|string|void|null|array|map|object|func)\b'
+      scope: storage.type.sola
+    # Nullable type
+    - match: '\?(?={{identifier}})'
+      scope: storage.type.nullable.sola
+
+  operators:
+    # Assignment
+    - match: ':=|=>|\+=|-=|\*=|/=|%=|='
+      scope: keyword.operator.assignment.sola
+    # Comparison
+    - match: '===|!==|==|!=|<=|>=|<|>'
+      scope: keyword.operator.comparison.sola
+    # Logical
+    - match: '&&|\|\||!'
+      scope: keyword.operator.logical.sola
+    # Arithmetic
+    - match: '\+\+|--|\+|-|\*|/|%'
+      scope: keyword.operator.arithmetic.sola
+    # Bitwise
+    - match: '&|\||\^|~|<<|>>'
+      scope: keyword.operator.bitwise.sola
+    # Member access
+    - match: '->|::'
+      scope: keyword.operator.accessor.sola
+
+  variables:
+    # $this
+    - match: '\$this\b'
+      scope: variable.language.this.sola
+    # Variable
+    - match: '{{variable}}'
+      scope: variable.other.sola
+
+  functions:
+    # Function definition
+    - match: '\b(function)\s+({{identifier}})\s*\('
+      captures:
+        1: keyword.declaration.function.sola
+        2: entity.name.function.sola
+    # Built-in functions
+    - match: '\b(print|echo|print_r|typeof|is_null|is_bool|is_int|is_float|is_string|is_array|is_map|is_object|to_int|to_float|to_string|to_bool|len|push|pop|shift|unshift|slice|concat|reverse|contains|index_of|strlen|substr|str_upper|str_lower|str_trim|str_split|str_join|str_replace|str_contains|str_starts_with|str_ends_with|abs|min|max|floor|ceil|round|get_class)\s*\('
+      captures:
+        1: support.function.builtin.sola
+    # Function call
+    - match: '\b({{identifier}})\s*\('
+      captures:
+        1: entity.name.function.sola
+
+  classes:
+    # Class definition
+    - match: '\b(class|interface|enum|abstract\s+class)\s+({{identifier}})'
+      captures:
+        1: keyword.declaration.class.sola
+        2: entity.name.class.sola
+    # Extends/Implements
+    - match: '\b(extends|implements)\s+({{identifier}})'
+      captures:
+        1: keyword.declaration.sola
+        2: entity.other.inherited-class.sola
+    # Exception classes
+    - match: '\b(Throwable|Exception|RuntimeException|Error)\b'
+      scope: support.class.exception.sola
+    # self, parent
+    - match: '\b(self|parent)\b'
+      scope: variable.language.sola
+
+  constants:
+    # Boolean
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.sola
+    # Null
+    - match: '\b(null)\b'
+      scope: constant.language.null.sola
+
