@@ -1204,6 +1204,15 @@ func (c *Compiler) compileBinaryExpr(e *ast.BinaryExpr) {
 		return
 	}
 
+	// 类型检查：对于算术运算符，检查操作数类型是否兼容
+	leftType := c.inferExprType(e.Left)
+	rightType := c.inferExprType(e.Right)
+	
+	// 只有当两边类型都已知时才进行检查
+	if leftType != "unknown" && rightType != "unknown" {
+		c.checkBinaryOpTypes(e.Operator, leftType, rightType)
+	}
+
 	c.compileExpr(e.Left)
 	c.compileExpr(e.Right)
 
@@ -1784,6 +1793,66 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		return c.inferExprType(e.Then)
 	default:
 		return "unknown"
+	}
+}
+
+// checkBinaryOpTypes 检查二元运算符的操作数类型是否兼容
+func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string) {
+	// 判断是否是数字类型
+	isNumeric := func(t string) bool {
+		switch t {
+		case "int", "float", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "byte":
+			return true
+		}
+		return false
+	}
+
+	// 判断是否是整数类型
+	isInteger := func(t string) bool {
+		switch t {
+		case "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "byte":
+			return true
+		}
+		return false
+	}
+
+	switch op.Type {
+	case token.PLUS:
+		// + 运算符：两边都是数字，或者两边都是字符串
+		if leftType == "string" && rightType == "string" {
+			return // 字符串拼接是合法的
+		}
+		if isNumeric(leftType) && isNumeric(rightType) {
+			return // 数字相加是合法的
+		}
+		// 其他组合都是错误的
+		c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, "+", leftType, rightType))
+
+	case token.MINUS, token.STAR, token.SLASH, token.PERCENT:
+		// 算术运算符：两边必须都是数字
+		if !isNumeric(leftType) || !isNumeric(rightType) {
+			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
+		}
+
+	case token.BIT_AND, token.BIT_OR, token.BIT_XOR, token.LEFT_SHIFT, token.RIGHT_SHIFT:
+		// 位运算符：两边必须都是整数
+		if !isInteger(leftType) || !isInteger(rightType) {
+			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
+		}
+
+	case token.LT, token.LE, token.GT, token.GE:
+		// 比较运算符：两边必须是可比较的类型（都是数字或都是字符串）
+		if isNumeric(leftType) && isNumeric(rightType) {
+			return
+		}
+		if leftType == "string" && rightType == "string" {
+			return
+		}
+		c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
+
+	case token.EQ, token.NE:
+		// == 和 != 可以用于任何类型的比较，不需要特别检查
+		return
 	}
 }
 

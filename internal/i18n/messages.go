@@ -50,6 +50,7 @@ const (
 	ErrArrayTooManyElements  = "compiler.array_too_many_elements"
 	ErrCompoundAssignIndex   = "compiler.compound_assign_index"
 	ErrInvalidStaticAccessC  = "compiler.invalid_static_access"
+	ErrInvalidBinaryOp       = "compiler.invalid_binary_op"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

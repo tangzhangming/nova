@@ -986,10 +986,19 @@ func (p *Parser) parseClosureExpr() ast.Expression {
 		p.consume(token.LPAREN, "expected '(' after 'use'")
 		if !p.check(token.RPAREN) {
 			varTok := p.consume(token.VARIABLE, "expected variable in use clause")
-			useVars = append(useVars, &ast.Variable{Token: varTok, Name: varTok.Literal[1:]}) // 去掉 $
+			// 安全检查：防止空 token 导致 panic
+			varNameStr := ""
+			if len(varTok.Literal) > 0 {
+				varNameStr = varTok.Literal[1:]
+			}
+			useVars = append(useVars, &ast.Variable{Token: varTok, Name: varNameStr})
 			for p.match(token.COMMA) {
 				varTok = p.consume(token.VARIABLE, "expected variable in use clause")
-				useVars = append(useVars, &ast.Variable{Token: varTok, Name: varTok.Literal[1:]}) // 去掉 $
+				varNameStr = ""
+				if len(varTok.Literal) > 0 {
+					varNameStr = varTok.Literal[1:]
+				}
+				useVars = append(useVars, &ast.Variable{Token: varTok, Name: varNameStr})
 			}
 		}
 		p.consume(token.RPAREN, "expected ')' after use variables")
@@ -1016,12 +1025,20 @@ func (p *Parser) parseClosureExpr() ast.Expression {
 func (p *Parser) parseParameter() *ast.Parameter {
 	param := &ast.Parameter{}
 
-	// 可选的类型
-	if !p.check(token.VARIABLE) && !p.check(token.ELLIPSIS) {
-		param.Type = p.parseType()
+	// 可变参数前缀
+	if p.match(token.ELLIPSIS) {
+		param.Variadic = true
 	}
 
-	// 可变参数
+	// 类型声明（必须）
+	if !p.check(token.VARIABLE) {
+		param.Type = p.parseType()
+	} else {
+		// 没有类型声明，报错
+		p.error(i18n.T(i18n.ErrExpectedType) + " before parameter name")
+	}
+
+	// 可变参数（类型后面的 ...）
 	if p.match(token.ELLIPSIS) {
 		param.Variadic = true
 	}
@@ -1123,7 +1140,12 @@ func (p *Parser) lookAhead(n int) token.Token {
 func (p *Parser) parseVarDeclWithType() ast.Statement {
 	varType := p.parseType()
 	varToken := p.consume(token.VARIABLE, "expected variable name")
-	varName := &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
+	// 安全检查：防止空 token 导致 panic
+	varNameStr := ""
+	if len(varToken.Literal) > 0 {
+		varNameStr = varToken.Literal[1:]
+	}
+	varName := &ast.Variable{Token: varToken, Name: varNameStr}
 
 	var value ast.Expression
 	op := p.consume(token.ASSIGN, "expected '=' after variable name")
@@ -1366,13 +1388,22 @@ func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 
 	var key *ast.Variable
 	valueToken := p.consume(token.VARIABLE, "expected variable")
-	value := &ast.Variable{Token: valueToken, Name: valueToken.Literal[1:]}
+	// 安全检查：防止空 token 导致 panic
+	valueNameStr := ""
+	if len(valueToken.Literal) > 0 {
+		valueNameStr = valueToken.Literal[1:]
+	}
+	value := &ast.Variable{Token: valueToken, Name: valueNameStr}
 
 	// 检查是否有 key => value 形式
 	if p.match(token.DOUBLE_ARROW) {
 		key = value
 		valueToken = p.consume(token.VARIABLE, "expected variable after '=>'")
-		value = &ast.Variable{Token: valueToken, Name: valueToken.Literal[1:]}
+		valueNameStr = ""
+		if len(valueToken.Literal) > 0 {
+			valueNameStr = valueToken.Literal[1:]
+		}
+		value = &ast.Variable{Token: valueToken, Name: valueNameStr}
 	}
 
 	p.consume(token.RPAREN, "expected ')'")
@@ -1468,7 +1499,12 @@ func (p *Parser) parseTryStmt() *ast.TryStmt {
 		p.consume(token.LPAREN, "expected '('")
 		exType := p.parseType()
 		varToken := p.consume(token.VARIABLE, "expected variable")
-		varName := &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
+		// 安全检查：防止空 token 导致 panic
+		varNameStr := ""
+		if len(varToken.Literal) > 0 {
+			varNameStr = varToken.Literal[1:]
+		}
+		varName := &ast.Variable{Token: varToken, Name: varNameStr}
 		p.consume(token.RPAREN, "expected ')'")
 		body := p.parseBlock()
 
@@ -1709,7 +1745,12 @@ func (p *Parser) parseConstDecl(annotations []*ast.Annotation, visibility ast.Vi
 func (p *Parser) parsePropertyDecl(annotations []*ast.Annotation, visibility ast.Visibility, isStatic bool) *ast.PropertyDecl {
 	varType := p.parseType()
 	varToken := p.consume(token.VARIABLE, "expected variable name")
-	name := &ast.Variable{Token: varToken, Name: varToken.Literal[1:]}
+	// 安全检查：防止空 token 导致 panic
+	nameStr := ""
+	if len(varToken.Literal) > 0 {
+		nameStr = varToken.Literal[1:]
+	}
+	name := &ast.Variable{Token: varToken, Name: nameStr}
 
 	var assign token.Token
 	var value ast.Expression

@@ -49,6 +49,7 @@ var messagesZH = map[string]string{
 	ErrArrayTooManyElements: "数组初始化元素过多（最大 %d，实际 %d）",
 	ErrCompoundAssignIndex:  "暂不支持数组元素的复合赋值",
 	ErrInvalidStaticAccessC: "无效的静态访问",
+	ErrInvalidBinaryOp:      "运算符 '%s' 不能用于 %s 和 %s 类型",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",
