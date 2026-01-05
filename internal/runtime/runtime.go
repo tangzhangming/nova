@@ -354,6 +354,24 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_tcp_close"] = nativeTcpClose
 	r.builtins["native_tcp_set_timeout"] = nativeTcpSetTimeout
 
+	// 测试用：抛出原生异常的函数
+	r.builtins["native_throw"] = func(args []bytecode.Value) bytecode.Value {
+		msg := "Native exception"
+		if len(args) > 0 {
+			msg = args[0].AsString()
+		}
+		return bytecode.NewException("NativeException", msg, 0)
+	}
+	
+	// 测试用：会 panic 的函数 (用于测试 panic/recover)
+	r.builtins["native_panic"] = func(args []bytecode.Value) bytecode.Value {
+		msg := "Native panic"
+		if len(args) > 0 {
+			msg = args[0].AsString()
+		}
+		panic(msg)
+	}
+
 	// GC 控制函数
 	r.builtins["gc_collect"] = func(args []bytecode.Value) bytecode.Value {
 		freed := r.vm.CollectGarbage()

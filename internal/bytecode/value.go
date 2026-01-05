@@ -35,9 +35,11 @@ type FixedArray struct {
 
 // Exception 异常对象
 type Exception struct {
-	Type    string // 异常类型名 (如 "Exception", "RuntimeException")
-	Message string // 异常消息
-	Code    int64  // 异常代码
+	Type    string     // 异常类型名 (如 "Exception", "RuntimeException")
+	Message string     // 异常消息
+	Code    int64      // 异常代码
+	Cause   *Exception // 链式异常：导致此异常的原因
+	Stack   []string   // 调用栈信息
 }
 
 // NewException 创建异常值
@@ -50,6 +52,50 @@ func NewException(typeName, message string, code int64) Value {
 			Code:    code,
 		},
 	}
+}
+
+// NewExceptionWithCause 创建带原因的异常值
+func NewExceptionWithCause(typeName, message string, code int64, cause *Exception) Value {
+	return Value{
+		Type: ValException,
+		Data: &Exception{
+			Type:    typeName,
+			Message: message,
+			Code:    code,
+			Cause:   cause,
+		},
+	}
+}
+
+// SetStack 设置异常的调用栈
+func (e *Exception) SetStack(stack []string) {
+	e.Stack = stack
+}
+
+// GetFullMessage 获取包含异常链的完整消息
+func (e *Exception) GetFullMessage() string {
+	var result string
+	current := e
+	depth := 0
+	for current != nil {
+		if depth > 0 {
+			result += "\nCaused by: "
+		}
+		result += fmt.Sprintf("%s: %s", current.Type, current.Message)
+		if len(current.Stack) > 0 {
+			for _, frame := range current.Stack {
+				result += fmt.Sprintf("\n    at %s", frame)
+			}
+		}
+		current = current.Cause
+		depth++
+		// 防止无限循环
+		if depth > 10 {
+			result += "\n... (exception chain too deep)"
+			break
+		}
+	}
+	return result
 }
 
 // Value 运行时值
@@ -300,6 +346,9 @@ func (v Value) String() string {
 		return fmt.Sprintf("%s::%s", ev.EnumName, ev.CaseName)
 	case ValException:
 		ex := v.Data.(*Exception)
+		if ex.Cause != nil {
+			return ex.GetFullMessage()
+		}
 		return fmt.Sprintf("%s: %s", ex.Type, ex.Message)
 	default:
 		return "<unknown>"

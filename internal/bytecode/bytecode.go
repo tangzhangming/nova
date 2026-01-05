@@ -117,10 +117,13 @@ const (
 	OpCast      // 类型转换 (typeIndex: u16)
 
 	// 异常处理
-	OpThrow      // 抛出异常
-	OpEnterTry   // 进入 try 块 (catchOffset: i16, finallyOffset: i16)
-	OpLeaveTry   // 离开 try 块
-	OpEnterCatch // 进入 catch 块
+	OpThrow        // 抛出异常
+	OpEnterTry     // 进入 try 块 (catchOffset: i16, finallyOffset: i16)
+	OpLeaveTry     // 离开 try 块
+	OpEnterCatch   // 进入 catch 块
+	OpEnterFinally // 进入 finally 块
+	OpLeaveFinally // 离开 finally 块
+	OpRethrow      // 重新抛出挂起的异常
 
 	// 调试
 	OpDebugPrint // 调试打印
@@ -199,10 +202,13 @@ var opNames = map[OpCode]string{
 	OpUnset:       "UNSET",
 	OpCheckType:   "CHECK_TYPE",
 	OpCast:        "CAST",
-	OpThrow:       "THROW",
-	OpEnterTry:    "ENTER_TRY",
-	OpLeaveTry:    "LEAVE_TRY",
-	OpEnterCatch:  "ENTER_CATCH",
+	OpThrow:        "THROW",
+	OpEnterTry:     "ENTER_TRY",
+	OpLeaveTry:     "LEAVE_TRY",
+	OpEnterCatch:   "ENTER_CATCH",
+	OpEnterFinally: "ENTER_FINALLY",
+	OpLeaveFinally: "LEAVE_FINALLY",
+	OpRethrow:      "RETHROW",
 	OpDebugPrint:  "DEBUG_PRINT",
 	OpHalt:        "HALT",
 }

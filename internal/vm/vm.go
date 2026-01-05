@@ -29,11 +29,17 @@ type CallFrame struct {
 
 // TryContext 异常处理上下文
 type TryContext struct {
-	CatchIP      int  // catch 块的 IP
-	FinallyIP    int  // finally 块的 IP (-1 表示没有)
-	FrameCount   int  // 进入 try 时的帧数
-	StackTop     int  // 进入 try 时的栈顶
-	ExceptionVar int  // 异常变量的 slot
+	CatchIP          int             // catch 块的 IP
+	FinallyIP        int             // finally 块的 IP (-1 表示没有)
+	AfterFinallyIP   int             // finally 块之后的 IP
+	FrameCount       int             // 进入 try 时的帧数
+	StackTop         int             // 进入 try 时的栈顶
+	ExceptionVar     int             // 异常变量的 slot
+	InFinally        bool            // 是否正在执行 finally 块
+	PendingException bytecode.Value  // 挂起的异常（finally 结束后处理）
+	HasPendingExc    bool            // 是否有挂起的异常
+	PendingReturn    bytecode.Value  // 挂起的返回值
+	HasPendingReturn bool            // 是否有挂起的返回
 }
 
 // VM 虚拟机
@@ -872,6 +878,10 @@ func (vm *VM) execute() InterpretResult {
 			if exception.Type == bytecode.ValString {
 				exception = bytecode.NewException("Exception", exception.AsString(), 0)
 			}
+			// 捕获调用栈信息
+			if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
+				exc.Stack = vm.captureStackTrace()
+			}
 			if !vm.handleException(exception) {
 				return vm.runtimeError("uncaught exception: %s", exception.String())
 			}
@@ -884,17 +894,23 @@ func (vm *VM) execute() InterpretResult {
 			offsetStart := frame.IP
 			catchOffset := chunk.ReadI16(frame.IP)
 			frame.IP += 2
-			_ = chunk.ReadI16(frame.IP) // finally 偏移量（暂不使用）
+			finallyOffset := chunk.ReadI16(frame.IP)
 			frame.IP += 2
 			
 			// 计算 catch 块的绝对地址
 			catchIP := offsetStart + int(catchOffset)
 			
+			// 计算 finally 块的绝对地址 (-1 表示没有 finally)
+			finallyIP := -1
+			if finallyOffset != -1 {
+				finallyIP = offsetStart + int(finallyOffset)
+			}
+			
 			vm.tryStack = append(vm.tryStack, TryContext{
-				CatchIP:    catchIP,
-				FinallyIP:  -1, // 暂时不支持 finally
-				FrameCount: vm.frameCount,
-				StackTop:   vm.stackTop,
+				CatchIP:      catchIP,
+				FinallyIP:    finallyIP,
+				FrameCount:   vm.frameCount,
+				StackTop:     vm.stackTop,
 			})
 
 		case bytecode.OpLeaveTry:
@@ -906,6 +922,56 @@ func (vm *VM) execute() InterpretResult {
 			// 异常值已经在栈上
 			// 清除异常状态
 			vm.hasException = false
+
+		case bytecode.OpEnterFinally:
+			// 进入 finally 块
+			// 如果有挂起的异常或返回值，VM 会在 OpLeaveFinally 时处理
+			// finally 块开始时不需要特殊处理
+
+		case bytecode.OpLeaveFinally:
+			// 离开 finally 块，检查是否有挂起的异常或返回值
+			if len(vm.tryStack) > 0 {
+				tryCtx := &vm.tryStack[len(vm.tryStack)-1]
+				if tryCtx.InFinally {
+					tryCtx.InFinally = false
+					vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+					
+					// 如果有挂起的异常，重新抛出
+					if tryCtx.HasPendingExc {
+						if !vm.handleException(tryCtx.PendingException) {
+							return vm.runtimeError("uncaught exception: %s", tryCtx.PendingException.String())
+						}
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					}
+					
+					// 如果有挂起的返回值，执行返回
+					if tryCtx.HasPendingReturn {
+						result := tryCtx.PendingReturn
+						vm.frameCount--
+						if vm.frameCount == 0 {
+							vm.pop()
+							return InterpretOK
+						}
+						vm.stackTop = frame.BaseSlot
+						vm.push(result)
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					}
+				}
+			}
+
+		case bytecode.OpRethrow:
+			// 重新抛出当前异常
+			if vm.hasException {
+				if !vm.handleException(vm.exception) {
+					return vm.runtimeError("uncaught exception: %s", vm.exception.String())
+				}
+				frame = &vm.frames[vm.frameCount-1]
+				chunk = frame.Closure.Function.Chunk
+			}
 
 		// 类型检查
 		case bytecode.OpCheckType:
@@ -950,10 +1016,20 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 	vm.exception = exception
 	vm.hasException = true
 	
+	// 为异常添加调用栈信息
+	if exc := exception.AsException(); exc != nil && len(exc.Stack) == 0 {
+		exc.Stack = vm.captureStackTrace()
+	}
+	
 	// 查找最近的 try 块
 	for len(vm.tryStack) > 0 {
-		tryCtx := vm.tryStack[len(vm.tryStack)-1]
-		vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+		tryCtx := &vm.tryStack[len(vm.tryStack)-1]
+		
+		// 如果正在执行 finally 块中发生异常，记录但继续传播
+		if tryCtx.InFinally {
+			vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+			continue
+		}
 		
 		// 展开调用栈到 try 块所在的帧
 		for vm.frameCount > tryCtx.FrameCount {
@@ -963,19 +1039,55 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 		if vm.frameCount > 0 {
 			frame := &vm.frames[vm.frameCount-1]
 			
-			// 恢复栈状态：保持基础栈帧，只重置到 try 块开始时的状态
-			// 但异常值需要作为一个新的局部变量
+			// 恢复栈状态
 			vm.stackTop = tryCtx.StackTop
 			
-			frame.IP = tryCtx.CatchIP
-			vm.push(exception) // 将异常值压入栈，它将成为 catch 块的第一个局部变量
-			vm.hasException = false
-			return true
+			// 如果有 finally 块，先执行 finally
+			if tryCtx.FinallyIP >= 0 && tryCtx.CatchIP != tryCtx.FinallyIP {
+				// 有 catch 块，先跳转到 catch
+				frame.IP = tryCtx.CatchIP
+				vm.push(exception)
+				vm.hasException = false
+				return true
+			} else if tryCtx.FinallyIP >= 0 {
+				// 只有 finally 块，没有 catch
+				// 挂起异常，先执行 finally
+				tryCtx.PendingException = exception
+				tryCtx.HasPendingExc = true
+				tryCtx.InFinally = true
+				frame.IP = tryCtx.FinallyIP
+				vm.hasException = false
+				return true
+			} else {
+				// 只有 catch，跳转到 catch
+				frame.IP = tryCtx.CatchIP
+				vm.push(exception)
+				vm.hasException = false
+				vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+				return true
+			}
 		}
+		
+		vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
 	}
 	
 	// 没有找到处理程序
 	return false
+}
+
+// captureStackTrace 捕获当前调用栈信息
+func (vm *VM) captureStackTrace() []string {
+	var stack []string
+	for i := vm.frameCount - 1; i >= 0; i-- {
+		frame := &vm.frames[i]
+		fn := frame.Closure.Function
+		line := 0
+		if frame.IP > 0 && frame.IP-1 < len(fn.Chunk.Lines) {
+			line = fn.Chunk.Lines[frame.IP-1]
+		}
+		stack = append(stack, fmt.Sprintf("%s (line %d)", fn.Name, line))
+	}
+	return stack
 }
 
 // 栈操作
@@ -1107,22 +1219,65 @@ func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 		fn := callee.Data.(*bytecode.Function)
 		// 特殊处理内置函数
 		if fn.IsBuiltin && fn.BuiltinFn != nil {
-			// 收集参数
-			args := make([]bytecode.Value, argCount)
-			for i := argCount - 1; i >= 0; i-- {
-				args[i] = vm.pop()
-			}
-			vm.pop() // 弹出函数本身
-			// 调用内置函数
-			result := fn.BuiltinFn(args)
-			vm.push(result)
-			return InterpretOK
+			return vm.callBuiltin(fn, argCount)
 		}
 		closure := &bytecode.Closure{Function: fn}
 		return vm.call(closure, argCount)
 	default:
 		return vm.runtimeError("can only call functions")
 	}
+}
+
+// callBuiltin 调用内置函数，支持异常捕获
+func (vm *VM) callBuiltin(fn *bytecode.Function, argCount int) InterpretResult {
+	// 收集参数
+	args := make([]bytecode.Value, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = vm.pop()
+	}
+	vm.pop() // 弹出函数本身
+	
+	// 使用 defer/recover 捕获 Go 原生 panic
+	var result bytecode.Value
+	var panicErr interface{}
+	
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicErr = r
+			}
+		}()
+		result = fn.BuiltinFn(args)
+	}()
+	
+	// 如果发生 panic，转换为异常
+	if panicErr != nil {
+		var errMsg string
+		switch e := panicErr.(type) {
+		case error:
+			errMsg = e.Error()
+		case string:
+			errMsg = e
+		default:
+			errMsg = fmt.Sprintf("%v", panicErr)
+		}
+		exception := bytecode.NewException("NativeException", errMsg, 0)
+		if !vm.handleException(exception) {
+			return vm.runtimeError("uncaught native exception: %s", errMsg)
+		}
+		return InterpretOK
+	}
+	
+	// 检查返回值是否是异常
+	if result.Type == bytecode.ValException {
+		if !vm.handleException(result) {
+			return vm.runtimeError("uncaught exception: %s", result.String())
+		}
+		return InterpretOK
+	}
+	
+	vm.push(result)
+	return InterpretOK
 }
 
 // 调用闭包
