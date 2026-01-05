@@ -595,6 +595,7 @@ type Annotation struct {
 // Class 类定义
 type Class struct {
 	Name           string
+	Namespace      string   // 命名空间（如 "sola.lang"）
 	ParentName     string   // 父类名（用于运行时解析）
 	Parent         *Class
 	Implements     []string // 实现的接口名
@@ -606,6 +607,14 @@ type Class struct {
 	Properties     map[string]Value      // 属性默认值
 	PropVisibility map[string]Visibility // 属性可见性
 	PropAnnotations map[string][]*Annotation // 属性注解
+}
+
+// FullName 获取类的完整名称（包括命名空间）
+func (c *Class) FullName() string {
+	if c.Namespace != "" {
+		return c.Namespace + "." + c.Name
+	}
+	return c.Name
 }
 
 // NewClass 创建类定义
@@ -679,6 +688,7 @@ const (
 
 type Method struct {
 	Name          string
+	ClassName     string   // 所属类名（用于堆栈跟踪）
 	SourceFile    string   // 源文件路径
 	Arity         int      // 参数数量
 	MinArity      int      // 最小参数数量（考虑默认参数后）
@@ -696,6 +706,7 @@ type BuiltinFn func(args []Value) Value
 
 type Function struct {
 	Name          string
+	ClassName     string   // 所属类名（用于堆栈跟踪）
 	SourceFile    string   // 源文件路径
 	Arity         int
 	MinArity      int      // 最小参数数量（考虑默认参数后）

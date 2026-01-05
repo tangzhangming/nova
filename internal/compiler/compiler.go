@@ -38,8 +38,9 @@ type Compiler struct {
 	globalTypes map[string]string // 全局变量类型表
 
 	// 源文件信息
-	sourceFile  string // 当前编译的源文件路径
-	currentLine int    // 当前编译的行号
+	sourceFile       string // 当前编译的源文件路径
+	currentLine      int    // 当前编译的行号
+	currentNamespace string // 当前命名空间
 
 	errors []Error
 }
@@ -89,6 +90,11 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	// 设置源文件信息
 	c.sourceFile = file.Filename
 	c.function.SourceFile = file.Filename
+	
+	// 设置命名空间
+	if file.Namespace != nil {
+		c.currentNamespace = file.Namespace.Name
+	}
 	
 	// 预留 slot 0 给调用者（与 CompileFunction 保持一致）
 	c.addLocal("")

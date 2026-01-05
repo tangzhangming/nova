@@ -184,6 +184,7 @@ func (vm *VM) callParentMethod(class *bytecode.Class, methodName string, argCoun
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
 			Name:          method.Name,
+			ClassName:     method.ClassName, // 设置类名用于堆栈跟踪
 			Arity:         method.Arity,
 			MinArity:      method.MinArity,
 			Chunk:         method.Chunk,
@@ -221,6 +222,7 @@ func (vm *VM) callConstructor(obj *bytecode.Object, argCount int) InterpretResul
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
 			Name:          method.Name,
+			ClassName:     method.ClassName, // 设置类名用于堆栈跟踪
 			Arity:         method.Arity,
 			MinArity:      method.MinArity,
 			Chunk:         method.Chunk,
@@ -238,6 +240,7 @@ func (vm *VM) invokeDestructor(obj *bytecode.Object, method *bytecode.Method) In
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
 			Name:          method.Name,
+			ClassName:     method.ClassName, // 设置类名用于堆栈跟踪
 			Arity:         method.Arity,
 			MinArity:      method.MinArity,
 			Chunk:         method.Chunk,

@@ -16,6 +16,9 @@ type ClassCompiler struct {
 // CompileClass 编译类声明
 func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	class := bytecode.NewClass(decl.Name.Name)
+	
+	// 设置命名空间
+	class.Namespace = c.currentNamespace
 
 	// 处理类注解
 	class.Annotations = c.compileAnnotations(decl.Annotations)
@@ -129,6 +132,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 
 	method := &bytecode.Method{
 		Name:        decl.Name.Name,
+		ClassName:   class.Name, // 设置所属类名
 		SourceFile:  c.sourceFile, // 继承源文件信息
 		Arity:       len(decl.Parameters),
 		MinArity:    minArity,
@@ -164,6 +168,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	// 创建方法的编译环境
 	c.function = &bytecode.Function{
 		Name:       decl.Name.Name,
+		ClassName:  class.Name, // 设置所属类名
 		Arity:      len(decl.Parameters),
 		Chunk:      method.Chunk,
 		SourceFile: c.sourceFile, // 继承源文件信息

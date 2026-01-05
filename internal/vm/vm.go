@@ -648,6 +648,7 @@ func (vm *VM) execute() InterpretResult {
 			closure := &bytecode.Closure{
 				Function: &bytecode.Function{
 					Name:       method.Name,
+					ClassName:  method.ClassName, // 设置类名用于堆栈跟踪
 					SourceFile: method.SourceFile,
 					Arity:      method.Arity,
 					MinArity:   method.Arity, // 静态方法暂不支持默认参数
@@ -1243,6 +1244,7 @@ func (vm *VM) captureStackTrace() []bytecode.StackFrame {
 		}
 		frames = append(frames, bytecode.StackFrame{
 			FunctionName: fn.Name,
+			ClassName:    fn.ClassName, // 设置类名用于堆栈跟踪
 			FileName:     fn.SourceFile,
 			LineNumber:   line,
 		})
@@ -1626,6 +1628,7 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	closure := &bytecode.Closure{
 		Function: &bytecode.Function{
 			Name:          method.Name,
+			ClassName:     method.ClassName, // 设置类名用于堆栈跟踪
 			SourceFile:    method.SourceFile,
 			Arity:         method.Arity,
 			MinArity:      method.MinArity,
@@ -1665,8 +1668,14 @@ func (vm *VM) formatException(exc *bytecode.Exception) string {
 		}
 	}
 	
+	// 获取完整的异常类型名（包括命名空间）
+	typeName := exc.Type
+	if exc.Object != nil && exc.Object.Class != nil {
+		typeName = exc.Object.Class.FullName()
+	}
+	
 	// 异常类型和消息
-	result = fmt.Sprintf("%s: %s\n", exc.Type, message)
+	result = fmt.Sprintf("%s: %s\n", typeName, message)
 	
 	// 堆栈跟踪
 	for _, frame := range exc.StackFrames {

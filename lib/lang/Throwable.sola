@@ -71,10 +71,18 @@ public class Throwable {
             if ($i > 0) {
                 $result = $result + "\n";
             }
-            $result = $result + "    " + $frame;
+            $result = $result + "    at " + $frame;
             $i = $i + 1;
         }
         return $result;
+    }
+
+    /**
+     * 打印堆栈跟踪到控制台（类似 Java 的 printStackTrace）
+     */
+    public function printStackTrace() {
+        // 打印异常类型和消息
+        echo $this->__toString();
     }
 
     /**
@@ -82,6 +90,7 @@ public class Throwable {
      * 返回完整的异常信息，包括类型、消息和堆栈跟踪
      */
     public function __toString(): string {
+        // 格式: ClassName: message
         string $result = $this->message;
         
         // 添加堆栈跟踪
