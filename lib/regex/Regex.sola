@@ -1,0 +1,193 @@
+namespace sola.regex
+
+/**
+ * 正则表达式类
+ * 提供正则匹配、查找、替换、分割等功能
+ */
+public class Regex {
+    
+    private string $pattern;
+    private string $compiledPattern;
+    
+    /**
+     * 构造函数
+     * @param string $pattern 正则表达式模式
+     * @param RegexOptions $options 可选的正则选项
+     */
+    public function __construct(string $pattern, RegexOptions $options = null) {
+        $this->pattern = $pattern;
+        
+        if ($options != null) {
+            $flags := $options->toInlineFlags();
+            $this->compiledPattern = $flags + $pattern;
+        } else {
+            $this->compiledPattern = $pattern;
+        }
+    }
+    
+    // ========================================================================
+    // 匹配检测
+    // ========================================================================
+    
+    /**
+     * 测试字符串是否匹配模式
+     * @param string $str 要测试的字符串
+     * @return bool 是否匹配
+     */
+    public function test(string $str): bool {
+        return native_regex_match($this->compiledPattern, $str);
+    }
+    
+    /**
+     * 测试字符串是否匹配模式（test的别名）
+     * @param string $str 要测试的字符串
+     * @return bool 是否匹配
+     */
+    public function isMatch(string $str): bool {
+        return $this->test($str);
+    }
+    
+    // ========================================================================
+    // 查找
+    // ========================================================================
+    
+    /**
+     * 查找第一个匹配
+     * @param string $str 要搜索的字符串
+     * @return Match 匹配结果
+     */
+    public function find(string $str): Match {
+        $value := native_regex_find($this->compiledPattern, $str);
+        $index := native_regex_find_index($this->compiledPattern, $str);
+        $groups := native_regex_groups($this->compiledPattern, $str);
+        
+        if (len($index) < 2) {
+            return Match::empty();
+        }
+        
+        return new Match($value, $groups, $index[0], $index[1]);
+    }
+    
+    /**
+     * 查找所有匹配
+     * @param string $str 要搜索的字符串
+     * @return Match[] 所有匹配结果
+     */
+    public function findAll(string $str): Match[] {
+        $allGroups := native_regex_find_all_groups($this->compiledPattern, $str);
+        $result := [];
+        
+        // 遍历所有匹配
+        $searchStr := $str;
+        $offset := 0;
+        
+        foreach ($allGroups as $groups) {
+            if (len($groups) > 0) {
+                $value := $groups[0];
+                // 查找在剩余字符串中的位置
+                $idx := native_regex_find_index($this->compiledPattern, $searchStr);
+                if (len($idx) >= 2) {
+                    $start := $offset + $idx[0];
+                    $end := $offset + $idx[1];
+                    $result = push($result, new Match($value, $groups, $start, $end));
+                    
+                    // 更新搜索位置
+                    $offset = $end;
+                    $searchStr = native_str_substring($str, $offset, native_str_len($str) - $offset);
+                }
+            }
+        }
+        
+        return $result;
+    }
+    
+    // ========================================================================
+    // 替换
+    // ========================================================================
+    
+    /**
+     * 替换第一个匹配
+     * @param string $str 原始字符串
+     * @param string $replacement 替换内容
+     * @return string 替换后的字符串
+     */
+    public function replace(string $str, string $replacement): string {
+        return native_regex_replace($this->compiledPattern, $str, $replacement);
+    }
+    
+    /**
+     * 替换所有匹配
+     * @param string $str 原始字符串
+     * @param string $replacement 替换内容
+     * @return string 替换后的字符串
+     */
+    public function replaceAll(string $str, string $replacement): string {
+        return native_regex_replace_all($this->compiledPattern, $str, $replacement);
+    }
+    
+    // ========================================================================
+    // 分割
+    // ========================================================================
+    
+    /**
+     * 按模式分割字符串
+     * @param string $str 要分割的字符串
+     * @return string[] 分割后的数组
+     */
+    public function split(string $str): string[] {
+        return native_regex_split($this->compiledPattern, $str, -1);
+    }
+    
+    /**
+     * 按模式分割字符串（限制分割次数）
+     * @param string $str 要分割的字符串
+     * @param int $limit 最大分割数量
+     * @return string[] 分割后的数组
+     */
+    public function splitLimit(string $str, int $limit): string[] {
+        return native_regex_split($this->compiledPattern, $str, $limit);
+    }
+    
+    // ========================================================================
+    // 信息获取
+    // ========================================================================
+    
+    /**
+     * 获取原始模式字符串
+     * @return string 原始模式
+     */
+    public function getPattern(): string {
+        return $this->pattern;
+    }
+    
+    /**
+     * 获取编译后的模式（含修饰符）
+     * @return string 编译后的模式
+     */
+    public function getCompiledPattern(): string {
+        return $this->compiledPattern;
+    }
+    
+    // ========================================================================
+    // 静态便捷方法
+    // ========================================================================
+    
+    /**
+     * 快速测试字符串是否匹配模式
+     * @param string $pattern 正则模式
+     * @param string $str 要测试的字符串
+     * @return bool 是否匹配
+     */
+    public static function match(string $pattern, string $str): bool {
+        return native_regex_match($pattern, $str);
+    }
+    
+    /**
+     * 转义正则特殊字符
+     * @param string $str 要转义的字符串
+     * @return string 转义后的字符串
+     */
+    public static function escape(string $str): string {
+        return native_regex_escape($str);
+    }
+}

@@ -1,0 +1,121 @@
+namespace sola.regex
+
+/**
+ * 正则表达式匹配结果类
+ * 存储匹配的值、位置和捕获组信息
+ */
+public class Match {
+    
+    private string $value;       // 完整匹配的字符串
+    private string[] $groups;    // 捕获组（索引0为完整匹配）
+    private int $start;          // 起始位置
+    private int $end;            // 结束位置
+    private bool $matched;       // 是否匹配成功
+    
+    /**
+     * 构造函数
+     * @param string $value 匹配的字符串
+     * @param string[] $groups 捕获组数组
+     * @param int $start 起始位置
+     * @param int $end 结束位置
+     */
+    public function __construct(string $value, string[] $groups, int $start, int $end) {
+        $this->value = $value;
+        $this->groups = $groups;
+        $this->start = $start;
+        $this->end = $end;
+        $this->matched = ($value != "") || ($start >= 0);
+    }
+    
+    // ========================================================================
+    // 基本信息
+    // ========================================================================
+    
+    /**
+     * 获取匹配的完整字符串
+     * @return string 匹配的字符串
+     */
+    public function getValue(): string {
+        return $this->value;
+    }
+    
+    /**
+     * 检查是否匹配成功
+     * @return bool 是否匹配
+     */
+    public function isMatched(): bool {
+        return $this->matched;
+    }
+    
+    /**
+     * 获取匹配的起始位置
+     * @return int 起始位置，未匹配返回-1
+     */
+    public function getStart(): int {
+        return $this->start;
+    }
+    
+    /**
+     * 获取匹配的结束位置
+     * @return int 结束位置，未匹配返回-1
+     */
+    public function getEnd(): int {
+        return $this->end;
+    }
+    
+    /**
+     * 获取匹配的长度
+     * @return int 匹配字符串的长度
+     */
+    public function getLength(): int {
+        if ($this->end < 0 || $this->start < 0) {
+            return 0;
+        }
+        return $this->end - $this->start;
+    }
+    
+    // ========================================================================
+    // 捕获组
+    // ========================================================================
+    
+    /**
+     * 获取所有捕获组
+     * @return string[] 捕获组数组（索引0为完整匹配）
+     */
+    public function getGroups(): string[] {
+        return $this->groups;
+    }
+    
+    /**
+     * 获取指定索引的捕获组
+     * @param int $index 捕获组索引（0为完整匹配，1为第一个捕获组）
+     * @return string 捕获组内容，索引越界返回空字符串
+     */
+    public function getGroup(int $index): string {
+        if ($index < 0 || $index >= len($this->groups)) {
+            return "";
+        }
+        return $this->groups[$index];
+    }
+    
+    /**
+     * 获取捕获组数量（包含完整匹配）
+     * @return int 捕获组数量
+     */
+    public function groupCount(): int {
+        return len($this->groups);
+    }
+    
+    // ========================================================================
+    // 静态工厂方法
+    // ========================================================================
+    
+    /**
+     * 创建一个空的（未匹配的）Match对象
+     * @return Match 空的Match对象
+     */
+    public static function empty(): Match {
+        return new Match("", [], -1, -1);
+    }
+}
+

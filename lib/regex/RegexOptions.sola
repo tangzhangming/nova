@@ -1,0 +1,155 @@
+namespace sola.regex
+
+/**
+ * 正则表达式选项类
+ * 用于配置正则表达式的匹配行为
+ */
+public class RegexOptions {
+    
+    // 选项常量
+    public const int NONE = 0;
+    public const int IGNORE_CASE = 1;   // (?i) 忽略大小写
+    public const int MULTILINE = 2;     // (?m) 多行模式
+    public const int DOT_ALL = 4;       // (?s) 点号匹配换行
+    public const int UNGREEDY = 8;      // (?U) 非贪婪模式
+    
+    private int $flags = 0;
+    
+    /**
+     * 构造函数
+     * @param int $flags 选项标志位（可使用 | 组合多个选项）
+     */
+    public function __construct(int $flags = 0) {
+        $this->flags = $flags;
+    }
+    
+    // ========================================================================
+    // 链式设置方法
+    // ========================================================================
+    
+    /**
+     * 启用忽略大小写模式
+     * @return RegexOptions 返回自身以支持链式调用
+     */
+    public function ignoreCase(): RegexOptions {
+        $this->flags = $this->flags | 1;
+        return $this;
+    }
+    
+    /**
+     * 启用多行模式
+     * @return RegexOptions 返回自身以支持链式调用
+     */
+    public function multiline(): RegexOptions {
+        $this->flags = $this->flags | 2;
+        return $this;
+    }
+    
+    /**
+     * 启用点号匹配换行模式
+     * @return RegexOptions 返回自身以支持链式调用
+     */
+    public function dotAll(): RegexOptions {
+        $this->flags = $this->flags | 4;
+        return $this;
+    }
+    
+    /**
+     * 启用非贪婪模式
+     * @return RegexOptions 返回自身以支持链式调用
+     */
+    public function ungreedy(): RegexOptions {
+        $this->flags = $this->flags | 8;
+        return $this;
+    }
+    
+    // ========================================================================
+    // 检查方法
+    // ========================================================================
+    
+    /**
+     * 检查是否启用忽略大小写
+     */
+    public function hasIgnoreCase(): bool {
+        return ($this->flags & 1) != 0;
+    }
+    
+    /**
+     * 检查是否启用多行模式
+     */
+    public function hasMultiline(): bool {
+        return ($this->flags & 2) != 0;
+    }
+    
+    /**
+     * 检查是否启用点号匹配换行
+     */
+    public function hasDotAll(): bool {
+        return ($this->flags & 4) != 0;
+    }
+    
+    /**
+     * 检查是否启用非贪婪模式
+     */
+    public function hasUngreedy(): bool {
+        return ($this->flags & 8) != 0;
+    }
+    
+    // ========================================================================
+    // 转换方法
+    // ========================================================================
+    
+    /**
+     * 转换为内联修饰符字符串
+     * @return string 如 "(?i)" 或 "(?ims)"
+     */
+    public function toInlineFlags(): string {
+        if ($this->flags == 0) {
+            return "";
+        }
+        
+        $flags := "(";
+        $hasFlag := false;
+        
+        if ($this->hasIgnoreCase()) {
+            $flags = $flags + "?i";
+            $hasFlag = true;
+        }
+        if ($this->hasMultiline()) {
+            if (!$hasFlag) {
+                $flags = $flags + "?";
+            }
+            $flags = $flags + "m";
+            $hasFlag = true;
+        }
+        if ($this->hasDotAll()) {
+            if (!$hasFlag) {
+                $flags = $flags + "?";
+            }
+            $flags = $flags + "s";
+            $hasFlag = true;
+        }
+        if ($this->hasUngreedy()) {
+            if (!$hasFlag) {
+                $flags = $flags + "?";
+            }
+            $flags = $flags + "U";
+            $hasFlag = true;
+        }
+        
+        if (!$hasFlag) {
+            return "";
+        }
+        
+        return $flags + ")";
+    }
+    
+    /**
+     * 获取标志位
+     * @return int 标志位值
+     */
+    public function getFlags(): int {
+        return $this->flags;
+    }
+}
+
