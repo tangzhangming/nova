@@ -96,3 +96,4 @@ var messagesEN = map[string]string{
 	ErrCompileFailedFor:   "compile failed for %s",
 }
 
+
