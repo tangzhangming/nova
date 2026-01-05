@@ -467,6 +467,10 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 		tok := p.advance()
 		return &ast.ThisExpr{Token: tok}
 	case token.IDENT:
+		// 检查是否是类型后跟 { (如 MyClass{})
+		if p.lookAhead(1).Type == token.LBRACE {
+			return p.parseTypedArrayLiteral()
+		}
 		tok := p.advance()
 		return &ast.Identifier{Token: tok, Name: tok.Literal}
 	case token.SELF:
@@ -478,7 +482,10 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 	case token.LPAREN:
 		return p.parseGroupOrArrowFunc()
 	case token.LBRACKET:
-		return p.parseArrayOrMapLiteral()
+		// 保留用于将来的万能数组，暂时报错
+		p.error("'[' syntax reserved for super array (use Type{...} for arrays)")
+		p.advance()
+		return nil
 	case token.NOT, token.MINUS, token.BIT_NOT:
 		return p.parseUnaryExpr()
 	case token.INCREMENT, token.DECREMENT:
@@ -487,6 +494,15 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 		return p.parseNewExpr()
 	case token.FUNCTION:
 		return p.parseClosureExpr()
+	// Go 风格数组字面量: int{1, 2, 3}
+	case token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
+		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
+		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
+		token.BOOL_TYPE, token.STRING_TYPE, token.OBJECT:
+		return p.parseTypedArrayLiteral()
+	// Go 风格 Map 字面量: map[K]V{...}
+	case token.MAP:
+		return p.parseTypedMapLiteral()
 	default:
 		p.error(i18n.T(i18n.ErrUnexpectedToken, p.peek().Type))
 		p.advance() // 跳过无效 token，防止无限循环
@@ -748,72 +764,185 @@ func (p *Parser) parseArrowFuncFromParams(lparen token.Token) ast.Expression {
 	}
 }
 
-func (p *Parser) parseArrayOrMapLiteral() ast.Expression {
-	lbracket := p.advance() // 消费 [
+// parseTypedArrayLiteral 解析 Go 风格数组字面量: int{1, 2, 3}
+func (p *Parser) parseTypedArrayLiteral() ast.Expression {
+	// 解析元素类型
+	elementType := p.parseType()
 
-	if p.check(token.RBRACKET) {
-		// 空数组
-		rbracket := p.advance()
+	// 期望 {
+	lbrace := p.consume(token.LBRACE, "expected '{' after type")
+
+	// 解析元素
+	var elements []ast.Expression
+	if !p.check(token.RBRACE) {
+		elements = append(elements, p.parseExpression())
+		for p.match(token.COMMA) {
+			if p.check(token.RBRACE) {
+				break // 允许尾逗号
+			}
+			elements = append(elements, p.parseExpression())
+		}
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}'")
+	return &ast.ArrayLiteral{
+		ElementType: elementType,
+		LBrace:      lbrace,
+		Elements:    elements,
+		RBrace:      rbrace,
+	}
+}
+
+// parseTypedMapLiteral 解析 Go 风格 Map 字面量: map[K]V{...}
+func (p *Parser) parseTypedMapLiteral() ast.Expression {
+	mapToken := p.advance() // 消费 map
+
+	// 解析 [KeyType]
+	p.consume(token.LBRACKET, "expected '[' after 'map'")
+	keyType := p.parseType()
+	p.consume(token.RBRACKET, "expected ']' after map key type")
+
+	// 解析 ValueType
+	valueType := p.parseType()
+
+	// 期望 {
+	lbrace := p.consume(token.LBRACE, "expected '{' after map type")
+
+	// 解析键值对
+	var pairs []ast.MapPair
+	if !p.check(token.RBRACE) {
+		key := p.parseExpression()
+		colon := p.consume(token.COLON, "expected ':' after map key")
+		value := p.parseExpression()
+		pairs = append(pairs, ast.MapPair{
+			Key:   key,
+			Colon: colon,
+			Value: value,
+		})
+
+		for p.match(token.COMMA) {
+			if p.check(token.RBRACE) {
+				break // 允许尾逗号
+			}
+			key := p.parseExpression()
+			colon := p.consume(token.COLON, "expected ':' after map key")
+			value := p.parseExpression()
+			pairs = append(pairs, ast.MapPair{
+				Key:   key,
+				Colon: colon,
+				Value: value,
+			})
+		}
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}'")
+	return &ast.MapLiteral{
+		MapToken:  mapToken,
+		KeyType:   keyType,
+		ValueType: valueType,
+		LBrace:    lbrace,
+		Pairs:     pairs,
+		RBrace:    rbrace,
+	}
+}
+
+// parseUntypedCollectionLiteral 解析无类型集合字面量 {...}（从上下文推断类型）
+func (p *Parser) parseUntypedCollectionLiteral(expectedType ast.TypeNode) ast.Expression {
+	lbrace := p.consume(token.LBRACE, "expected '{'")
+
+	// 空集合
+	if p.check(token.RBRACE) {
+		rbrace := p.advance()
+		// 根据期望类型决定是数组还是 Map
+		if mapType, ok := expectedType.(*ast.MapType); ok {
+			return &ast.MapLiteral{
+				KeyType:   mapType.KeyType,
+				ValueType: mapType.ValueType,
+				LBrace:    lbrace,
+				RBrace:    rbrace,
+			}
+		}
+		// 默认是数组
+		var elemType ast.TypeNode
+		if arrType, ok := expectedType.(*ast.ArrayType); ok {
+			elemType = arrType.ElementType
+		}
 		return &ast.ArrayLiteral{
-			LBracket: lbracket,
-			RBracket: rbracket,
+			ElementType: elemType,
+			LBrace:      lbrace,
+			RBrace:      rbrace,
 		}
 	}
 
 	// 解析第一个元素
 	first := p.parseExpression()
 
-	// 检查是否是 map (key => value)
-	if p.check(token.DOUBLE_ARROW) {
-		return p.parseMapLiteralRest(lbracket, first)
+	// 检查是否是 Map (key: value)
+	if p.check(token.COLON) {
+		return p.parseUntypedMapLiteralRest(lbrace, first, expectedType)
 	}
 
 	// 普通数组
 	elements := []ast.Expression{first}
 	for p.match(token.COMMA) {
-		if p.check(token.RBRACKET) {
+		if p.check(token.RBRACE) {
 			break // 允许尾逗号
 		}
 		elements = append(elements, p.parseExpression())
 	}
 
-	rbracket := p.consume(token.RBRACKET, "expected ']'")
+	rbrace := p.consume(token.RBRACE, "expected '}'")
+
+	var elemType ast.TypeNode
+	if arrType, ok := expectedType.(*ast.ArrayType); ok {
+		elemType = arrType.ElementType
+	}
 	return &ast.ArrayLiteral{
-		LBracket: lbracket,
-		Elements: elements,
-		RBracket: rbracket,
+		ElementType: elemType,
+		LBrace:      lbrace,
+		Elements:    elements,
+		RBrace:      rbrace,
 	}
 }
 
-func (p *Parser) parseMapLiteralRest(lbracket token.Token, firstKey ast.Expression) ast.Expression {
-	arrow := p.advance() // 消费 =>
+// parseUntypedMapLiteralRest 解析无类型 Map 字面量的剩余部分
+func (p *Parser) parseUntypedMapLiteralRest(lbrace token.Token, firstKey ast.Expression, expectedType ast.TypeNode) ast.Expression {
+	colon := p.advance() // 消费 :
 	firstValue := p.parseExpression()
 
 	pairs := []ast.MapPair{{
 		Key:   firstKey,
-		Arrow: arrow,
+		Colon: colon,
 		Value: firstValue,
 	}}
 
 	for p.match(token.COMMA) {
-		if p.check(token.RBRACKET) {
+		if p.check(token.RBRACE) {
 			break // 允许尾逗号
 		}
 		key := p.parseExpression()
-		arrow := p.consume(token.DOUBLE_ARROW, "expected '=>'")
+		colon := p.consume(token.COLON, "expected ':'")
 		value := p.parseExpression()
 		pairs = append(pairs, ast.MapPair{
 			Key:   key,
-			Arrow: arrow,
+			Colon: colon,
 			Value: value,
 		})
 	}
 
-	rbracket := p.consume(token.RBRACKET, "expected ']'")
+	rbrace := p.consume(token.RBRACE, "expected '}'")
+
+	var keyType, valueType ast.TypeNode
+	if mapType, ok := expectedType.(*ast.MapType); ok {
+		keyType = mapType.KeyType
+		valueType = mapType.ValueType
+	}
 	return &ast.MapLiteral{
-		LBracket: lbracket,
-		Pairs:    pairs,
-		RBracket: rbracket,
+		KeyType:   keyType,
+		ValueType: valueType,
+		LBrace:    lbrace,
+		Pairs:     pairs,
+		RBrace:    rbrace,
 	}
 }
 
@@ -1171,7 +1300,12 @@ func (p *Parser) parseVarDeclWithType() ast.Statement {
 	var value ast.Expression
 	op := p.consume(token.ASSIGN, "expected '=' after variable name")
 	if !p.check(token.SEMICOLON) {
-		value = p.parseExpression()
+		// 检查是否是无类型集合字面量 {...}
+		if p.check(token.LBRACE) {
+			value = p.parseUntypedCollectionLiteral(varType)
+		} else {
+			value = p.parseExpression()
+		}
 	}
 
 	semicolon := p.consume(token.SEMICOLON, "expected ';' after variable declaration")

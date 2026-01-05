@@ -148,7 +148,7 @@ public class Redis {
     
     // MGET 获取多个键值（简化版，最多支持3个键）
     public function mget(string $key1, string $key2 = "", string $key3 = ""): string[] {
-        $args := ["MGET", $key1];
+        $args := string{"MGET", $key1};
         if ($key2 != "") {
             $args = push($args, $key2);
         }
@@ -244,7 +244,7 @@ public class Redis {
     
     // KEYS 查找匹配的键
     public function keys(string $pattern): string[] {
-        $args := ["KEYS", $pattern];
+        $args := string{"KEYS", $pattern};
         return $this->executeArrayCommand($args);
     }
     
@@ -293,7 +293,7 @@ public class Redis {
     
     // LRANGE 获取列表范围
     public function lrange(string $key, int $start, int $stop): string[] {
-        $args := ["LRANGE", $key, to_string($start), to_string($stop)];
+        $args := string{"LRANGE", $key, to_string($start), to_string($stop)};
         return $this->executeArrayCommand($args);
     }
     
@@ -338,19 +338,19 @@ public class Redis {
     
     // HGETALL 获取所有哈希字段和值
     public function hgetall(string $key): string[] {
-        $args := ["HGETALL", $key];
+        $args := string{"HGETALL", $key};
         return $this->executeArrayCommand($args);
     }
     
     // HKEYS 获取所有哈希字段
     public function hkeys(string $key): string[] {
-        $args := ["HKEYS", $key];
+        $args := string{"HKEYS", $key};
         return $this->executeArrayCommand($args);
     }
     
     // HVALS 获取所有哈希值
     public function hvals(string $key): string[] {
-        $args := ["HVALS", $key];
+        $args := string{"HVALS", $key};
         return $this->executeArrayCommand($args);
     }
     
@@ -384,7 +384,7 @@ public class Redis {
     
     // SMEMBERS 获取所有集合成员
     public function smembers(string $key): string[] {
-        $args := ["SMEMBERS", $key];
+        $args := string{"SMEMBERS", $key};
         return $this->executeArrayCommand($args);
     }
     
@@ -427,7 +427,7 @@ public class Redis {
     
     // 执行数组参数命令
     private function executeArrayCommand(string[] $args): string[] {
-        $empty := [];
+        $empty := string{};
         if ($this->connId < 0) {
             $this->lastError = "Not connected";
             return $empty;
@@ -567,7 +567,7 @@ public class Redis {
     
     // 读取数组响应
     private function readArrayResponse(): string[] {
-        $result := [];
+        $result := string{};
         
         $line := native_tcp_read_line($this->connId);
         if ($line == "") {

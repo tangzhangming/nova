@@ -115,7 +115,7 @@ public class Match {
      * @return Match 空的Match对象
      */
     public static function empty(): Match {
-        return new Match("", [], -1, -1);
+        return new Match("", string{}, -1, -1);
     }
 }
 

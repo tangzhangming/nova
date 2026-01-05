@@ -108,7 +108,7 @@ public class Dir {
      * @return File[] 文件对象数组
      */
     public function files(): File[] {
-        $result := [];
+        $result := File{};
         $items := native_dir_list($this->path);
         
         foreach ($items as $name) {
@@ -126,7 +126,7 @@ public class Dir {
      * @return Dir[] 目录对象数组
      */
     public function dirs(): Dir[] {
-        $result := [];
+        $result := Dir{};
         $items := native_dir_list($this->path);
         
         foreach ($items as $name) {
@@ -144,7 +144,7 @@ public class Dir {
      * @return FileInfo[] 文件信息对象数组
      */
     public function scan(): FileInfo[] {
-        $result := [];
+        $result := FileInfo{};
         return $this->scanRecursive($this->path, $result);
     }
     

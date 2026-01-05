@@ -311,7 +311,7 @@ func TestParseInterface(t *testing.T) {
 func TestParseAbstractClass(t *testing.T) {
 	input := `
 	public abstract class Shape {
-		abstract public function area(): float;
+		public abstract function area(): float;
 		
 		public function describe(): string {
 			return "Shape";
@@ -375,7 +375,8 @@ func TestParseClosure(t *testing.T) {
 }
 
 func TestParseArrayLiteral(t *testing.T) {
-	input := `$arr := [1, 2, 3, 4];`
+	// 新语法: int{1, 2, 3, 4}
+	input := `$arr := int{1, 2, 3, 4};`
 
 	p := New(input, "test.nova")
 	file := p.Parse()
@@ -404,10 +405,49 @@ func TestParseArrayLiteral(t *testing.T) {
 	if len(arr.Elements) != 4 {
 		t.Errorf("expected 4 elements, got %d", len(arr.Elements))
 	}
+
+	// 验证元素类型
+	if arr.ElementType == nil {
+		t.Error("expected ElementType to be set")
+	}
+}
+
+func TestParseArrayLiteralWithTypeDecl(t *testing.T) {
+	// 新语法: int[] $arr = {1, 2, 3}
+	input := `int[] $arr = {1, 2, 3};`
+
+	p := New(input, "test.nova")
+	file := p.Parse()
+
+	if p.HasErrors() {
+		for _, err := range p.Errors() {
+			t.Errorf("parser error: %v", err)
+		}
+		return
+	}
+
+	if len(file.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(file.Statements))
+	}
+
+	decl, ok := file.Statements[0].(*ast.VarDeclStmt)
+	if !ok {
+		t.Fatalf("expected VarDeclStmt, got %T", file.Statements[0])
+	}
+
+	arr, ok := decl.Value.(*ast.ArrayLiteral)
+	if !ok {
+		t.Fatalf("expected ArrayLiteral, got %T", decl.Value)
+	}
+
+	if len(arr.Elements) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(arr.Elements))
+	}
 }
 
 func TestParseMapLiteral(t *testing.T) {
-	input := `$map := ["a" => 1, "b" => 2];`
+	// 新语法: map[string]int{"a": 1, "b": 2}
+	input := `$map := map[string]int{"a": 1, "b": 2};`
 
 	p := New(input, "test.nova")
 	file := p.Parse()
@@ -435,6 +475,47 @@ func TestParseMapLiteral(t *testing.T) {
 
 	if len(mapLit.Pairs) != 2 {
 		t.Errorf("expected 2 pairs, got %d", len(mapLit.Pairs))
+	}
+
+	// 验证类型
+	if mapLit.KeyType == nil {
+		t.Error("expected KeyType to be set")
+	}
+	if mapLit.ValueType == nil {
+		t.Error("expected ValueType to be set")
+	}
+}
+
+func TestParseMapLiteralWithTypeDecl(t *testing.T) {
+	// 新语法: map[string]int $m = {"a": 1}
+	input := `map[string]int $m = {"a": 1};`
+
+	p := New(input, "test.nova")
+	file := p.Parse()
+
+	if p.HasErrors() {
+		for _, err := range p.Errors() {
+			t.Errorf("parser error: %v", err)
+		}
+		return
+	}
+
+	if len(file.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(file.Statements))
+	}
+
+	decl, ok := file.Statements[0].(*ast.VarDeclStmt)
+	if !ok {
+		t.Fatalf("expected VarDeclStmt, got %T", file.Statements[0])
+	}
+
+	mapLit, ok := decl.Value.(*ast.MapLiteral)
+	if !ok {
+		t.Fatalf("expected MapLiteral, got %T", decl.Value)
+	}
+
+	if len(mapLit.Pairs) != 1 {
+		t.Errorf("expected 1 pair, got %d", len(mapLit.Pairs))
 	}
 }
 
@@ -576,7 +657,7 @@ func TestParseAnnotation(t *testing.T) {
 		@Route("/users")
 		@Middleware("auth")
 		public function getUsers() {
-			return [];
+			return int{};
 		}
 	}
 	`

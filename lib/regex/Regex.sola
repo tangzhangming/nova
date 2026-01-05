@@ -75,7 +75,7 @@ public class Regex {
      */
     public function findAll(string $str): Match[] {
         $allGroups := native_regex_find_all_groups($this->compiledPattern, $str);
-        $result := [];
+        $result := Match{};
         
         // 遍历所有匹配
         $searchStr := $str;

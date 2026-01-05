@@ -205,7 +205,7 @@ public class Duration {
             return "0 秒";
         }
         
-        $parts := [];
+        $parts := string{};
         
         $days := $ns / 86400000000000;
         if ($days > 0) {

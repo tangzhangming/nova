@@ -282,45 +282,67 @@ func (e *NullLiteral) End() token.Position { return e.Token.Pos }
 func (e *NullLiteral) String() string      { return "null" }
 func (e *NullLiteral) exprNode()           {}
 
-// ArrayLiteral 数组字面量 [1, 2, 3]
+// ArrayLiteral 数组字面量 int{1, 2, 3} 或 {1, 2, 3}（从上下文推断类型）
 type ArrayLiteral struct {
-	LBracket token.Token
-	Elements []Expression
-	RBracket token.Token
+	ElementType TypeNode     // 元素类型，可为 nil（从上下文推断）
+	LBrace      token.Token  // {
+	Elements    []Expression
+	RBrace      token.Token  // }
 }
 
-func (e *ArrayLiteral) Pos() token.Position { return e.LBracket.Pos }
-func (e *ArrayLiteral) End() token.Position { return e.RBracket.Pos }
+func (e *ArrayLiteral) Pos() token.Position {
+	if e.ElementType != nil {
+		return e.ElementType.Pos()
+	}
+	return e.LBrace.Pos
+}
+func (e *ArrayLiteral) End() token.Position { return e.RBrace.Pos }
 func (e *ArrayLiteral) String() string {
 	var elems []string
 	for _, elem := range e.Elements {
 		elems = append(elems, elem.String())
 	}
-	return "[" + strings.Join(elems, ", ") + "]"
+	typeStr := ""
+	if e.ElementType != nil {
+		typeStr = e.ElementType.String()
+	}
+	return typeStr + "{" + strings.Join(elems, ", ") + "}"
 }
 func (e *ArrayLiteral) exprNode() {}
 
-// MapLiteral Map字面量 ['key' => value, ...]
+// MapLiteral Map字面量 map[string]int{"key": value, ...} 或 {"key": value}（从上下文推断类型）
 type MapLiteral struct {
-	LBracket token.Token
-	Pairs    []MapPair
-	RBracket token.Token
+	MapToken  token.Token // map 关键字，可为空 token
+	KeyType   TypeNode    // 键类型，可为 nil
+	ValueType TypeNode    // 值类型，可为 nil
+	LBrace    token.Token // {
+	Pairs     []MapPair
+	RBrace    token.Token // }
 }
 
 type MapPair struct {
 	Key   Expression
-	Arrow token.Token // =>
+	Colon token.Token // : (Go风格)
 	Value Expression
 }
 
-func (e *MapLiteral) Pos() token.Position { return e.LBracket.Pos }
-func (e *MapLiteral) End() token.Position { return e.RBracket.Pos }
+func (e *MapLiteral) Pos() token.Position {
+	if e.MapToken.Type != 0 {
+		return e.MapToken.Pos
+	}
+	return e.LBrace.Pos
+}
+func (e *MapLiteral) End() token.Position { return e.RBrace.Pos }
 func (e *MapLiteral) String() string {
 	var pairs []string
 	for _, p := range e.Pairs {
-		pairs = append(pairs, p.Key.String()+" => "+p.Value.String())
+		pairs = append(pairs, p.Key.String()+": "+p.Value.String())
 	}
-	return "[" + strings.Join(pairs, ", ") + "]"
+	typeStr := ""
+	if e.KeyType != nil && e.ValueType != nil {
+		typeStr = "map[" + e.KeyType.String() + "]" + e.ValueType.String()
+	}
+	return typeStr + "{" + strings.Join(pairs, ", ") + "}"
 }
 func (e *MapLiteral) exprNode() {}
 
