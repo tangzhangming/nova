@@ -1,0 +1,315 @@
+namespace sola.time
+
+/**
+ * 时间间隔类
+ * 表示一段时间长度，内部使用纳秒精度
+ */
+public class Duration {
+    
+    // 内部使用纳秒存储
+    private int $nanos;
+    
+    // 常量
+    public const int NANOSECOND = 1;
+    public const int MICROSECOND = 1000;
+    public const int MILLISECOND = 1000000;
+    public const int SECOND = 1000000000;
+    public const int MINUTE = 60000000000;
+    public const int HOUR = 3600000000000;
+    
+    /**
+     * 构造函数
+     * @param int $nanos 纳秒数
+     */
+    public function __construct(int $nanos = 0) {
+        $this->nanos = $nanos;
+    }
+    
+    // ========================================================================
+    // 静态创建方法
+    // ========================================================================
+    
+    /**
+     * 从纳秒创建
+     */
+    public static function fromNanos(int $n): Duration {
+        return new Duration($n);
+    }
+    
+    /**
+     * 从微秒创建
+     */
+    public static function microseconds(int $n): Duration {
+        return new Duration($n * 1000);
+    }
+    
+    /**
+     * 从毫秒创建
+     */
+    public static function milliseconds(int $n): Duration {
+        return new Duration($n * 1000000);
+    }
+    
+    /**
+     * 从秒数创建
+     */
+    public static function seconds(int $n): Duration {
+        return new Duration($n * 1000000000);
+    }
+    
+    /**
+     * 从分钟数创建
+     */
+    public static function minutes(int $n): Duration {
+        return new Duration($n * 60000000000);
+    }
+    
+    /**
+     * 从小时数创建
+     */
+    public static function hours(int $n): Duration {
+        return new Duration($n * 3600000000000);
+    }
+    
+    /**
+     * 从天数创建
+     */
+    public static function days(int $n): Duration {
+        return new Duration($n * 86400000000000);
+    }
+    
+    /**
+     * 从周数创建
+     */
+    public static function weeks(int $n): Duration {
+        return new Duration($n * 604800000000000);
+    }
+    
+    // ========================================================================
+    // 转换方法
+    // ========================================================================
+    
+    /**
+     * 转换为纳秒
+     */
+    public function toNanos(): int {
+        return $this->nanos;
+    }
+    
+    /**
+     * 转换为微秒
+     */
+    public function toMicros(): int {
+        return $this->nanos / 1000;
+    }
+    
+    /**
+     * 转换为毫秒
+     */
+    public function toMillis(): int {
+        return $this->nanos / 1000000;
+    }
+    
+    /**
+     * 转换为秒数
+     */
+    public function toSeconds(): int {
+        return $this->nanos / 1000000000;
+    }
+    
+    /**
+     * 转换为分钟数
+     */
+    public function toMinutes(): int {
+        return $this->nanos / 60000000000;
+    }
+    
+    /**
+     * 转换为小时数
+     */
+    public function toHours(): int {
+        return $this->nanos / 3600000000000;
+    }
+    
+    /**
+     * 转换为天数
+     */
+    public function toDays(): int {
+        return $this->nanos / 86400000000000;
+    }
+    
+    // ========================================================================
+    // 操作方法
+    // ========================================================================
+    
+    /**
+     * 加上另一个时间间隔
+     */
+    public function add(Duration $other): Duration {
+        return new Duration($this->nanos + $other->toNanos());
+    }
+    
+    /**
+     * 减去另一个时间间隔
+     */
+    public function sub(Duration $other): Duration {
+        return new Duration($this->nanos - $other->toNanos());
+    }
+    
+    /**
+     * 乘以倍数
+     */
+    public function multiply(int $n): Duration {
+        return new Duration($this->nanos * $n);
+    }
+    
+    /**
+     * 取绝对值
+     */
+    public function abs(): Duration {
+        if ($this->nanos < 0) {
+            return new Duration(-$this->nanos);
+        }
+        return new Duration($this->nanos);
+    }
+    
+    /**
+     * 是否为负数
+     */
+    public function isNegative(): bool {
+        return $this->nanos < 0;
+    }
+    
+    /**
+     * 是否为零
+     */
+    public function isZero(): bool {
+        return $this->nanos == 0;
+    }
+    
+    // ========================================================================
+    // 格式化方法
+    // ========================================================================
+    
+    /**
+     * 人性化显示
+     * @return string 如 "2 小时 30 分钟"
+     */
+    public function humanize(): string {
+        $ns := $this->nanos;
+        if ($ns < 0) {
+            $ns = -$ns;
+        }
+        
+        if ($ns == 0) {
+            return "0 秒";
+        }
+        
+        $parts := [];
+        
+        $days := $ns / 86400000000000;
+        if ($days > 0) {
+            $parts = push($parts, to_string($days) + " 天");
+            $ns = $ns % 86400000000000;
+        }
+        
+        $hours := $ns / 3600000000000;
+        if ($hours > 0) {
+            $parts = push($parts, to_string($hours) + " 小时");
+            $ns = $ns % 3600000000000;
+        }
+        
+        $mins := $ns / 60000000000;
+        if ($mins > 0) {
+            $parts = push($parts, to_string($mins) + " 分钟");
+            $ns = $ns % 60000000000;
+        }
+        
+        $secs := $ns / 1000000000;
+        if ($secs > 0) {
+            $parts = push($parts, to_string($secs) + " 秒");
+            $ns = $ns % 1000000000;
+        }
+        
+        $millis := $ns / 1000000;
+        if ($millis > 0 && len($parts) == 0) {
+            $parts = push($parts, to_string($millis) + " 毫秒");
+        }
+        
+        // 连接各部分
+        $result := "";
+        $i := 0;
+        foreach ($parts as $part) {
+            if ($i > 0) {
+                $result = $result + " ";
+            }
+            $result = $result + $part;
+            $i = $i + 1;
+        }
+        
+        if ($this->nanos < 0) {
+            return "-" + $result;
+        }
+        return $result;
+    }
+    
+    /**
+     * 格式化为简短形式
+     * @return string 如 "2h30m15s" 或 "500ms" 或 "100µs" 或 "50ns"
+     */
+    public function format(): string {
+        $ns := $this->nanos;
+        $prefix := "";
+        if ($ns < 0) {
+            $ns = -$ns;
+            $prefix = "-";
+        }
+        
+        if ($ns == 0) {
+            return "0s";
+        }
+        
+        // 小于1微秒，显示纳秒
+        if ($ns < 1000) {
+            return $prefix + to_string($ns) + "ns";
+        }
+        
+        // 小于1毫秒，显示微秒
+        if ($ns < 1000000) {
+            return $prefix + to_string($ns / 1000) + "µs";
+        }
+        
+        // 小于1秒，显示毫秒
+        if ($ns < 1000000000) {
+            return $prefix + to_string($ns / 1000000) + "ms";
+        }
+        
+        $result := "";
+        
+        $days := $ns / 86400000000000;
+        if ($days > 0) {
+            $result = $result + to_string($days) + "d";
+            $ns = $ns % 86400000000000;
+        }
+        
+        $hours := $ns / 3600000000000;
+        if ($hours > 0) {
+            $result = $result + to_string($hours) + "h";
+            $ns = $ns % 3600000000000;
+        }
+        
+        $mins := $ns / 60000000000;
+        if ($mins > 0) {
+            $result = $result + to_string($mins) + "m";
+            $ns = $ns % 60000000000;
+        }
+        
+        $secs := $ns / 1000000000;
+        if ($secs > 0) {
+            $result = $result + to_string($secs) + "s";
+        }
+        
+        return $prefix + $result;
+    }
+}
+

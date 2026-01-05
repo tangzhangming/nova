@@ -1,49 +1,137 @@
 // Nova 标准库 - 数学函数
 namespace sola.math
 
+/**
+ * 数学工具类
+ * 提供常用的数学运算方法
+ */
 public class Math {
-    // 常量
-    public const float PI = 3.141592653589793;
-    public const float E = 2.718281828459045;
-    
-    // 绝对值
-    public static function abs(int $x): int {
-        if ($x < 0) {
-            return -$x;
-        }
-        return $x;
+
+    /**
+     * 获取绝对值
+     * @param float $n 数值
+     * @return float 绝对值
+     */
+    public static function abs(float $n): float {
+        return native_math_abs($n);
     }
-    
-    // 浮点数绝对值
-    public static function absf(float $x): float {
-        if ($x < 0.0) {
-            return -$x;
-        }
-        return $x;
+
+    /**
+     * 获取最小值
+     * @param float $a 第一个数
+     * @param float $b 第二个数
+     * @return float 较小的值
+     */
+    public static function min(float $a, float $b): float {
+        return native_math_min($a, $b);
     }
-    
-    // 最大值
-    public static function max(int $a, int $b): int {
-        if ($a > $b) {
-            return $a;
-        }
-        return $b;
+
+    /**
+     * 获取最大值
+     * @param float $a 第一个数
+     * @param float $b 第二个数
+     * @return float 较大的值
+     */
+    public static function max(float $a, float $b): float {
+        return native_math_max($a, $b);
     }
-    
-    // 最小值
-    public static function min(int $a, int $b): int {
+
+    /**
+     * 向下取整
+     * @param float $n 浮点数
+     * @return int 不大于 n 的最大整数
+     */
+    public static function floor(float $n): int {
+        return native_math_floor($n);
+    }
+
+    /**
+     * 向上取整
+     * @param float $n 浮点数
+     * @return int 不小于 n 的最小整数
+     */
+    public static function ceil(float $n): int {
+        return native_math_ceil($n);
+    }
+
+    /**
+     * 四舍五入
+     * @param float $n 浮点数
+     * @return int 四舍五入后的整数
+     */
+    public static function round(float $n): int {
+        return native_math_round($n);
+    }
+
+    /**
+     * 获取两个数中的较小值（整数版本）
+     * @param int $a 第一个整数
+     * @param int $b 第二个整数
+     * @return int 较小的整数
+     */
+    public static function minInt(int $a, int $b): int {
         if ($a < $b) {
             return $a;
         }
         return $b;
     }
-    
-    // 幂运算
-    public static function pow(int $base, int $exp): int {
-        $result := 1;
-        for ($i := 0; $i < $exp; $i++) {
-            $result = $result * $base;
+
+    /**
+     * 获取两个数中的较大值（整数版本）
+     * @param int $a 第一个整数
+     * @param int $b 第二个整数
+     * @return int 较大的整数
+     */
+    public static function maxInt(int $a, int $b): int {
+        if ($a > $b) {
+            return $a;
         }
-        return $result;
+        return $b;
+    }
+
+    /**
+     * 获取整数的绝对值
+     * @param int $n 整数
+     * @return int 绝对值
+     */
+    public static function absInt(int $n): int {
+        if ($n < 0) {
+            return -$n;
+        }
+        return $n;
+    }
+
+    /**
+     * 限制数值在指定范围内
+     * @param float $n 数值
+     * @param float $min 最小值
+     * @param float $max 最大值
+     * @return float 限制后的值
+     */
+    public static function clamp(float $n, float $min, float $max): float {
+        if ($n < $min) {
+            return $min;
+        }
+        if ($n > $max) {
+            return $max;
+        }
+        return $n;
+    }
+
+    /**
+     * 限制整数在指定范围内
+     * @param int $n 整数
+     * @param int $min 最小值
+     * @param int $max 最大值
+     * @return int 限制后的值
+     */
+    public static function clampInt(int $n, int $min, int $max): int {
+        if ($n < $min) {
+            return $min;
+        }
+        if ($n > $max) {
+            return $max;
+        }
+        return $n;
     }
 }

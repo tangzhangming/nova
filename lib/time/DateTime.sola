@@ -1,0 +1,279 @@
+namespace sola.time
+
+/**
+ * 日期时间基础类
+ * 参考 Go time 和 C# DateTime 设计
+ * 内部使用纳秒精度存储
+ */
+public class DateTime {
+    
+    // 内部使用纳秒时间戳
+    protected int $nanos;
+    
+    // 纳秒常量
+    protected const int NANOS_PER_SECOND = 1000000000;
+    protected const int NANOS_PER_MILLI = 1000000;
+    protected const int NANOS_PER_MICRO = 1000;
+    
+    /**
+     * 构造函数
+     * @param int $nanos 纳秒时间戳
+     */
+    public function __construct(int $nanos = 0) {
+        if ($nanos == 0) {
+            $this->nanos = native_time_now_nano();
+        } else {
+            $this->nanos = $nanos;
+        }
+    }
+    
+    // ========================================================================
+    // 静态构造方法
+    // ========================================================================
+    
+    /**
+     * 获取当前时间
+     */
+    public static function now(): DateTime {
+        return new DateTime(native_time_now_nano());
+    }
+    
+    /**
+     * 从年月日时分秒创建
+     */
+    public static function create(int $year, int $month, int $day,
+                                   int $hour = 0, int $minute = 0, int $second = 0): DateTime {
+        $ts := native_time_make($year, $month, $day, $hour, $minute, $second);
+        return new DateTime($ts * 1000000000);
+    }
+    
+    /**
+     * 从字符串解析
+     */
+    public static function parse(string $str): DateTime {
+        $ts := native_time_parse($str, "2006-01-02 15:04:05");
+        return new DateTime($ts * 1000000000);
+    }
+    
+    /**
+     * 从秒级时间戳创建
+     */
+    public static function fromTimestamp(int $timestamp): DateTime {
+        return new DateTime($timestamp * 1000000000);
+    }
+    
+    /**
+     * 从毫秒时间戳创建
+     */
+    public static function fromTimestampMs(int $ms): DateTime {
+        return new DateTime($ms * 1000000);
+    }
+    
+    /**
+     * 从纳秒时间戳创建
+     */
+    public static function fromTimestampNano(int $nanos): DateTime {
+        return new DateTime($nanos);
+    }
+    
+    // ========================================================================
+    // 获取器
+    // ========================================================================
+    
+    /**
+     * 获取年份
+     */
+    public function getYear(): int {
+        return native_time_year($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取月份（1-12）
+     */
+    public function getMonth(): int {
+        return native_time_month($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取日（1-31）
+     */
+    public function getDay(): int {
+        return native_time_day($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取小时（0-23）
+     */
+    public function getHour(): int {
+        return native_time_hour($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取分钟（0-59）
+     */
+    public function getMinute(): int {
+        return native_time_minute($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取秒（0-59）
+     */
+    public function getSecond(): int {
+        return native_time_second($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取毫秒部分（0-999）
+     */
+    public function getMillisecond(): int {
+        return ($this->nanos % 1000000000) / 1000000;
+    }
+    
+    /**
+     * 获取微秒部分（0-999）
+     */
+    public function getMicrosecond(): int {
+        return ($this->nanos % 1000000) / 1000;
+    }
+    
+    /**
+     * 获取纳秒部分（0-999）
+     */
+    public function getNanosecond(): int {
+        return $this->nanos % 1000;
+    }
+    
+    /**
+     * 获取星期几（0=周日，1=周一...6=周六）
+     */
+    public function getWeekday(): int {
+        return native_time_weekday($this->nanos / 1000000000);
+    }
+    
+    /**
+     * 获取 Unix 时间戳（秒）
+     */
+    public function getTimestamp(): int {
+        return $this->nanos / 1000000000;
+    }
+    
+    /**
+     * 获取毫秒时间戳
+     */
+    public function getTimestampMs(): int {
+        return $this->nanos / 1000000;
+    }
+    
+    /**
+     * 获取微秒时间戳
+     */
+    public function getTimestampMicro(): int {
+        return $this->nanos / 1000;
+    }
+    
+    /**
+     * 获取纳秒时间戳
+     */
+    public function getTimestampNano(): int {
+        return $this->nanos;
+    }
+    
+    /**
+     * 获取一年中的第几天（1-366）
+     */
+    public function getDayOfYear(): int {
+        $startOfYear := native_time_make($this->getYear(), 1, 1, 0, 0, 0);
+        return (($this->nanos / 1000000000 - $startOfYear) / 86400) + 1;
+    }
+    
+    // ========================================================================
+    // 修改方法（返回新对象）
+    // ========================================================================
+    
+    /**
+     * 加上时间间隔
+     */
+    public function add(Duration $duration): DateTime {
+        return new DateTime($this->nanos + $duration->toNanos());
+    }
+    
+    /**
+     * 减去时间间隔
+     */
+    public function sub(Duration $duration): DateTime {
+        return new DateTime($this->nanos - $duration->toNanos());
+    }
+    
+    /**
+     * 设置日期
+     */
+    public function setDate(int $year, int $month, int $day): DateTime {
+        $ts := native_time_make($year, $month, $day, 
+                                $this->getHour(), $this->getMinute(), $this->getSecond());
+        // 保留纳秒部分
+        $nanosPart := $this->nanos % 1000000000;
+        return new DateTime($ts * 1000000000 + $nanosPart);
+    }
+    
+    /**
+     * 设置时间
+     */
+    public function setTime(int $hour, int $minute, int $second): DateTime {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $this->getDay(),
+                                $hour, $minute, $second);
+        return new DateTime($ts * 1000000000);
+    }
+    
+    // ========================================================================
+    // 比较方法
+    // ========================================================================
+    
+    /**
+     * 比较两个日期时间
+     * @return int 小于0表示早于other，等于0表示相等，大于0表示晚于other
+     */
+    public function compareTo(DateTime $other): int {
+        $diff := $this->nanos - $other->getTimestampNano();
+        if ($diff < 0) {
+            return -1;
+        }
+        if ($diff > 0) {
+            return 1;
+        }
+        return 0;
+    }
+    
+    /**
+     * 判断是否相等
+     */
+    public function equals(DateTime $other): bool {
+        return $this->nanos == $other->getTimestampNano();
+    }
+    
+    /**
+     * 计算与另一个日期时间的差值
+     */
+    public function diff(DateTime $other): Duration {
+        return Duration::fromNanos($this->nanos - $other->getTimestampNano());
+    }
+    
+    // ========================================================================
+    // 格式化方法
+    // ========================================================================
+    
+    /**
+     * 按指定格式输出
+     * @param string $format Go 时间格式（如 "2006-01-02 15:04:05"）
+     */
+    public function format(string $format): string {
+        return native_time_format($this->nanos / 1000000000, $format);
+    }
+    
+    /**
+     * 转换为字符串
+     */
+    public function toString(): string {
+        return $this->format("2006-01-02 15:04:05");
+    }
+}
+

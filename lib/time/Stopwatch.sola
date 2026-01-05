@@ -1,0 +1,161 @@
+namespace sola.time
+
+/**
+ * 秒表/计时器类
+ * 用于测量代码执行时间，纳秒精度
+ */
+public class Stopwatch {
+    
+    private int $startTime = 0;   // 纳秒
+    private int $stopTime = 0;    // 纳秒
+    private int[] $laps = [];     // 纳秒
+    private bool $running = false;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+        // 初始化
+    }
+    
+    /**
+     * 开始计时
+     * @return Stopwatch 返回自身以支持链式调用
+     */
+    public function start(): Stopwatch {
+        if (!$this->running) {
+            $this->startTime = native_time_now_nano();
+            $this->running = true;
+        }
+        return $this;
+    }
+    
+    /**
+     * 停止计时
+     * @return Stopwatch 返回自身以支持链式调用
+     */
+    public function stop(): Stopwatch {
+        if ($this->running) {
+            $this->stopTime = native_time_now_nano();
+            $this->running = false;
+        }
+        return $this;
+    }
+    
+    /**
+     * 重置计时器
+     * @return Stopwatch 返回自身以支持链式调用
+     */
+    public function reset(): Stopwatch {
+        $this->startTime = 0;
+        $this->stopTime = 0;
+        $this->laps = [];
+        $this->running = false;
+        return $this;
+    }
+    
+    /**
+     * 重新开始计时（重置并开始）
+     * @return Stopwatch 返回自身以支持链式调用
+     */
+    public function restart(): Stopwatch {
+        return $this->reset()->start();
+    }
+    
+    /**
+     * 记录一个圈时间
+     * @return int 当前圈的耗时（纳秒）
+     */
+    public function lap(): int {
+        if (!$this->running) {
+            return 0;
+        }
+        
+        $now := native_time_now_nano();
+        $lastLapTime := $this->startTime;
+        
+        if (len($this->laps) > 0) {
+            // 计算从上一圈开始的时间
+            $total := 0;
+            foreach ($this->laps as $l) {
+                $total = $total + $l;
+            }
+            $lastLapTime = $this->startTime + $total;
+        }
+        
+        $lapTime := $now - $lastLapTime;
+        $this->laps = push($this->laps, $lapTime);
+        return $lapTime;
+    }
+    
+    /**
+     * 获取所有圈时间
+     * @return int[] 各圈耗时数组（纳秒）
+     */
+    public function getLaps(): int[] {
+        return $this->laps;
+    }
+    
+    /**
+     * 获取已过去的时间（纳秒）
+     * @return int 纳秒数
+     */
+    public function getElapsedNano(): int {
+        if ($this->running) {
+            return native_time_now_nano() - $this->startTime;
+        }
+        if ($this->stopTime > 0) {
+            return $this->stopTime - $this->startTime;
+        }
+        return 0;
+    }
+    
+    /**
+     * 获取已过去的时间（微秒）
+     * @return int 微秒数
+     */
+    public function getElapsedMicro(): int {
+        return $this->getElapsedNano() / 1000;
+    }
+    
+    /**
+     * 获取已过去的时间（毫秒）
+     * @return int 毫秒数
+     */
+    public function getElapsedMs(): int {
+        return $this->getElapsedNano() / 1000000;
+    }
+    
+    /**
+     * 获取已过去的时间（秒）
+     * @return int 秒数
+     */
+    public function getElapsedSeconds(): int {
+        return $this->getElapsedNano() / 1000000000;
+    }
+    
+    /**
+     * 获取已过去的 Duration
+     * @return Duration 时间间隔对象
+     */
+    public function getElapsed(): Duration {
+        return Duration::fromNanos($this->getElapsedNano());
+    }
+    
+    /**
+     * 检查是否正在运行
+     * @return bool 是否运行中
+     */
+    public function isRunning(): bool {
+        return $this->running;
+    }
+    
+    /**
+     * 获取格式化的耗时字符串
+     * @return string 如 "1.234s" 或 "500ms" 或 "100µs"
+     */
+    public function toString(): string {
+        return $this->getElapsed()->format();
+    }
+}
+

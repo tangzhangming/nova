@@ -1,0 +1,58 @@
+namespace sola.time
+
+/**
+ * 时间工具类
+ * 提供全局时间相关的静态方法
+ */
+public class Time {
+    
+    /**
+     * 休眠指定毫秒
+     * @param int $ms 毫秒数
+     */
+    public static function sleep(int $ms) {
+        native_time_sleep($ms);
+    }
+    
+    /**
+     * 休眠指定秒数
+     * @param int $seconds 秒数
+     */
+    public static function sleepSeconds(int $seconds) {
+        native_time_sleep($seconds * 1000);
+    }
+    
+    /**
+     * 获取当前 Unix 时间戳（秒）
+     * @return int 时间戳
+     */
+    public static function now(): int {
+        return native_time_now();
+    }
+    
+    /**
+     * 获取当前毫秒时间戳
+     * @return int 毫秒时间戳
+     */
+    public static function nowMs(): int {
+        return native_time_now_ms();
+    }
+    
+    /**
+     * 获取当前纳秒时间戳
+     * @return int 纳秒时间戳
+     */
+    public static function nowNano(): int {
+        return native_time_now_nano();
+    }
+    
+    /**
+     * 测量代码执行时间（毫秒）
+     * 用法：$start := Time::measure(); ... $elapsed := Time::measure() - $start;
+     * @return int 当前毫秒时间戳
+     */
+    public static function measure(): int {
+        return native_time_now_ms();
+    }
+}
+

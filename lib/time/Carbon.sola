@@ -1,0 +1,411 @@
+namespace sola.time
+
+/**
+ * Carbon 日期时间类
+ * 继承 DateTime，提供流畅的链式 API
+ * 参考 PHP Carbon 库设计
+ */
+public class Carbon extends DateTime {
+    
+    /**
+     * 构造函数
+     * @param int $nanos 纳秒时间戳
+     */
+    public function __construct(int $nanos = 0) {
+        parent::__construct($nanos);
+    }
+    
+    // ========================================================================
+    // 静态构造方法
+    // ========================================================================
+    
+    /**
+     * 获取当前时间
+     */
+    public static function now(): Carbon {
+        return new Carbon(native_time_now_nano());
+    }
+    
+    /**
+     * 获取今天零点
+     */
+    public static function today(): Carbon {
+        $now := new Carbon(native_time_now_nano());
+        return $now->startOfDay();
+    }
+    
+    /**
+     * 获取明天零点
+     */
+    public static function tomorrow(): Carbon {
+        return Carbon::today()->addDays(1);
+    }
+    
+    /**
+     * 获取昨天零点
+     */
+    public static function yesterday(): Carbon {
+        return Carbon::today()->subDays(1);
+    }
+    
+    /**
+     * 从字符串解析
+     */
+    public static function parse(string $str): Carbon {
+        $ts := native_time_parse($str, "2006-01-02 15:04:05");
+        return new Carbon($ts * 1000000000);
+    }
+    
+    /**
+     * 从年月日时分秒创建
+     */
+    public static function create(int $year, int $month, int $day,
+                                   int $hour = 0, int $minute = 0, int $second = 0): Carbon {
+        $ts := native_time_make($year, $month, $day, $hour, $minute, $second);
+        return new Carbon($ts * 1000000000);
+    }
+    
+    // ========================================================================
+    // 链式加法
+    // ========================================================================
+    
+    public function addYears(int $n): Carbon {
+        $ts := native_time_make($this->getYear() + $n, $this->getMonth(), $this->getDay(),
+                                $this->getHour(), $this->getMinute(), $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function addMonths(int $n): Carbon {
+        $month := $this->getMonth() + $n;
+        $year := $this->getYear();
+        
+        while ($month > 12) {
+            $month = $month - 12;
+            $year = $year + 1;
+        }
+        while ($month < 1) {
+            $month = $month + 12;
+            $year = $year - 1;
+        }
+        
+        $ts := native_time_make($year, $month, $this->getDay(),
+                                $this->getHour(), $this->getMinute(), $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function addWeeks(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 604800000000000));
+    }
+    
+    public function addDays(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 86400000000000));
+    }
+    
+    public function addHours(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 3600000000000));
+    }
+    
+    public function addMinutes(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 60000000000));
+    }
+    
+    public function addSeconds(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 1000000000));
+    }
+    
+    public function addMillis(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 1000000));
+    }
+    
+    public function addMicros(int $n): Carbon {
+        return new Carbon($this->nanos + ($n * 1000));
+    }
+    
+    public function addNanos(int $n): Carbon {
+        return new Carbon($this->nanos + $n);
+    }
+    
+    // ========================================================================
+    // 链式减法
+    // ========================================================================
+    
+    public function subYears(int $n): Carbon {
+        return $this->addYears(-$n);
+    }
+    
+    public function subMonths(int $n): Carbon {
+        return $this->addMonths(-$n);
+    }
+    
+    public function subWeeks(int $n): Carbon {
+        return $this->addWeeks(-$n);
+    }
+    
+    public function subDays(int $n): Carbon {
+        return $this->addDays(-$n);
+    }
+    
+    public function subHours(int $n): Carbon {
+        return $this->addHours(-$n);
+    }
+    
+    public function subMinutes(int $n): Carbon {
+        return $this->addMinutes(-$n);
+    }
+    
+    public function subSeconds(int $n): Carbon {
+        return $this->addSeconds(-$n);
+    }
+    
+    public function subMillis(int $n): Carbon {
+        return $this->addMillis(-$n);
+    }
+    
+    // ========================================================================
+    // 链式设置
+    // ========================================================================
+    
+    public function setYear(int $year): Carbon {
+        $ts := native_time_make($year, $this->getMonth(), $this->getDay(),
+                                $this->getHour(), $this->getMinute(), $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function setMonth(int $month): Carbon {
+        $ts := native_time_make($this->getYear(), $month, $this->getDay(),
+                                $this->getHour(), $this->getMinute(), $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function setDay(int $day): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $day,
+                                $this->getHour(), $this->getMinute(), $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function setHour(int $hour): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $this->getDay(),
+                                $hour, $this->getMinute(), $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function setMinute(int $minute): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $this->getDay(),
+                                $this->getHour(), $minute, $this->getSecond());
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    public function setSecond(int $second): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $this->getDay(),
+                                $this->getHour(), $this->getMinute(), $second);
+        $nanosPart := $this->nanos % 1000000000;
+        return new Carbon($ts * 1000000000 + $nanosPart);
+    }
+    
+    // ========================================================================
+    // 判断方法
+    // ========================================================================
+    
+    public function isToday(): bool {
+        $today := Carbon::today();
+        return $this->getYear() == $today->getYear() &&
+               $this->getMonth() == $today->getMonth() &&
+               $this->getDay() == $today->getDay();
+    }
+    
+    public function isTomorrow(): bool {
+        $tomorrow := Carbon::tomorrow();
+        return $this->getYear() == $tomorrow->getYear() &&
+               $this->getMonth() == $tomorrow->getMonth() &&
+               $this->getDay() == $tomorrow->getDay();
+    }
+    
+    public function isYesterday(): bool {
+        $yesterday := Carbon::yesterday();
+        return $this->getYear() == $yesterday->getYear() &&
+               $this->getMonth() == $yesterday->getMonth() &&
+               $this->getDay() == $yesterday->getDay();
+    }
+    
+    public function isFuture(): bool {
+        return $this->nanos > native_time_now_nano();
+    }
+    
+    public function isPast(): bool {
+        return $this->nanos < native_time_now_nano();
+    }
+    
+    public function isWeekend(): bool {
+        $weekday := $this->getWeekday();
+        return $weekday == 0 || $weekday == 6;
+    }
+    
+    public function isWeekday(): bool {
+        return !$this->isWeekend();
+    }
+    
+    public function isLeapYear(): bool {
+        $year := $this->getYear();
+        return ($year % 4 == 0 && $year % 100 != 0) || ($year % 400 == 0);
+    }
+    
+    public function isBefore(DateTime $other): bool {
+        return $this->nanos < $other->getTimestampNano();
+    }
+    
+    public function isAfter(DateTime $other): bool {
+        return $this->nanos > $other->getTimestampNano();
+    }
+    
+    // ========================================================================
+    // 边界方法
+    // ========================================================================
+    
+    public function startOfDay(): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $this->getDay(), 0, 0, 0);
+        return new Carbon($ts * 1000000000);
+    }
+    
+    public function endOfDay(): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), $this->getDay(), 23, 59, 59);
+        return new Carbon($ts * 1000000000 + 999999999);
+    }
+    
+    public function startOfMonth(): Carbon {
+        $ts := native_time_make($this->getYear(), $this->getMonth(), 1, 0, 0, 0);
+        return new Carbon($ts * 1000000000);
+    }
+    
+    public function endOfMonth(): Carbon {
+        // 下个月1号减1纳秒
+        $nextMonth := $this->addMonths(1)->startOfMonth();
+        return new Carbon($nextMonth->getTimestampNano() - 1);
+    }
+    
+    public function startOfYear(): Carbon {
+        $ts := native_time_make($this->getYear(), 1, 1, 0, 0, 0);
+        return new Carbon($ts * 1000000000);
+    }
+    
+    public function endOfYear(): Carbon {
+        $ts := native_time_make($this->getYear(), 12, 31, 23, 59, 59);
+        return new Carbon($ts * 1000000000 + 999999999);
+    }
+    
+    // ========================================================================
+    // 差值方法
+    // ========================================================================
+    
+    public function diffInNanos(DateTime $other): int {
+        $diff := $this->nanos - $other->getTimestampNano();
+        if ($diff < 0) {
+            return -$diff;
+        }
+        return $diff;
+    }
+    
+    public function diffInMillis(DateTime $other): int {
+        return $this->diffInNanos($other) / 1000000;
+    }
+    
+    public function diffInSeconds(DateTime $other): int {
+        return $this->diffInNanos($other) / 1000000000;
+    }
+    
+    public function diffInMinutes(DateTime $other): int {
+        return $this->diffInNanos($other) / 60000000000;
+    }
+    
+    public function diffInHours(DateTime $other): int {
+        return $this->diffInNanos($other) / 3600000000000;
+    }
+    
+    public function diffInDays(DateTime $other): int {
+        return $this->diffInNanos($other) / 86400000000000;
+    }
+    
+    /**
+     * 人性化显示时间差
+     * @return string 如 "3 天前"、"2 小时后"
+     */
+    public function diffForHumans(): string {
+        $now := native_time_now_nano();
+        $diff := $this->nanos - $now;
+        $suffix := "后";
+        
+        if ($diff < 0) {
+            $diff = -$diff;
+            $suffix = "前";
+        }
+        
+        // 转换为秒
+        $secs := $diff / 1000000000;
+        
+        if ($secs < 60) {
+            return to_string($secs) + " 秒" + $suffix;
+        }
+        if ($secs < 3600) {
+            return to_string($secs / 60) + " 分钟" + $suffix;
+        }
+        if ($secs < 86400) {
+            return to_string($secs / 3600) + " 小时" + $suffix;
+        }
+        if ($secs < 604800) {
+            return to_string($secs / 86400) + " 天" + $suffix;
+        }
+        if ($secs < 2592000) {
+            return to_string($secs / 604800) + " 周" + $suffix;
+        }
+        if ($secs < 31536000) {
+            return to_string($secs / 2592000) + " 个月" + $suffix;
+        }
+        return to_string($secs / 31536000) + " 年" + $suffix;
+    }
+    
+    // ========================================================================
+    // 格式化便捷方法
+    // ========================================================================
+    
+    /**
+     * 输出日期字符串
+     * @return string "2024-01-15"
+     */
+    public function toDateString(): string {
+        return $this->format("2006-01-02");
+    }
+    
+    /**
+     * 输出时间字符串
+     * @return string "14:30:00"
+     */
+    public function toTimeString(): string {
+        return $this->format("15:04:05");
+    }
+    
+    /**
+     * 输出日期时间字符串
+     * @return string "2024-01-15 14:30:00"
+     */
+    public function toDateTimeString(): string {
+        return $this->format("2006-01-02 15:04:05");
+    }
+    
+    // ========================================================================
+    // 其他方法
+    // ========================================================================
+    
+    /**
+     * 复制当前对象
+     */
+    public function copy(): Carbon {
+        return new Carbon($this->nanos);
+    }
+}
+
