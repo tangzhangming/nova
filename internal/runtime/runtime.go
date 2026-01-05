@@ -327,13 +327,13 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["contains"] = builtinContains
 	r.builtins["index_of"] = builtinIndexOf
 
-	// 数学函数
-	r.builtins["abs"] = builtinAbs
-	r.builtins["min"] = builtinMin
-	r.builtins["max"] = builtinMax
-	r.builtins["floor"] = builtinFloor
-	r.builtins["ceil"] = builtinCeil
-	r.builtins["round"] = builtinRound
+	// Native 数学函数 (仅供标准库使用)
+	r.builtins["native_math_abs"] = nativeMathAbs
+	r.builtins["native_math_min"] = nativeMathMin
+	r.builtins["native_math_max"] = nativeMathMax
+	r.builtins["native_math_floor"] = nativeMathFloor
+	r.builtins["native_math_ceil"] = nativeMathCeil
+	r.builtins["native_math_round"] = nativeMathRound
 
 	// Native 字符串函数 (仅供标准库使用)
 	r.builtins["native_str_len"] = nativeStrLen
@@ -702,9 +702,9 @@ func builtinIndexOf(args []bytecode.Value) bytecode.Value {
 	return bytecode.NewInt(-1)
 }
 
-// 数学函数
+// Native 数学函数 (仅供标准库使用)
 
-func builtinAbs(args []bytecode.Value) bytecode.Value {
+func nativeMathAbs(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.ZeroValue
 	}
@@ -727,7 +727,7 @@ func builtinAbs(args []bytecode.Value) bytecode.Value {
 	}
 }
 
-func builtinMin(args []bytecode.Value) bytecode.Value {
+func nativeMathMin(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.NullValue
 	}
@@ -740,7 +740,7 @@ func builtinMin(args []bytecode.Value) bytecode.Value {
 	return min
 }
 
-func builtinMax(args []bytecode.Value) bytecode.Value {
+func nativeMathMax(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.NullValue
 	}
@@ -753,21 +753,21 @@ func builtinMax(args []bytecode.Value) bytecode.Value {
 	return max
 }
 
-func builtinFloor(args []bytecode.Value) bytecode.Value {
+func nativeMathFloor(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.ZeroValue
 	}
 	return bytecode.NewInt(int64(math.Floor(args[0].AsFloat())))
 }
 
-func builtinCeil(args []bytecode.Value) bytecode.Value {
+func nativeMathCeil(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.ZeroValue
 	}
 	return bytecode.NewInt(int64(math.Ceil(args[0].AsFloat())))
 }
 
-func builtinRound(args []bytecode.Value) bytecode.Value {
+func nativeMathRound(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.ZeroValue
 	}
