@@ -328,13 +328,53 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_str_to_int"] = nativeStrToInt
 	r.builtins["native_str_to_float"] = nativeStrToFloat
 
-	// Native TCP 函数 (仅供标准库使用)
+	// Native TCP 函数 - 连接管理 (仅供标准库使用)
 	r.builtins["native_tcp_connect"] = nativeTcpConnect
-	r.builtins["native_tcp_write"] = nativeTcpWrite
-	r.builtins["native_tcp_read"] = nativeTcpRead
-	r.builtins["native_tcp_read_line"] = nativeTcpReadLine
+	r.builtins["native_tcp_connect_timeout"] = nativeTcpConnectTimeout
 	r.builtins["native_tcp_close"] = nativeTcpClose
+	r.builtins["native_tcp_is_connected"] = nativeTcpIsConnected
+
+	// Native TCP 函数 - 数据读写
+	r.builtins["native_tcp_write"] = nativeTcpWrite
+	r.builtins["native_tcp_write_bytes"] = nativeTcpWriteBytes
+	r.builtins["native_tcp_read"] = nativeTcpRead
+	r.builtins["native_tcp_read_bytes"] = nativeTcpReadBytes
+	r.builtins["native_tcp_read_exact"] = nativeTcpReadExact
+	r.builtins["native_tcp_read_line"] = nativeTcpReadLine
+	r.builtins["native_tcp_read_until"] = nativeTcpReadUntil
+	r.builtins["native_tcp_available"] = nativeTcpAvailable
+	r.builtins["native_tcp_flush"] = nativeTcpFlush
+
+	// Native TCP 函数 - 超时配置
 	r.builtins["native_tcp_set_timeout"] = nativeTcpSetTimeout
+	r.builtins["native_tcp_set_timeout_ms"] = nativeTcpSetTimeoutMs
+	r.builtins["native_tcp_set_read_timeout"] = nativeTcpSetReadTimeout
+	r.builtins["native_tcp_set_write_timeout"] = nativeTcpSetWriteTimeout
+	r.builtins["native_tcp_clear_timeout"] = nativeTcpClearTimeout
+
+	// Native TCP 函数 - Socket选项
+	r.builtins["native_tcp_set_keepalive"] = nativeTcpSetKeepAlive
+	r.builtins["native_tcp_set_nodelay"] = nativeTcpSetNoDelay
+	r.builtins["native_tcp_set_linger"] = nativeTcpSetLinger
+	r.builtins["native_tcp_set_read_buffer"] = nativeTcpSetReadBuffer
+	r.builtins["native_tcp_set_write_buffer"] = nativeTcpSetWriteBuffer
+
+	// Native TCP 函数 - 地址信息
+	r.builtins["native_tcp_get_local_addr"] = nativeTcpGetLocalAddr
+	r.builtins["native_tcp_get_remote_addr"] = nativeTcpGetRemoteAddr
+	r.builtins["native_tcp_get_local_host"] = nativeTcpGetLocalHost
+	r.builtins["native_tcp_get_local_port"] = nativeTcpGetLocalPort
+	r.builtins["native_tcp_get_remote_host"] = nativeTcpGetRemoteHost
+	r.builtins["native_tcp_get_remote_port"] = nativeTcpGetRemotePort
+	r.builtins["native_tcp_is_tls"] = nativeTcpIsTLS
+
+	// Native TLS 函数 - SSL/TLS支持
+	r.builtins["native_tls_connect"] = nativeTlsConnect
+	r.builtins["native_tls_connect_insecure"] = nativeTlsConnectInsecure
+	r.builtins["native_tls_upgrade"] = nativeTlsUpgrade
+	r.builtins["native_tls_get_version"] = nativeTlsGetVersion
+	r.builtins["native_tls_get_cipher_suite"] = nativeTlsGetCipherSuite
+	r.builtins["native_tls_get_server_name"] = nativeTlsGetServerName
 
 	// Native 文件操作函数 (仅供标准库使用)
 	r.builtins["native_file_read"] = nativeFileRead

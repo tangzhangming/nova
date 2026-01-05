@@ -1,0 +1,23 @@
+namespace sola.net
+
+use sola.net.SocketException;
+
+/**
+ * 超时异常
+ * 
+ * 表示网络操作超时，如连接超时、读取超时、写入超时等。
+ * 
+ * 使用示例：
+ * ```sola
+ * try {
+ *     $client := new TcpClient();
+ *     $client->setReadTimeout(5000);  // 5秒超时
+ *     $data := $client->read(1024);
+ * } catch (TimeoutException $e) {
+ *     print("操作超时: " + $e->getMessage());
+ * }
+ * ```
+ */
+public class TimeoutException extends SocketException {
+}
+

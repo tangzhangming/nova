@@ -1,0 +1,22 @@
+namespace sola.net
+
+use sola.net.SocketException;
+
+/**
+ * 连接异常
+ * 
+ * 表示建立网络连接时发生的异常，如连接被拒绝、主机不可达等。
+ * 
+ * 使用示例：
+ * ```sola
+ * try {
+ *     $client := new TcpClient();
+ *     $client->connect("192.168.1.1", 8080);
+ * } catch (ConnectionException $e) {
+ *     print("连接失败: " + $e->getMessage());
+ * }
+ * ```
+ */
+public class ConnectionException extends SocketException {
+}
+

@@ -1,0 +1,23 @@
+namespace sola.net
+
+use sola.lang.Exception;
+
+/**
+ * Socket 异常基类
+ * 
+ * 表示网络套接字操作中发生的异常。
+ * 这是所有网络相关异常的基类。
+ * 
+ * 使用示例：
+ * ```sola
+ * try {
+ *     $client := new TcpClient();
+ *     $client->connect("example.com", 80);
+ * } catch (SocketException $e) {
+ *     print("网络错误: " + $e->getMessage());
+ * }
+ * ```
+ */
+public class SocketException extends Exception {
+}
+
