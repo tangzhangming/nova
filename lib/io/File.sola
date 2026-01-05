@@ -1,0 +1,269 @@
+namespace sola.io
+
+use sola.lang.Str;
+
+/**
+ * 文件操作类
+ * 提供文件的读写、复制、移动等操作
+ */
+public class File {
+    
+    private string $path;
+    
+    /**
+     * 构造函数
+     * @param string $path 文件路径
+     */
+    public function __construct(string $path) {
+        $this->path = $path;
+    }
+    
+    // ========================================================================
+    // 读写操作
+    // ========================================================================
+    
+    /**
+     * 读取文件全部内容
+     * @return string 文件内容，失败返回空字符串
+     */
+    public function read(): string {
+        return native_file_read($this->path);
+    }
+    
+    /**
+     * 写入文件（覆盖原内容）
+     * @param string $content 要写入的内容
+     * @return bool 是否成功
+     */
+    public function write(string $content): bool {
+        return native_file_write($this->path, $content);
+    }
+    
+    /**
+     * 追加内容到文件末尾
+     * @param string $content 要追加的内容
+     * @return bool 是否成功
+     */
+    public function append(string $content): bool {
+        return native_file_append($this->path, $content);
+    }
+    
+    // ========================================================================
+    // 文件操作
+    // ========================================================================
+    
+    /**
+     * 删除文件
+     * @return bool 是否成功
+     */
+    public function delete(): bool {
+        return native_file_delete($this->path);
+    }
+    
+    /**
+     * 复制文件到目标路径
+     * @param string $dst 目标路径
+     * @return bool 是否成功
+     */
+    public function copy(string $dst): bool {
+        return native_file_copy($this->path, $dst);
+    }
+    
+    /**
+     * 移动文件到新路径
+     * @param string $newPath 新路径
+     * @return bool 是否成功
+     */
+    public function move(string $newPath): bool {
+        $result := native_file_rename($this->path, $newPath);
+        if ($result) {
+            $this->path = $newPath;
+        }
+        return $result;
+    }
+    
+    /**
+     * 重命名文件（保持在同一目录）
+     * @param string $newName 新文件名
+     * @return bool 是否成功
+     */
+    public function rename(string $newName): bool {
+        $dir := $this->getDirPath();
+        $newPath := $dir + "/" + $newName;
+        return $this->move($newPath);
+    }
+    
+    // ========================================================================
+    // 状态检查
+    // ========================================================================
+    
+    /**
+     * 检查文件是否存在
+     * @return bool 是否存在
+     */
+    public function exists(): bool {
+        return native_file_exists($this->path) && native_is_file($this->path);
+    }
+    
+    /**
+     * 检查文件是否可读
+     * @return bool 是否可读
+     */
+    public function isReadable(): bool {
+        return native_is_readable($this->path);
+    }
+    
+    /**
+     * 检查文件是否可写
+     * @return bool 是否可写
+     */
+    public function isWritable(): bool {
+        return native_is_writable($this->path);
+    }
+    
+    // ========================================================================
+    // 路径信息
+    // ========================================================================
+    
+    /**
+     * 获取文件完整路径
+     * @return string 完整路径
+     */
+    public function getPath(): string {
+        return $this->path;
+    }
+    
+    /**
+     * 获取文件名（包含扩展名）
+     * @return string 文件名
+     */
+    public function getName(): string {
+        $path := $this->path;
+        
+        // 使用 lastIndexOf 查找最后的分隔符
+        $lastSlash := Str::lastIndexOf($path, "/");
+        $lastBackslash := Str::lastIndexOf($path, "\\");
+        
+        // 取较大的位置
+        $pos := $lastSlash;
+        if ($lastBackslash > $pos) {
+            $pos = $lastBackslash;
+        }
+        
+        if ($pos >= 0) {
+            return Str::substring($path, $pos + 1);
+        }
+        return $path;
+    }
+    
+    /**
+     * 获取文件扩展名
+     * @return string 扩展名（不包含点），无扩展名返回空字符串
+     */
+    public function getExtension(): string {
+        $name := $this->getName();
+        $pos := Str::lastIndexOf($name, ".");
+        
+        if ($pos >= 0) {
+            return Str::substring($name, $pos + 1);
+        }
+        return "";
+    }
+    
+    /**
+     * 获取文件所在目录路径
+     * @return string 目录路径
+     */
+    public function getDirPath(): string {
+        $path := $this->path;
+        
+        // 使用 lastIndexOf 查找最后的分隔符
+        $lastSlash := Str::lastIndexOf($path, "/");
+        $lastBackslash := Str::lastIndexOf($path, "\\");
+        
+        // 取较大的位置
+        $pos := $lastSlash;
+        if ($lastBackslash > $pos) {
+            $pos = $lastBackslash;
+        }
+        
+        if ($pos > 0) {
+            return Str::substringRange($path, 0, $pos);
+        }
+        return ".";
+    }
+    
+    /**
+     * 获取文件所在目录对象
+     * @return Dir 目录对象
+     */
+    public function getDir(): Dir {
+        return new Dir($this->getDirPath());
+    }
+    
+    // ========================================================================
+    // 文件信息
+    // ========================================================================
+    
+    /**
+     * 获取文件信息对象
+     * @return FileInfo 文件信息对象
+     */
+    public function getInfo(): FileInfo {
+        return new FileInfo($this->path);
+    }
+    
+    /**
+     * 获取文件大小（字节）
+     * @return int 文件大小
+     */
+    public function getSize(): int {
+        return native_file_size($this->path);
+    }
+    
+    // ========================================================================
+    // 流操作
+    // ========================================================================
+    
+    /**
+     * 以流模式打开文件
+     * @param string $mode 打开模式：r(只读), w(写入), a(追加), r+(读写), w+(读写清空), a+(读写追加)
+     * @return Stream 文件流对象
+     */
+    public function open(string $mode = "r"): Stream {
+        return new Stream($this->path, $mode);
+    }
+    
+    // ========================================================================
+    // 静态便捷方法
+    // ========================================================================
+    
+    /**
+     * 快速读取文件内容
+     * @param string $path 文件路径
+     * @return string 文件内容
+     */
+    public static function readFile(string $path): string {
+        return native_file_read($path);
+    }
+    
+    /**
+     * 快速写入文件内容
+     * @param string $path 文件路径
+     * @param string $content 内容
+     * @return bool 是否成功
+     */
+    public static function writeFile(string $path, string $content): bool {
+        return native_file_write($path, $content);
+    }
+    
+    /**
+     * 检查路径是否是文件
+     * @param string $path 路径
+     * @return bool 是否是文件
+     */
+    public static function isFile(string $path): bool {
+        return native_is_file($path);
+    }
+}
+

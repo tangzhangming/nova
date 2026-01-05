@@ -1,0 +1,187 @@
+namespace sola.io
+
+/**
+ * 文件流类
+ * 用于大文件的读写操作，支持随机访问
+ */
+public class Stream {
+    
+    private int $handle = -1;
+    private string $path;
+    private string $mode;
+    
+    // seek whence 常量
+    public const int SEEK_SET = 0;  // 从文件开头
+    public const int SEEK_CUR = 1;  // 从当前位置
+    public const int SEEK_END = 2;  // 从文件末尾
+    
+    /**
+     * 构造函数 - 打开文件流
+     * @param string $path 文件路径
+     * @param string $mode 打开模式：r(只读), w(写入), a(追加), r+(读写), w+(读写清空), a+(读写追加)
+     */
+    public function __construct(string $path, string $mode = "r") {
+        $this->path = $path;
+        $this->mode = $mode;
+        $this->handle = native_stream_open($path, $mode);
+    }
+    
+    /**
+     * 读取指定长度的内容
+     * @param int $length 要读取的字节数
+     * @return string 读取的内容
+     */
+    public function read(int $length): string {
+        if ($this->handle < 0) {
+            return "";
+        }
+        return native_stream_read($this->handle, $length);
+    }
+    
+    /**
+     * 读取一行内容
+     * @return string 一行内容（不包含换行符）
+     */
+    public function readLine(): string {
+        if ($this->handle < 0) {
+            return "";
+        }
+        return native_stream_read_line($this->handle);
+    }
+    
+    /**
+     * 读取全部内容
+     * @return string 文件全部内容
+     */
+    public function readAll(): string {
+        if ($this->handle < 0) {
+            return "";
+        }
+        
+        $content := "";
+        while (!$this->eof()) {
+            $chunk := native_stream_read($this->handle, 8192);
+            if ($chunk == "") {
+                break;
+            }
+            $content = $content + $chunk;
+        }
+        return $content;
+    }
+    
+    /**
+     * 写入内容
+     * @param string $content 要写入的内容
+     * @return int 写入的字节数，失败返回-1
+     */
+    public function write(string $content): int {
+        if ($this->handle < 0) {
+            return -1;
+        }
+        return native_stream_write($this->handle, $content);
+    }
+    
+    /**
+     * 写入一行内容（自动添加换行符）
+     * @param string $content 要写入的内容
+     * @return int 写入的字节数，失败返回-1
+     */
+    public function writeLine(string $content): int {
+        if ($this->handle < 0) {
+            return -1;
+        }
+        return native_stream_write($this->handle, $content + "\n");
+    }
+    
+    /**
+     * 移动文件指针
+     * @param int $offset 偏移量
+     * @param int $whence 起始位置：SEEK_SET(开头), SEEK_CUR(当前), SEEK_END(末尾)
+     * @return bool 是否成功
+     */
+    public function seek(int $offset, int $whence = 0): bool {
+        if ($this->handle < 0) {
+            return false;
+        }
+        return native_stream_seek($this->handle, $offset, $whence);
+    }
+    
+    /**
+     * 获取当前文件指针位置
+     * @return int 当前位置，失败返回-1
+     */
+    public function tell(): int {
+        if ($this->handle < 0) {
+            return -1;
+        }
+        return native_stream_tell($this->handle);
+    }
+    
+    /**
+     * 将文件指针移回文件开头
+     * @return bool 是否成功
+     */
+    public function rewind(): bool {
+        return $this->seek(0, 0);
+    }
+    
+    /**
+     * 检查是否到达文件末尾
+     * @return bool 是否到达末尾
+     */
+    public function eof(): bool {
+        if ($this->handle < 0) {
+            return true;
+        }
+        return native_stream_eof($this->handle);
+    }
+    
+    /**
+     * 检查文件流是否已打开
+     * @return bool 是否已打开
+     */
+    public function isOpen(): bool {
+        return $this->handle >= 0;
+    }
+    
+    /**
+     * 刷新缓冲区到磁盘
+     * @return bool 是否成功
+     */
+    public function flush(): bool {
+        if ($this->handle < 0) {
+            return false;
+        }
+        return native_stream_flush($this->handle);
+    }
+    
+    /**
+     * 关闭文件流
+     * @return bool 是否成功
+     */
+    public function close(): bool {
+        if ($this->handle < 0) {
+            return false;
+        }
+        $result := native_stream_close($this->handle);
+        $this->handle = -1;
+        return $result;
+    }
+    
+    /**
+     * 获取文件路径
+     * @return string 文件路径
+     */
+    public function getPath(): string {
+        return $this->path;
+    }
+    
+    /**
+     * 获取打开模式
+     * @return string 打开模式
+     */
+    public function getMode(): string {
+        return $this->mode;
+    }
+}
+

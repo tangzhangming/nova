@@ -1,0 +1,281 @@
+namespace sola.io
+
+use sola.lang.Str;
+
+/**
+ * 目录操作类
+ * 提供目录的创建、删除、遍历等操作
+ */
+public class Dir {
+    
+    private string $path;
+    
+    /**
+     * 构造函数
+     * @param string $path 目录路径
+     */
+    public function __construct(string $path) {
+        $this->path = $path;
+    }
+    
+    // ========================================================================
+    // 目录操作
+    // ========================================================================
+    
+    /**
+     * 创建目录（单级）
+     * @return bool 是否成功
+     */
+    public function create(): bool {
+        return native_dir_create($this->path);
+    }
+    
+    /**
+     * 递归创建目录（包括所有父目录）
+     * @return bool 是否成功
+     */
+    public function createRecursive(): bool {
+        return native_dir_create_all($this->path);
+    }
+    
+    /**
+     * 删除空目录
+     * @return bool 是否成功
+     */
+    public function delete(): bool {
+        return native_dir_delete($this->path);
+    }
+    
+    /**
+     * 递归删除目录（包括所有内容）
+     * @return bool 是否成功
+     */
+    public function deleteRecursive(): bool {
+        return native_dir_delete_all($this->path);
+    }
+    
+    // ========================================================================
+    // 状态检查
+    // ========================================================================
+    
+    /**
+     * 检查目录是否存在
+     * @return bool 是否存在
+     */
+    public function exists(): bool {
+        return native_file_exists($this->path) && native_is_dir($this->path);
+    }
+    
+    /**
+     * 检查目录是否为空
+     * @return bool 是否为空
+     */
+    public function isEmpty(): bool {
+        $items := $this->list();
+        return len($items) == 0;
+    }
+    
+    /**
+     * 检查目录是否可读
+     * @return bool 是否可读
+     */
+    public function isReadable(): bool {
+        return native_is_readable($this->path);
+    }
+    
+    /**
+     * 检查目录是否可写
+     * @return bool 是否可写
+     */
+    public function isWritable(): bool {
+        return native_is_writable($this->path);
+    }
+    
+    // ========================================================================
+    // 内容列表
+    // ========================================================================
+    
+    /**
+     * 列出目录内容（文件名数组）
+     * @return string[] 文件名和目录名列表
+     */
+    public function list(): string[] {
+        return native_dir_list($this->path);
+    }
+    
+    /**
+     * 获取目录中的所有文件对象
+     * @return File[] 文件对象数组
+     */
+    public function files(): File[] {
+        $result := [];
+        $items := native_dir_list($this->path);
+        
+        foreach ($items as $name) {
+            $fullPath := $this->path + "/" + $name;
+            if (native_is_file($fullPath)) {
+                $result = push($result, new File($fullPath));
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 获取目录中的所有子目录对象
+     * @return Dir[] 目录对象数组
+     */
+    public function dirs(): Dir[] {
+        $result := [];
+        $items := native_dir_list($this->path);
+        
+        foreach ($items as $name) {
+            $fullPath := $this->path + "/" + $name;
+            if (native_is_dir($fullPath)) {
+                $result = push($result, new Dir($fullPath));
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 递归扫描目录，返回所有文件信息
+     * @return FileInfo[] 文件信息对象数组
+     */
+    public function scan(): FileInfo[] {
+        $result := [];
+        return $this->scanRecursive($this->path, $result);
+    }
+    
+    /**
+     * 递归扫描辅助方法
+     */
+    private function scanRecursive(string $dir, FileInfo[] $result): FileInfo[] {
+        $items := native_dir_list($dir);
+        
+        foreach ($items as $name) {
+            $fullPath := $dir + "/" + $name;
+            $result = push($result, new FileInfo($fullPath));
+            
+            if (native_is_dir($fullPath)) {
+                $result = $this->scanRecursive($fullPath, $result);
+            }
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // 路径信息
+    // ========================================================================
+    
+    /**
+     * 获取目录完整路径
+     * @return string 完整路径
+     */
+    public function getPath(): string {
+        return $this->path;
+    }
+    
+    /**
+     * 获取目录名
+     * @return string 目录名
+     */
+    public function getName(): string {
+        $path := $this->path;
+        
+        // 使用 lastIndexOf 查找最后的分隔符
+        $lastSlash := Str::lastIndexOf($path, "/");
+        $lastBackslash := Str::lastIndexOf($path, "\\");
+        
+        // 取较大的位置
+        $pos := $lastSlash;
+        if ($lastBackslash > $pos) {
+            $pos = $lastBackslash;
+        }
+        
+        if ($pos >= 0) {
+            return Str::substring($path, $pos + 1);
+        }
+        return $path;
+    }
+    
+    /**
+     * 获取父目录对象
+     * @return Dir 父目录对象
+     */
+    public function getParent(): Dir {
+        $path := $this->path;
+        
+        // 使用 lastIndexOf 查找最后的分隔符
+        $lastSlash := Str::lastIndexOf($path, "/");
+        $lastBackslash := Str::lastIndexOf($path, "\\");
+        
+        // 取较大的位置
+        $pos := $lastSlash;
+        if ($lastBackslash > $pos) {
+            $pos = $lastBackslash;
+        }
+        
+        if ($pos > 0) {
+            return new Dir(Str::substringRange($path, 0, $pos));
+        }
+        return new Dir(".");
+    }
+    
+    // ========================================================================
+    // 目录信息
+    // ========================================================================
+    
+    /**
+     * 获取目录信息对象
+     * @return FileInfo 目录信息对象
+     */
+    public function getInfo(): FileInfo {
+        return new FileInfo($this->path);
+    }
+    
+    // ========================================================================
+    // 便捷方法
+    // ========================================================================
+    
+    /**
+     * 在目录中获取文件对象
+     * @param string $name 文件名
+     * @return File 文件对象
+     */
+    public function file(string $name): File {
+        return new File($this->path + "/" + $name);
+    }
+    
+    /**
+     * 在目录中获取子目录对象
+     * @param string $name 目录名
+     * @return Dir 目录对象
+     */
+    public function subdir(string $name): Dir {
+        return new Dir($this->path + "/" + $name);
+    }
+    
+    // ========================================================================
+    // 静态便捷方法
+    // ========================================================================
+    
+    /**
+     * 检查路径是否是目录
+     * @param string $path 路径
+     * @return bool 是否是目录
+     */
+    public static function isDir(string $path): bool {
+        return native_is_dir($path);
+    }
+    
+    /**
+     * 获取当前工作目录
+     * @return Dir 当前目录对象
+     */
+    public static function current(): Dir {
+        return new Dir(".");
+    }
+}
+

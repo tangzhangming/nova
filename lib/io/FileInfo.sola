@@ -1,0 +1,148 @@
+namespace sola.io
+
+use sola.lang.Str;
+
+/**
+ * 文件/目录信息类
+ * 提供文件和目录的元数据信息
+ */
+public class FileInfo {
+    
+    private string $path;
+    
+    /**
+     * 构造函数
+     * @param string $path 文件或目录路径
+     */
+    public function __construct(string $path) {
+        $this->path = $path;
+    }
+    
+    /**
+     * 获取完整路径
+     * @return string 完整路径
+     */
+    public function getPath(): string {
+        return $this->path;
+    }
+    
+    /**
+     * 获取文件/目录名
+     * @return string 文件名或目录名
+     */
+    public function getName(): string {
+        $path := $this->path;
+        
+        // 使用 lastIndexOf 查找最后的分隔符
+        $lastSlash := Str::lastIndexOf($path, "/");
+        $lastBackslash := Str::lastIndexOf($path, "\\");
+        
+        // 取较大的位置
+        $pos := $lastSlash;
+        if ($lastBackslash > $pos) {
+            $pos = $lastBackslash;
+        }
+        
+        if ($pos >= 0) {
+            return Str::substring($path, $pos + 1);
+        }
+        return $path;
+    }
+    
+    /**
+     * 获取文件大小（字节）
+     * @return int 文件大小，目录返回0，失败返回-1
+     */
+    public function getSize(): int {
+        return native_file_size($this->path);
+    }
+    
+    /**
+     * 获取修改时间（Unix时间戳）
+     * @return int 修改时间
+     */
+    public function getMtime(): int {
+        return native_file_mtime($this->path);
+    }
+    
+    /**
+     * 获取访问时间（Unix时间戳）
+     * @return int 访问时间
+     */
+    public function getAtime(): int {
+        return native_file_atime($this->path);
+    }
+    
+    /**
+     * 获取创建时间（Unix时间戳）
+     * @return int 创建时间
+     */
+    public function getCtime(): int {
+        return native_file_ctime($this->path);
+    }
+    
+    /**
+     * 检查是否是文件
+     * @return bool 是否是文件
+     */
+    public function isFile(): bool {
+        return native_is_file($this->path);
+    }
+    
+    /**
+     * 检查是否是目录
+     * @return bool 是否是目录
+     */
+    public function isDir(): bool {
+        return native_is_dir($this->path);
+    }
+    
+    /**
+     * 检查是否是符号链接
+     * @return bool 是否是符号链接
+     */
+    public function isLink(): bool {
+        return native_is_link($this->path);
+    }
+    
+    /**
+     * 检查是否可读
+     * @return bool 是否可读
+     */
+    public function isReadable(): bool {
+        return native_is_readable($this->path);
+    }
+    
+    /**
+     * 检查是否可写
+     * @return bool 是否可写
+     */
+    public function isWritable(): bool {
+        return native_is_writable($this->path);
+    }
+    
+    /**
+     * 检查是否可执行
+     * @return bool 是否可执行
+     */
+    public function isExecutable(): bool {
+        return native_is_executable($this->path);
+    }
+    
+    /**
+     * 获取文件权限（八进制表示）
+     * @return int 文件权限
+     */
+    public function getPermissions(): int {
+        return native_file_perms($this->path);
+    }
+    
+    /**
+     * 检查路径是否存在
+     * @return bool 是否存在
+     */
+    public function exists(): bool {
+        return native_file_exists($this->path);
+    }
+}
+
