@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 键未找到异常
+ * 当在集合中查找不存在的键时抛出
+ */
+public class KeyNotFoundException extends RuntimeException {
+    public function __construct(string $message = "The given key was not present in the collection", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

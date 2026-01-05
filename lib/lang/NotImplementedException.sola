@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 未实现异常
+ * 当调用未实现的方法时抛出
+ */
+public class NotImplementedException extends RuntimeException {
+    public function __construct(string $message = "The method or operation is not implemented", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

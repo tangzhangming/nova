@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 格式异常
+ * 当字符串格式不正确时抛出
+ */
+public class FormatException extends RuntimeException {
+    public function __construct(string $message = "Input string was not in a correct format", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

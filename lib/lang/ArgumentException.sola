@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 参数异常基类
+ * 当传递给方法的参数无效时抛出
+ */
+public class ArgumentException extends RuntimeException {
+    public function __construct(string $message = "Invalid argument", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

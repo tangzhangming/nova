@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 无效操作异常
+ * 当对象的当前状态不允许执行某个操作时抛出
+ */
+public class InvalidOperationException extends RuntimeException {
+    public function __construct(string $message = "Operation is not valid due to the current state of the object", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

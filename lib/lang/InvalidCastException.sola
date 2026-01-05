@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 无效类型转换异常
+ * 当类型转换失败时抛出
+ */
+public class InvalidCastException extends RuntimeException {
+    public function __construct(string $message = "Specified cast is not valid", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

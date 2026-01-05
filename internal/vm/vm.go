@@ -715,7 +715,7 @@ func (vm *VM) execute() InterpretResult {
 				arr := arrVal.AsArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
-					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexSimple)); result == InterpretExceptionHandled {
+					if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", i18n.T(i18n.ErrArrayIndexSimple)); result == InterpretExceptionHandled {
 						frame = &vm.frames[vm.frameCount-1]
 						chunk = frame.Closure.Function.Chunk
 						continue
@@ -728,7 +728,7 @@ func (vm *VM) execute() InterpretResult {
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= fa.Capacity {
-					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity)); result == InterpretExceptionHandled {
+					if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity)); result == InterpretExceptionHandled {
 						frame = &vm.frames[vm.frameCount-1]
 						chunk = frame.Closure.Function.Chunk
 						continue
@@ -759,7 +759,7 @@ func (vm *VM) execute() InterpretResult {
 				arr := arrVal.AsArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= len(arr) {
-					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexSimple)); result == InterpretExceptionHandled {
+					if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", i18n.T(i18n.ErrArrayIndexSimple)); result == InterpretExceptionHandled {
 						frame = &vm.frames[vm.frameCount-1]
 						chunk = frame.Closure.Function.Chunk
 						continue
@@ -772,7 +772,7 @@ func (vm *VM) execute() InterpretResult {
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				if i < 0 || i >= fa.Capacity {
-					if result := vm.throwRuntimeException(i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity)); result == InterpretExceptionHandled {
+					if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", i18n.T(i18n.ErrArrayIndexOutOfBounds, i, fa.Capacity)); result == InterpretExceptionHandled {
 						frame = &vm.frames[vm.frameCount-1]
 						chunk = frame.Closure.Function.Chunk
 						continue
@@ -1297,20 +1297,31 @@ func (vm *VM) isThrowable(class *bytecode.Class) bool {
 
 // throwRuntimeException 抛出一个运行时异常（可被 try-catch 捕获）
 func (vm *VM) throwRuntimeException(message string) InterpretResult {
-	// 尝试创建一个真正的 RuntimeException 对象
+	return vm.throwTypedException("RuntimeException", message)
+}
+
+// throwTypedException 抛出指定类型的异常（可被 try-catch 捕获）
+// typeName: 异常类型名（如 "DivideByZeroException", "ArrayIndexOutOfBoundsException"）
+// 会按顺序尝试: 指定类型 -> RuntimeException -> Exception -> 简单异常
+func (vm *VM) throwTypedException(typeName string, message string) InterpretResult {
 	var exception bytecode.Value
 	
-	if class := vm.classes["RuntimeException"]; class != nil {
-		// RuntimeException 类已加载，创建对象实例
-		obj := bytecode.NewObjectInstance(class)
-		obj.Fields["message"] = bytecode.NewString(message)
-		obj.Fields["code"] = bytecode.NewInt(0)
-		obj.Fields["previous"] = bytecode.NullValue
-		obj.Fields["stackTrace"] = bytecode.NewArray([]bytecode.Value{})
-		exception = bytecode.NewExceptionFromObject(obj)
-	} else if class := vm.classes["Exception"]; class != nil {
-		// 使用 Exception 类
-		obj := bytecode.NewObjectInstance(class)
+	// 尝试按优先级查找异常类
+	classNames := []string{typeName, "RuntimeException", "Exception"}
+	var foundClass *bytecode.Class
+	var foundTypeName string
+	
+	for _, name := range classNames {
+		if class := vm.classes[name]; class != nil {
+			foundClass = class
+			foundTypeName = name
+			break
+		}
+	}
+	
+	if foundClass != nil {
+		// 找到异常类，创建对象实例
+		obj := bytecode.NewObjectInstance(foundClass)
 		obj.Fields["message"] = bytecode.NewString(message)
 		obj.Fields["code"] = bytecode.NewInt(0)
 		obj.Fields["previous"] = bytecode.NullValue
@@ -1318,11 +1329,19 @@ func (vm *VM) throwRuntimeException(message string) InterpretResult {
 		exception = bytecode.NewExceptionFromObject(obj)
 	} else {
 		// 没有异常类可用，使用简单异常值
-		exception = bytecode.NewException("RuntimeException", message, 0)
+		exception = bytecode.NewException(typeName, message, 0)
+		foundTypeName = typeName
 	}
 	
-	if exc := exception.AsException(); exc != nil && len(exc.StackFrames) == 0 {
-		exc.SetStackFrames(vm.captureStackTrace())
+	// 如果找到的不是请求的类型，但我们有消息，更新异常类型名
+	if exc := exception.AsException(); exc != nil {
+		if foundTypeName != typeName && foundClass != nil {
+			// 即使使用了父类，也保留原始类型名用于显示
+			exc.Type = typeName
+		}
+		if len(exc.StackFrames) == 0 {
+			exc.SetStackFrames(vm.captureStackTrace())
+		}
 	}
 	
 	if vm.handleException(exception) {
@@ -1374,12 +1393,12 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 			vm.push(bytecode.NewInt(ai * bi))
 		case bytecode.OpDiv:
 			if bi == 0 {
-				return vm.throwRuntimeException(i18n.T(i18n.ErrDivisionByZero))
+				return vm.throwTypedException("DivideByZeroException", i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewInt(ai / bi))
 		case bytecode.OpMod:
 			if bi == 0 {
-				return vm.throwRuntimeException(i18n.T(i18n.ErrDivisionByZero))
+				return vm.throwTypedException("DivideByZeroException", i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewInt(ai % bi))
 		}
@@ -1399,7 +1418,7 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 			vm.push(bytecode.NewFloat(af * bf))
 		case bytecode.OpDiv:
 			if bf == 0 {
-				return vm.throwRuntimeException(i18n.T(i18n.ErrDivisionByZero))
+				return vm.throwTypedException("DivideByZeroException", i18n.T(i18n.ErrDivisionByZero))
 			}
 			vm.push(bytecode.NewFloat(af / bf))
 		case bytecode.OpMod:

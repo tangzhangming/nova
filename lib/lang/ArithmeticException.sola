@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 算术异常基类
+ * 当发生算术运算错误时抛出
+ */
+public class ArithmeticException extends RuntimeException {
+    public function __construct(string $message = "Arithmetic error", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

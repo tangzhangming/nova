@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.RuntimeException;
+
+/**
+ * 索引越界异常基类
+ * 当索引超出有效范围时抛出
+ */
+public class IndexOutOfBoundsException extends RuntimeException {
+    public function __construct(string $message = "Index was outside the bounds", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+

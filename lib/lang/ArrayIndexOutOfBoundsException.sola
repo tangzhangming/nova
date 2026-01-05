@@ -1,0 +1,14 @@
+namespace sola.lang
+
+use sola.lang.IndexOutOfBoundsException;
+
+/**
+ * 数组索引越界异常
+ * 当数组访问使用无效索引时抛出
+ */
+public class ArrayIndexOutOfBoundsException extends IndexOutOfBoundsException {
+    public function __construct(string $message = "Array index out of bounds", int $code = 0, ?Throwable $previous = null) {
+        parent::__construct($message, $code, $previous);
+    }
+}
+
