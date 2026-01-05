@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/lexer"
@@ -16,35 +17,67 @@ const (
 	Version = "0.1.0"
 )
 
+// 全局语言参数
+var globalLang string
+
 func main() {
-	if len(os.Args) < 2 {
+	// 预扫描全局参数 --lang 或 -lang
+	args := preprocessArgs(os.Args[1:])
+
+	// 初始化语言
+	InitLanguage(globalLang)
+
+	if len(args) < 1 {
 		printUsage()
 		os.Exit(0)
 	}
 
-	command := os.Args[1]
+	command := args[0]
 
 	switch command {
 	case "run":
-		cmdRun(os.Args[2:])
+		cmdRun(args[1:])
 	case "build":
-		cmdBuild(os.Args[2:])
+		cmdBuild(args[1:])
 	case "check":
-		cmdCheck(os.Args[2:])
+		cmdCheck(args[1:])
 	case "version", "-v", "--version":
 		cmdVersion()
 	case "help", "-h", "--help":
 		printUsage()
 	default:
 		// 兼容旧用法：直接运行文件
-		if len(os.Args) >= 2 && !isFlag(os.Args[1]) {
-			cmdRun(os.Args[1:])
+		if len(args) >= 1 && !isFlag(args[0]) {
+			cmdRun(args)
 		} else {
-			fmt.Fprintf(os.Stderr, "Unknown command: %s\n\n", command)
+			fmt.Fprintf(os.Stderr, Msg().ErrUnknownCmd+"\n\n", command)
 			printUsage()
 			os.Exit(1)
 		}
 	}
+}
+
+// preprocessArgs 预处理参数，提取全局 --lang 参数
+func preprocessArgs(args []string) []string {
+	var result []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--lang" || arg == "-lang" {
+			if i+1 < len(args) {
+				globalLang = args[i+1]
+				i++ // 跳过下一个参数
+				continue
+			}
+		} else if strings.HasPrefix(arg, "--lang=") {
+			globalLang = strings.TrimPrefix(arg, "--lang=")
+			continue
+		} else if strings.HasPrefix(arg, "-lang=") {
+			globalLang = strings.TrimPrefix(arg, "-lang=")
+			continue
+		}
+		result = append(result, arg)
+	}
+	return result
 }
 
 func isFlag(s string) bool {
@@ -52,39 +85,43 @@ func isFlag(s string) bool {
 }
 
 func printUsage() {
-	fmt.Printf("Sola Programming Language v%s\n\n", Version)
-	fmt.Println("Usage:")
-	fmt.Println("  sola <command> [options] [arguments]")
+	m := Msg()
+	fmt.Printf(m.VersionTitle+"\n\n", Version)
+	fmt.Println(m.HelpUsage)
+	fmt.Println("  sola [--lang en|zh] <command> [options] [arguments]")
 	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  run <file>      Run a Sola source file")
-	fmt.Println("  build <file>    Compile to bytecode (coming soon)")
-	fmt.Println("  check <file>    Check syntax without running")
-	fmt.Println("  version         Show version information")
-	fmt.Println("  help            Show this help message")
+	fmt.Println(m.HelpCommands)
+	fmt.Printf("  run <file>      %s\n", m.CmdRun)
+	fmt.Printf("  build <file>    %s\n", m.CmdBuild)
+	fmt.Printf("  check <file>    %s\n", m.CmdCheck)
+	fmt.Printf("  version         %s\n", m.CmdVersion)
+	fmt.Printf("  help            %s\n", m.CmdHelp)
 	fmt.Println()
-	fmt.Println("Run Options:")
-	fmt.Println("  -tokens         Show lexer tokens")
-	fmt.Println("  -ast            Show AST structure")
-	fmt.Println("  -bytecode       Show compiled bytecode")
+	fmt.Println(m.HelpOptions)
+	fmt.Printf("  -tokens         %s\n", m.OptTokens)
+	fmt.Printf("  -ast            %s\n", m.OptAST)
+	fmt.Printf("  -bytecode       %s\n", m.OptBytecode)
+	fmt.Printf("  --lang <en|zh>  %s\n", m.OptLang)
 	fmt.Println()
-	fmt.Println("Examples:")
+	fmt.Println(m.HelpExamples)
 	fmt.Printf("  sola run main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola run -ast main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola check main%s\n", loader.SourceFileExtension)
+	fmt.Printf("  sola --lang zh help\n")
 }
 
 // cmdRun 运行 Sola 源文件
 func cmdRun(args []string) {
+	m := Msg()
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	showTokens := fs.Bool("tokens", false, "Show lexer tokens")
-	showAST := fs.Bool("ast", false, "Show AST structure")
-	showBytecode := fs.Bool("bytecode", false, "Show compiled bytecode")
+	showTokens := fs.Bool("tokens", false, m.OptTokens)
+	showAST := fs.Bool("ast", false, m.OptAST)
+	showBytecode := fs.Bool("bytecode", false, m.OptBytecode)
 
 	fs.Usage = func() {
-		fmt.Println("Usage: sola run [options] <file>")
+		fmt.Println(m.HelpUsage + " sola run [options] <file>")
 		fmt.Println()
-		fmt.Println("Options:")
+		fmt.Println(m.HelpOptions)
 		fs.PrintDefaults()
 	}
 
@@ -93,15 +130,16 @@ func cmdRun(args []string) {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Error: no input file specified")
 		fs.Usage()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, m.ErrNoInput)
 		os.Exit(1)
 	}
 
 	filename := fs.Arg(0)
 	source, err := os.ReadFile(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
 		os.Exit(1)
 	}
 
@@ -126,20 +164,21 @@ func cmdRun(args []string) {
 	// 正常运行
 	r := runtime.New()
 	if err := r.Run(string(source), filename); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, m.ErrRuntime+"\n", err)
 		os.Exit(1)
 	}
 }
 
 // cmdBuild 编译为字节码（预留）
 func cmdBuild(args []string) {
+	m := Msg()
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
-	output := fs.String("o", "", "Output file path")
+	output := fs.String("o", "", m.OptOutput)
 
 	fs.Usage = func() {
-		fmt.Println("Usage: sola build [options] <file>")
+		fmt.Println(m.HelpUsage + " sola build [options] <file>")
 		fmt.Println()
-		fmt.Println("Options:")
+		fmt.Println(m.HelpOptions)
 		fs.PrintDefaults()
 	}
 
@@ -148,27 +187,29 @@ func cmdBuild(args []string) {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Error: no input file specified")
 		fs.Usage()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, m.ErrNoInput)
 		os.Exit(1)
 	}
 
 	filename := fs.Arg(0)
 	_ = output // 暂未使用
 
-	fmt.Printf("Building %s...\n", filename)
-	fmt.Println("Note: Build command is not yet implemented. Coming soon!")
+	fmt.Printf(m.SuccessBuilding+"\n", filename)
+	fmt.Println(m.NotImplemented)
 }
 
 // cmdCheck 语法检查
 func cmdCheck(args []string) {
+	m := Msg()
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
-	verbose := fs.Bool("v", false, "Verbose output")
+	verbose := fs.Bool("v", false, m.OptVerbose)
 
 	fs.Usage = func() {
-		fmt.Println("Usage: sola check [options] <file>")
+		fmt.Println(m.HelpUsage + " sola check [options] <file>")
 		fmt.Println()
-		fmt.Println("Options:")
+		fmt.Println(m.HelpOptions)
 		fs.PrintDefaults()
 	}
 
@@ -177,15 +218,16 @@ func cmdCheck(args []string) {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Error: no input file specified")
 		fs.Usage()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, m.ErrNoInput)
 		os.Exit(1)
 	}
 
 	filename := fs.Arg(0)
 	source, err := os.ReadFile(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
 		os.Exit(1)
 	}
 
@@ -194,12 +236,14 @@ func cmdCheck(args []string) {
 
 // cmdVersion 显示版本信息
 func cmdVersion() {
-	fmt.Printf("Sola Programming Language v%s\n", Version)
-	fmt.Println("A statically-typed, compiled language with PHP-like syntax")
+	m := Msg()
+	fmt.Printf(m.VersionTitle+"\n", Version)
+	fmt.Println(m.VersionDesc)
 }
 
 // runLexer 运行词法分析器
 func runLexer(source, filename string) {
+	m := Msg()
 	l := lexer.New(source, filename)
 	tokens := l.ScanTokens()
 
@@ -210,7 +254,7 @@ func runLexer(source, filename string) {
 	fmt.Println()
 
 	if l.HasErrors() {
-		fmt.Println("Lexer errors:")
+		fmt.Println(m.ErrLexer)
 		for _, e := range l.Errors() {
 			fmt.Printf("  %s\n", e)
 		}
@@ -220,11 +264,12 @@ func runLexer(source, filename string) {
 
 // runParser 运行解析器
 func runParser(source, filename string, verbose bool) {
+	m := Msg()
 	p := parser.New(source, filename)
 	file := p.Parse()
 
 	if p.HasErrors() {
-		fmt.Println("Parser errors:")
+		fmt.Println(m.ErrParser)
 		for _, e := range p.Errors() {
 			fmt.Printf("  %s\n", e)
 		}
@@ -236,21 +281,22 @@ func runParser(source, filename string, verbose bool) {
 		printAST(file)
 	}
 
-	fmt.Printf("✓ %s: syntax OK\n", filename)
+	fmt.Printf(m.SuccessSyntaxOK+"\n", filename)
 	if verbose {
-		fmt.Printf("  Namespace: %s\n", getNamespace(file))
-		fmt.Printf("  Uses: %d\n", len(file.Uses))
-		fmt.Printf("  Declarations: %d\n", len(file.Declarations))
-		fmt.Printf("  Statements: %d\n", len(file.Statements))
+		fmt.Printf("  %s: %s\n", m.Namespace, getNamespace(file))
+		fmt.Printf("  %s: %d\n", m.Uses, len(file.Uses))
+		fmt.Printf("  %s: %d\n", m.Declarations, len(file.Declarations))
+		fmt.Printf("  %s: %d\n", m.Statements, len(file.Statements))
 	}
 }
 
 // runDisassemble 运行反汇编
 func runDisassemble(source, filename string) {
+	m := Msg()
 	r := runtime.New()
 	bytecode, err := r.Disassemble(source, filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, m.ErrRuntime+"\n", err)
 		os.Exit(1)
 	}
 	fmt.Println(bytecode)
@@ -286,4 +332,3 @@ func printAST(file *ast.File) {
 		fmt.Printf("  Statement[%d]: %s\n", i, stmt.String())
 	}
 }
-

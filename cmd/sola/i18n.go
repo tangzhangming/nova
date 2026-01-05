@@ -1,0 +1,226 @@
+package main
+
+import (
+	"os"
+	"runtime"
+	"strings"
+)
+
+// Language 语言类型
+type Language string
+
+const (
+	LangEnglish Language = "en"
+	LangChinese Language = "zh"
+)
+
+// Messages 消息结构
+type Messages struct {
+	// 版本信息
+	VersionTitle string
+	VersionDesc  string
+
+	// 帮助信息
+	HelpUsage    string
+	HelpCommands string
+	HelpOptions  string
+	HelpExamples string
+
+	// 命令描述
+	CmdRun     string
+	CmdBuild   string
+	CmdCheck   string
+	CmdVersion string
+	CmdHelp    string
+
+	// 运行选项
+	OptTokens   string
+	OptAST      string
+	OptBytecode string
+	OptOutput   string
+	OptVerbose  string
+	OptLang     string
+
+	// 错误信息
+	ErrNoInput    string
+	ErrReadFile   string
+	ErrUnknownCmd string
+	ErrLexer      string
+	ErrParser     string
+	ErrRuntime    string
+
+	// 成功信息
+	SuccessSyntaxOK string
+	SuccessBuilding string
+
+	// 其他
+	NotImplemented string
+	Namespace      string
+	Uses           string
+	Declarations   string
+	Statements     string
+}
+
+// 英文消息
+var messagesEN = Messages{
+	VersionTitle: "Sola Programming Language v%s",
+	VersionDesc:  "A statically-typed, compiled language with PHP-like syntax",
+
+	HelpUsage:    "Usage:",
+	HelpCommands: "Commands:",
+	HelpOptions:  "Run Options:",
+	HelpExamples: "Examples:",
+
+	CmdRun:     "Run a Sola source file",
+	CmdBuild:   "Compile to bytecode (coming soon)",
+	CmdCheck:   "Check syntax without running",
+	CmdVersion: "Show version information",
+	CmdHelp:    "Show this help message",
+
+	OptTokens:   "Show lexer tokens",
+	OptAST:      "Show AST structure",
+	OptBytecode: "Show compiled bytecode",
+	OptOutput:   "Output file path",
+	OptVerbose:  "Verbose output",
+	OptLang:     "Set language (en/zh)",
+
+	ErrNoInput:    "Error: no input file specified",
+	ErrReadFile:   "Error reading file: %v",
+	ErrUnknownCmd: "Unknown command: %s",
+	ErrLexer:      "Lexer errors:",
+	ErrParser:     "Parser errors:",
+	ErrRuntime:    "Error: %v",
+
+	SuccessSyntaxOK: "✓ %s: syntax OK",
+	SuccessBuilding: "Building %s...",
+
+	NotImplemented: "Note: Build command is not yet implemented. Coming soon!",
+	Namespace:      "Namespace",
+	Uses:           "Uses",
+	Declarations:   "Declarations",
+	Statements:     "Statements",
+}
+
+// 中文消息
+var messagesZH = Messages{
+	VersionTitle: "Sola 编程语言 v%s",
+	VersionDesc:  "一门静态类型、编译型语言，语法类似 PHP",
+
+	HelpUsage:    "用法:",
+	HelpCommands: "命令:",
+	HelpOptions:  "运行选项:",
+	HelpExamples: "示例:",
+
+	CmdRun:     "运行 Sola 源文件",
+	CmdBuild:   "编译为字节码（即将推出）",
+	CmdCheck:   "检查语法，不运行",
+	CmdVersion: "显示版本信息",
+	CmdHelp:    "显示帮助信息",
+
+	OptTokens:   "显示词法分析结果",
+	OptAST:      "显示抽象语法树",
+	OptBytecode: "显示编译后的字节码",
+	OptOutput:   "输出文件路径",
+	OptVerbose:  "详细输出",
+	OptLang:     "设置语言 (en/zh)",
+
+	ErrNoInput:    "错误: 未指定输入文件",
+	ErrReadFile:   "读取文件错误: %v",
+	ErrUnknownCmd: "未知命令: %s",
+	ErrLexer:      "词法分析错误:",
+	ErrParser:     "语法分析错误:",
+	ErrRuntime:    "运行时错误: %v",
+
+	SuccessSyntaxOK: "✓ %s: 语法正确",
+	SuccessBuilding: "正在编译 %s...",
+
+	NotImplemented: "提示: 编译功能尚未实现，敬请期待！",
+	Namespace:      "命名空间",
+	Uses:           "导入",
+	Declarations:   "声明",
+	Statements:     "语句",
+}
+
+// 当前消息
+var msg = messagesEN
+
+// 当前语言
+var currentLang = LangEnglish
+
+// InitLanguage 初始化语言设置
+// 优先级: 命令行参数 > 环境变量 SOLA_LANG > 操作系统语言 > 默认英文
+func InitLanguage(langOverride string) {
+	// 1. 命令行参数优先
+	if langOverride != "" {
+		setLanguage(langOverride)
+		return
+	}
+
+	// 2. 检查环境变量
+	if envLang := os.Getenv("SOLA_LANG"); envLang != "" {
+		setLanguage(envLang)
+		return
+	}
+
+	// 3. 检测操作系统语言
+	if detectChineseOS() {
+		setLanguage("zh")
+		return
+	}
+
+	// 4. 默认英文
+	setLanguage("en")
+}
+
+// setLanguage 设置语言
+func setLanguage(lang string) {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	switch lang {
+	case "zh", "zh-cn", "zh-tw", "zh-hk", "chinese":
+		currentLang = LangChinese
+		msg = messagesZH
+	default:
+		currentLang = LangEnglish
+		msg = messagesEN
+	}
+}
+
+// detectChineseOS 检测操作系统是否为中文环境
+func detectChineseOS() bool {
+	// Windows 使用 API 检测
+	if runtime.GOOS == "windows" {
+		// 优先使用 Windows API
+		if detectWindowsChinese() {
+			return true
+		}
+		// 备用：检查 locale 名称
+		locale := getWindowsLocale()
+		if strings.HasPrefix(strings.ToLower(locale), "zh") {
+			return true
+		}
+	}
+
+	// Unix/Linux/Mac: 检查环境变量
+	langVars := []string{"LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES"}
+	for _, v := range langVars {
+		if val := os.Getenv(v); val != "" {
+			lower := strings.ToLower(val)
+			if strings.Contains(lower, "zh") ||
+				strings.Contains(lower, "chinese") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// GetLanguage 获取当前语言
+func GetLanguage() Language {
+	return currentLang
+}
+
+// Msg 获取当前消息对象
+func Msg() *Messages {
+	return &msg
+}
