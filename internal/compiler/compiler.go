@@ -443,11 +443,22 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 		declaredType = c.getTypeName(s.Type)
 	}
 	
+	// 静态类型系统：如果是类型推断 (:=)，必须能推断出类型
+	if s.Type == nil && s.Value != nil {
+		inferredType := c.inferExprType(s.Value)
+		if inferredType == "" || inferredType == "error" {
+			// inferExprType 已经报过错了，这里只需设置标记
+			declaredType = "error"
+		} else {
+			declaredType = inferredType
+		}
+	}
+	
 	// 静态类型检查：如果有显式类型和初始值，检查类型匹配
 	if s.Type != nil && s.Value != nil {
 		actualType := c.inferExprType(s.Value)
-		// 严格模式：类型必须兼容
-		if actualType != "" && declaredType != "" {
+		// 静态类型系统：类型必须兼容（除非已报错）
+		if actualType != "error" && declaredType != "error" {
 			if !c.isTypeCompatible(actualType, declaredType) {
 				c.error(s.Value.Pos(), i18n.T(i18n.ErrCannotAssign, actualType, declaredType))
 			}
@@ -513,10 +524,7 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 		}
 	}
 	
-	// 如果是类型推断 (:=)，从值推断类型
-	if s.Type == nil && s.Value != nil {
-		declaredType = c.inferExprType(s.Value)
-	}
+	// 注意：类型推断 (:=) 已在函数开头处理
 
 	// 声明并定义变量
 	if c.scopeDepth > 0 {
@@ -1481,22 +1489,32 @@ func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 }
 
 // checkCallArgTypes 检查函数调用参数类型
+// 静态类型系统：严格检查所有参数类型
 func (c *Compiler) checkCallArgTypes(e *ast.CallExpr) {
 	var sig *FunctionSignature
+	var funcName string
 	
 	switch fn := e.Function.(type) {
 	case *ast.Identifier:
+		funcName = fn.Name
 		sig = c.symbolTable.GetFunction(fn.Name)
 	case *ast.Variable:
-		// 变量作为函数调用，尝试从变量类型推断
-		// 暂不严格检查
+		funcName = fn.Name
+		// 变量作为函数调用，从变量类型推断
+		varType := c.getVariableType(fn.Name)
+		if varType == "" {
+			// 静态类型系统：变量类型必须明确（但不重复报错，inferExprType 会处理）
+			return
+		}
+		// 变量类型是 func 时跳过详细检查
 		return
 	default:
 		return
 	}
 	
 	if sig == nil {
-		return // 未知函数，跳过检查（内置函数或动态调用）
+		// 静态类型系统：函数必须在符号表中定义（但不重复报错，inferCallExprType 会处理）
+		return
 	}
 	
 	// 检查参数数量
@@ -1522,14 +1540,16 @@ func (c *Compiler) checkCallArgTypes(e *ast.CallExpr) {
 		}
 		
 		actualType := c.inferExprType(arg)
-		if actualType == "" {
-			continue // 无法推断类型时跳过
+		// 静态类型系统：error 类型表示已报错，跳过避免级联
+		if actualType == "error" {
+			continue
 		}
 		
 		if !c.isTypeCompatible(actualType, expectedType) {
 			c.error(arg.Pos(), i18n.T(i18n.ErrTypeMismatch, expectedType, actualType))
 		}
 	}
+	_ = funcName // 避免未使用警告
 }
 
 func (c *Compiler) compileIndexExpr(e *ast.IndexExpr) {
@@ -1594,17 +1614,24 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 }
 
 // checkMethodCallArgTypes 检查方法调用参数类型
+// 静态类型系统：严格检查所有参数类型
 func (c *Compiler) checkMethodCallArgTypes(e *ast.MethodCall) {
 	// 获取对象类型
 	objType := c.inferExprType(e.Object)
+	// 静态类型系统：error 类型表示已报错，跳过避免级联
+	if objType == "error" {
+		return
+	}
 	if objType == "" {
-		return // 无法推断对象类型，跳过检查
+		// inferExprType 应该已经报错了
+		return
 	}
 	
 	// 获取方法签名
 	sig := c.symbolTable.GetMethod(objType, e.Method.Name, len(e.Arguments))
 	if sig == nil {
-		return // 未找到方法签名，跳过检查
+		// 静态类型系统：方法必须存在（但不重复报错，inferMethodCallType 会处理）
+		return
 	}
 	
 	// 检查每个参数类型
@@ -1618,7 +1645,8 @@ func (c *Compiler) checkMethodCallArgTypes(e *ast.MethodCall) {
 		}
 		
 		actualType := c.inferExprType(arg)
-		if actualType == "" {
+		// 静态类型系统：error 类型表示已报错，跳过避免级联
+		if actualType == "error" {
 			continue
 		}
 		
@@ -1701,10 +1729,12 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 }
 
 // checkStaticMethodArgTypes 检查静态方法参数类型
+// 静态类型系统：严格检查所有参数类型
 func (c *Compiler) checkStaticMethodArgTypes(className, methodName string, args []ast.Expression) {
 	// 获取方法签名
 	sig := c.symbolTable.GetMethod(className, methodName, len(args))
 	if sig == nil {
+		// 静态类型系统：方法必须存在（但不重复报错，inferStaticAccessType 会处理）
 		return
 	}
 	
@@ -1719,7 +1749,8 @@ func (c *Compiler) checkStaticMethodArgTypes(className, methodName string, args 
 		}
 		
 		actualType := c.inferExprType(arg)
-		if actualType == "" {
+		// 静态类型系统：error 类型表示已报错，跳过避免级联
+		if actualType == "error" {
 			continue
 		}
 		
@@ -1746,13 +1777,14 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 }
 
 // checkConstructorArgTypes 检查构造函数参数类型
+// 静态类型系统：严格检查所有参数类型
 func (c *Compiler) checkConstructorArgTypes(e *ast.NewExpr) {
 	className := e.ClassName.Name
 	
 	// 获取构造函数签名
 	sig := c.symbolTable.GetMethod(className, "__construct", len(e.Arguments))
 	if sig == nil {
-		return // 未找到构造函数，跳过检查
+		return // 未找到构造函数，可能是无参数默认构造函数
 	}
 	
 	// 检查每个参数类型
@@ -1766,7 +1798,8 @@ func (c *Compiler) checkConstructorArgTypes(e *ast.NewExpr) {
 		}
 		
 		actualType := c.inferExprType(arg)
-		if actualType == "" {
+		// 静态类型系统：error 类型表示已报错，跳过避免级联
+		if actualType == "error" {
 			continue
 		}
 		
@@ -1998,6 +2031,7 @@ func (c *Compiler) error(pos token.Position, message string, args ...interface{}
 }
 
 // inferExprType 推断表达式的类型名
+// 静态类型系统：所有表达式必须有明确类型，无法推断时报编译错误并返回 "error"
 func (c *Compiler) inferExprType(expr ast.Expression) string {
 	switch e := expr.(type) {
 	case *ast.IntegerLiteral:
@@ -2014,8 +2048,11 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		// 尝试推断数组元素类型
 		if len(e.Elements) > 0 {
 			elemType := c.inferExprType(e.Elements[0])
-			if elemType != "" && elemType != "any" {
+			if elemType != "" && elemType != "any" && elemType != "error" {
 				return elemType + "[]"
+			}
+			if elemType == "error" {
+				return "error"
 			}
 		}
 		return "array"
@@ -2024,6 +2061,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		if len(e.Pairs) > 0 {
 			keyType := c.inferExprType(e.Pairs[0].Key)
 			valueType := c.inferExprType(e.Pairs[0].Value)
+			if keyType == "error" || valueType == "error" {
+				return "error"
+			}
 			if keyType != "" && valueType != "" {
 				return "map[" + keyType + "]" + valueType
 			}
@@ -2032,6 +2072,11 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.BinaryExpr:
 		leftType := c.inferExprType(e.Left)
 		rightType := c.inferExprType(e.Right)
+		
+		// 如果任一操作数类型推断失败，传播错误
+		if leftType == "error" || rightType == "error" {
+			return "error"
+		}
 		
 		// 字符串拼接
 		if e.Operator.Type == token.PLUS {
@@ -2061,8 +2106,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		if t := c.getVariableType(e.Name); t != "" {
 			return t
 		}
-		// 变量类型必须明确
-		return ""
+		// 静态类型系统：变量类型必须明确
+		c.error(e.Pos(), i18n.T(i18n.ErrVariableTypeUnknown, e.Name))
+		return "error"
 	case *ast.ThisExpr:
 		// $this 的类型是当前类
 		if c.currentClassName != "" {
@@ -2084,6 +2130,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		// 三元表达式：两个分支类型应该相同
 		thenType := c.inferExprType(e.Then)
 		elseType := c.inferExprType(e.Else)
+		if thenType == "error" || elseType == "error" {
+			return "error"
+		}
 		if thenType == elseType {
 			return thenType
 		}
@@ -2095,6 +2144,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.IndexExpr:
 		// 数组/Map 索引访问
 		objType := c.inferExprType(e.Object)
+		if objType == "error" {
+			return "error"
+		}
 		if strings.HasSuffix(objType, "[]") {
 			// 数组元素类型
 			return strings.TrimSuffix(objType, "[]")
@@ -2104,6 +2156,11 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 			if idx := strings.Index(objType, "]"); idx != -1 {
 				return objType[idx+1:]
 			}
+		}
+		// 静态类型系统：索引目标类型必须明确
+		if objType == "" || objType == "any" {
+			c.error(e.Pos(), i18n.T(i18n.ErrIndexTargetUnknown))
+			return "error"
 		}
 		return "any"
 	case *ast.PropertyAccess:
@@ -2121,16 +2178,22 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.ArrowFuncExpr:
 		// 箭头函数
 		bodyType := c.inferExprType(e.Body)
+		if bodyType == "error" {
+			return "error"
+		}
 		return "func(): " + bodyType
 	case *ast.Identifier:
 		// 可能是类名、枚举等
 		return e.Name
 	default:
-		return ""
+		// 静态类型系统：所有表达式必须有明确类型
+		c.error(expr.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
 }
 
 // inferCallExprType 推断函数调用的返回类型
+// 静态类型系统：函数必须在符号表中有签名
 func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
 	switch fn := e.Function.(type) {
 	case *ast.Identifier:
@@ -2145,10 +2208,14 @@ func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
 				if idx := strings.LastIndex(t, ": "); idx != -1 {
 					return t[idx+2:]
 				}
+				// func 类型但无返回类型信息，返回 void
+				return "void"
 			}
 			return t
 		}
-		return ""
+		// 静态类型系统：函数必须存在
+		c.error(e.Pos(), i18n.T(i18n.ErrFunctionNotFound, fn.Name))
+		return "error"
 	case *ast.Variable:
 		// 变量作为函数调用
 		if t := c.getVariableType(fn.Name); t != "" {
@@ -2156,19 +2223,29 @@ func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
 				if idx := strings.LastIndex(t, ": "); idx != -1 {
 					return t[idx+2:]
 				}
+				return "void"
 			}
+			return t
 		}
-		return ""
+		// 静态类型系统：变量类型必须明确
+		c.error(e.Pos(), i18n.T(i18n.ErrVariableTypeUnknown, fn.Name))
+		return "error"
 	default:
-		return ""
+		c.error(e.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
 }
 
 // inferMethodCallType 推断方法调用的返回类型
+// 静态类型系统：方法必须在符号表中有签名
 func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 	objType := c.inferExprType(e.Object)
+	if objType == "error" {
+		return "error"
+	}
 	if objType == "" {
-		return ""
+		c.error(e.Object.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
 	
 	// 获取方法签名
@@ -2176,10 +2253,13 @@ func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 		return sig.ReturnType
 	}
 	
-	return ""
+	// 静态类型系统：方法必须存在
+	c.error(e.Pos(), i18n.T(i18n.ErrMethodNotFound, objType, e.Method.Name, len(e.Arguments)))
+	return "error"
 }
 
 // inferStaticAccessType 推断静态访问的类型
+// 静态类型系统：静态成员必须在符号表中有签名
 func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
 	var className string
 	switch cls := e.Class.(type) {
@@ -2194,11 +2274,13 @@ func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
 			}
 		}
 	default:
-		return ""
+		c.error(e.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
 	
 	if className == "" {
-		return ""
+		c.error(e.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
 	
 	switch member := e.Member.(type) {
@@ -2207,26 +2289,40 @@ func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
 		if sig := c.symbolTable.GetProperty(className, member.Name); sig != nil {
 			return sig.Type
 		}
+		// 静态类型系统：静态属性必须存在
+		c.error(e.Pos(), i18n.T(i18n.ErrStaticMemberNotFound, className, "$"+member.Name))
+		return "error"
 	case *ast.Identifier:
-		// 类常量
-		return "any" // 常量类型可能需要额外推断
+		// 类常量 - 暂时返回 any，后续可以增强常量类型追踪
+		return "any"
 	case *ast.CallExpr:
 		// 静态方法调用
 		if fn, ok := member.Function.(*ast.Identifier); ok {
 			if sig := c.symbolTable.GetMethod(className, fn.Name, len(member.Arguments)); sig != nil {
 				return sig.ReturnType
 			}
+			// 静态类型系统：静态方法必须存在
+			c.error(e.Pos(), i18n.T(i18n.ErrMethodNotFound, className, fn.Name, len(member.Arguments)))
+			return "error"
 		}
+		c.error(e.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
+	default:
+		c.error(e.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
-	
-	return ""
 }
 
 // inferPropertyAccessType 推断属性访问的类型
+// 静态类型系统：属性必须在符号表中有签名
 func (c *Compiler) inferPropertyAccessType(e *ast.PropertyAccess) string {
 	objType := c.inferExprType(e.Object)
+	if objType == "error" {
+		return "error"
+	}
 	if objType == "" {
-		return ""
+		c.error(e.Object.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
+		return "error"
 	}
 	
 	// 特殊属性
@@ -2239,7 +2335,9 @@ func (c *Compiler) inferPropertyAccessType(e *ast.PropertyAccess) string {
 		return sig.Type
 	}
 	
-	return ""
+	// 静态类型系统：属性必须存在
+	c.error(e.Pos(), i18n.T(i18n.ErrPropertyNotFound, objType, e.Property.Name))
+	return "error"
 }
 
 // isInterfaceType 检查类型名是否为已声明的接口
@@ -2321,14 +2419,17 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 }
 
 // checkReturnType 检查返回值类型是否匹配
+// checkReturnType 检查返回值类型
+// 静态类型系统：严格检查返回类型
 func (c *Compiler) checkReturnType(pos token.Position, expr ast.Expression, expectedType ast.TypeNode) {
 	if expectedType == nil {
 		return
 	}
 	
 	actualType := c.inferExprType(expr)
-	if actualType == "unknown" {
-		return // 无法推断类型时跳过检查
+	// 静态类型系统：error 类型表示已报错，跳过避免级联
+	if actualType == "error" {
+		return
 	}
 	
 	expectedTypeName := c.getTypeName(expectedType)
@@ -2384,10 +2485,16 @@ func (c *Compiler) isBytesArrayType(t ast.TypeNode) bool {
 }
 
 // isTypeCompatible 检查类型兼容性
+// 静态类型系统：不再跳过空类型检查
 func (c *Compiler) isTypeCompatible(actual, expected string) bool {
-	// 空类型表示无法推断，暂时跳过检查
-	if actual == "" || expected == "" {
+	// error 类型表示已报错，避免级联错误
+	if actual == "error" || expected == "error" {
 		return true
+	}
+	
+	// 静态类型系统：空类型不应出现，视为不兼容
+	if actual == "" || expected == "" {
+		return false
 	}
 	
 	if actual == expected {

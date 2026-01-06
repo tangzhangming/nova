@@ -57,11 +57,16 @@ var messagesZH = map[string]string{
 	ErrCannotInferInterface: "无法推断接口 '%s' 的类型，需要显式声明类型",
 	
 	// 静态类型检查相关
-	ErrTypeCannotInfer:     "无法推断表达式类型",
-	ErrFunctionNotFound:    "未定义的函数 '%s'",
-	ErrMethodNotFound:      "未定义的方法 '%s'（%d 个参数）",
-	ErrUnionTypeMismatch:   "值类型 '%s' 不在联合类型 '%s' 中",
-	ErrAllTypesMustBeKnown: "静态类型检查要求所有类型必须在编译期确定",
+	ErrTypeCannotInfer:      "无法推断表达式类型",
+	ErrFunctionNotFound:     "未定义的函数 '%s'",
+	ErrMethodNotFound:       "类型 '%s' 没有方法 '%s'（%d 个参数）",
+	ErrUnionTypeMismatch:    "值类型 '%s' 不在联合类型 '%s' 中",
+	ErrAllTypesMustBeKnown:  "静态类型检查要求所有类型必须在编译期确定",
+	ErrPropertyNotFound:     "类型 '%s' 没有属性 '%s'",
+	ErrVariableTypeUnknown:  "变量 '$%s' 的类型未知",
+	ErrStaticMemberNotFound: "类 '%s' 没有静态成员 '%s'",
+	ErrCannotInferVarType:   "无法推断变量 '$%s' 的类型，请显式声明类型",
+	ErrIndexTargetUnknown:   "无法确定索引操作的目标类型",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",

@@ -57,11 +57,16 @@ var messagesEN = map[string]string{
 	ErrCannotInferInterface: "cannot infer type for interface '%s', explicit type declaration required",
 	
 	// Static type checking
-	ErrTypeCannotInfer:     "cannot infer type of expression",
-	ErrFunctionNotFound:    "undefined function '%s'",
-	ErrMethodNotFound:      "undefined method '%s' with %d arguments",
-	ErrUnionTypeMismatch:   "value type '%s' is not a member of union type '%s'",
-	ErrAllTypesMustBeKnown: "static type checking requires all types to be known at compile time",
+	ErrTypeCannotInfer:      "cannot infer type of expression",
+	ErrFunctionNotFound:     "undefined function '%s'",
+	ErrMethodNotFound:       "type '%s' has no method '%s' with %d arguments",
+	ErrUnionTypeMismatch:    "value type '%s' is not a member of union type '%s'",
+	ErrAllTypesMustBeKnown:  "static type checking requires all types to be known at compile time",
+	ErrPropertyNotFound:     "type '%s' has no property '%s'",
+	ErrVariableTypeUnknown:  "type of variable '$%s' is unknown",
+	ErrStaticMemberNotFound: "class '%s' has no static member '%s'",
+	ErrCannotInferVarType:   "cannot infer type of variable '$%s', explicit type declaration required",
+	ErrIndexTargetUnknown:   "cannot determine type of index target",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

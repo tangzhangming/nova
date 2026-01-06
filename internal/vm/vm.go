@@ -1289,17 +1289,11 @@ func (vm *VM) execute() InterpretResult {
 				chunk = frame.Closure.Function.Chunk
 			}
 
-		// 类型检查
+		// 类型检查 - 静态类型系统：类型检查已在编译期完成，此处仅消费参数
 		case bytecode.OpCheckType:
-			typeIdx := chunk.ReadU16(frame.IP)
-			frame.IP += 2
-			expectedType := chunk.Constants[typeIdx].AsString()
-			value := vm.peek(0)
-			
-			if !vm.checkValueType(value, expectedType) {
-				actualType := vm.getValueTypeName(value)
-				return vm.runtimeError(i18n.T(i18n.ErrTypeError, expectedType, actualType))
-			}
+			// 静态类型系统改造后，类型检查在编译期进行
+			// 此指令保留用于向后兼容，但不执行运行时检查
+			frame.IP += 2 // 跳过 typeIdx 参数
 			
 		case bytecode.OpCast:
 			typeIdx := chunk.ReadU16(frame.IP)

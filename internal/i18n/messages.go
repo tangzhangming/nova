@@ -63,6 +63,11 @@ const (
 	ErrMethodNotFound        = "compiler.method_not_found"
 	ErrUnionTypeMismatch     = "compiler.union_type_mismatch"
 	ErrAllTypesMustBeKnown   = "compiler.all_types_must_be_known"
+	ErrPropertyNotFound      = "compiler.property_not_found"
+	ErrVariableTypeUnknown   = "compiler.variable_type_unknown"
+	ErrStaticMemberNotFound  = "compiler.static_member_not_found"
+	ErrCannotInferVarType    = "compiler.cannot_infer_var_type"
+	ErrIndexTargetUnknown    = "compiler.index_target_unknown"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"
