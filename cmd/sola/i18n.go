@@ -42,16 +42,23 @@ type Messages struct {
 	OptLang     string
 
 	// 错误信息
-	ErrNoInput    string
-	ErrReadFile   string
-	ErrUnknownCmd string
-	ErrLexer      string
-	ErrParser     string
-	ErrRuntime    string
+	ErrNoInput         string
+	ErrReadFile        string
+	ErrUnknownCmd      string
+	ErrLexer           string
+	ErrParser          string
+	ErrRuntime         string
+	ErrInvalidSourceFile string
+	ErrCompileFailed   string
+	ErrSerializeFailed string
+	ErrWriteFile       string
+	ErrInvalidCompiledFile string
+	ErrDeserializeFailed string
 
 	// 成功信息
-	SuccessSyntaxOK string
-	SuccessBuilding string
+	SuccessSyntaxOK    string
+	SuccessBuilding    string
+	SuccessBuildComplete string
 
 	// 其他
 	NotImplemented string
@@ -71,8 +78,8 @@ var messagesEN = Messages{
 	HelpOptions:  "Run Options:",
 	HelpExamples: "Examples:",
 
-	CmdRun:     "Run a Sola source file",
-	CmdBuild:   "Compile to bytecode (coming soon)",
+	CmdRun:     "Run a Sola source file or compiled bytecode",
+	CmdBuild:   "Compile to bytecode",
 	CmdCheck:   "Check syntax without running",
 	CmdVersion: "Show version information",
 	CmdHelp:    "Show this help message",
@@ -84,15 +91,22 @@ var messagesEN = Messages{
 	OptVerbose:  "Verbose output",
 	OptLang:     "Set language (en/zh)",
 
-	ErrNoInput:    "Error: no input file specified",
-	ErrReadFile:   "Error reading file: %v",
-	ErrUnknownCmd: "Unknown command: %s",
-	ErrLexer:      "Lexer errors:",
-	ErrParser:     "Parser errors:",
-	ErrRuntime:    "Error: %v",
+	ErrNoInput:            "Error: no input file specified",
+	ErrReadFile:           "Error reading file: %v",
+	ErrUnknownCmd:         "Unknown command: %s",
+	ErrLexer:              "Lexer errors:",
+	ErrParser:             "Parser errors:",
+	ErrRuntime:            "Error: %v",
+	ErrInvalidSourceFile:  "Error: %s is not a valid source file (expected %s)",
+	ErrCompileFailed:      "Compilation failed",
+	ErrSerializeFailed:    "Serialization failed",
+	ErrWriteFile:          "Error writing file",
+	ErrInvalidCompiledFile: "Error: %s is not a valid compiled file (expected %s)",
+	ErrDeserializeFailed:  "Failed to load compiled file",
 
-	SuccessSyntaxOK: "✓ %s: syntax OK",
-	SuccessBuilding: "Building %s...",
+	SuccessSyntaxOK:      "✓ %s: syntax OK",
+	SuccessBuilding:      "Building %s...",
+	SuccessBuildComplete: "✓ Built %s (%d bytes)",
 
 	NotImplemented: "Note: Build command is not yet implemented. Coming soon!",
 	Namespace:      "Namespace",
@@ -111,8 +125,8 @@ var messagesZH = Messages{
 	HelpOptions:  "运行选项:",
 	HelpExamples: "示例:",
 
-	CmdRun:     "运行 Sola 源文件",
-	CmdBuild:   "编译为字节码（即将推出）",
+	CmdRun:     "运行 Sola 源文件或编译后的字节码",
+	CmdBuild:   "编译为字节码",
 	CmdCheck:   "检查语法，不运行",
 	CmdVersion: "显示版本信息",
 	CmdHelp:    "显示帮助信息",
@@ -124,15 +138,22 @@ var messagesZH = Messages{
 	OptVerbose:  "详细输出",
 	OptLang:     "设置语言 (en/zh)",
 
-	ErrNoInput:    "错误: 未指定输入文件",
-	ErrReadFile:   "读取文件错误: %v",
-	ErrUnknownCmd: "未知命令: %s",
-	ErrLexer:      "词法分析错误:",
-	ErrParser:     "语法分析错误:",
-	ErrRuntime:    "运行时错误: %v",
+	ErrNoInput:            "错误: 未指定输入文件",
+	ErrReadFile:           "读取文件错误: %v",
+	ErrUnknownCmd:         "未知命令: %s",
+	ErrLexer:              "词法分析错误:",
+	ErrParser:             "语法分析错误:",
+	ErrRuntime:            "运行时错误: %v",
+	ErrInvalidSourceFile:  "错误: %s 不是有效的源文件（应为 %s）",
+	ErrCompileFailed:      "编译失败",
+	ErrSerializeFailed:    "序列化失败",
+	ErrWriteFile:          "写入文件错误",
+	ErrInvalidCompiledFile: "错误: %s 不是有效的编译文件（应为 %s）",
+	ErrDeserializeFailed:  "加载编译文件失败",
 
-	SuccessSyntaxOK: "✓ %s: 语法正确",
-	SuccessBuilding: "正在编译 %s...",
+	SuccessSyntaxOK:      "✓ %s: 语法正确",
+	SuccessBuilding:      "正在编译 %s...",
+	SuccessBuildComplete: "✓ 编译完成 %s (%d 字节)",
 
 	NotImplemented: "提示: 编译功能尚未实现，敬请期待！",
 	Namespace:      "命名空间",

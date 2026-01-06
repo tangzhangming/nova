@@ -219,6 +219,104 @@ func (r *Runtime) ParseOnly(source, filename string) (*ast.File, error) {
 	return file, nil
 }
 
+// CompileToCompiledFile 编译为 CompiledFile（用于 build 命令）
+func (r *Runtime) CompileToCompiledFile(source, filename string) (*bytecode.CompiledFile, error) {
+	// 创建加载器
+	var err error
+	r.loader, err = loader.New(filename)
+	if err != nil {
+		return nil, fmt.Errorf(i18n.T(i18n.ErrFailedCreateLoader, err))
+	}
+
+	// 解析入口文件
+	p := parser.New(source, filename)
+	file := p.Parse()
+
+	if p.HasErrors() {
+		for _, e := range p.Errors() {
+			fmt.Printf(i18n.T(i18n.ErrParseError, e) + "\n")
+		}
+		return nil, fmt.Errorf(i18n.T(i18n.ErrParseFailed))
+	}
+
+	// 处理 use 声明，加载依赖（使用共享符号表）
+	for _, use := range file.Uses {
+		if err := r.loadDependency(use.Path); err != nil {
+			return nil, fmt.Errorf(i18n.T(i18n.ErrLoadFailed, use.Path, err))
+		}
+	}
+
+	// 编译入口文件（使用共享符号表，以便识别导入的类）
+	c := compiler.NewWithSymbolTable(r.symbolTable)
+	fn, errs := c.Compile(file)
+
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Printf(i18n.T(i18n.ErrCompileError, e) + "\n")
+		}
+		return nil, fmt.Errorf(i18n.T(i18n.ErrCompileFailed))
+	}
+
+	// 收集所有类和枚举（包括依赖项）
+	allClasses := make(map[string]*bytecode.Class)
+	for name, class := range c.Classes() {
+		allClasses[name] = class
+	}
+	for name, class := range r.classes {
+		allClasses[name] = class
+	}
+
+	allEnums := make(map[string]*bytecode.Enum)
+	for name, enum := range c.Enums() {
+		allEnums[name] = enum
+	}
+	for name, enum := range r.enums {
+		allEnums[name] = enum
+	}
+
+	return &bytecode.CompiledFile{
+		MainFunction: fn,
+		Classes:      allClasses,
+		Enums:        allEnums,
+		SourceFile:   filename,
+	}, nil
+}
+
+// RunCompiled 运行编译后的字节码文件
+func (r *Runtime) RunCompiled(cf *bytecode.CompiledFile) error {
+	// 注册所有类
+	for name, class := range cf.Classes {
+		r.classes[name] = class
+		r.vm.DefineClass(class)
+	}
+
+	// 解析父类引用
+	for _, class := range r.classes {
+		if class.ParentName != "" && class.Parent == nil {
+			if parent, ok := r.classes[class.ParentName]; ok {
+				class.Parent = parent
+			}
+		}
+	}
+
+	// 注册枚举
+	for name, enum := range cf.Enums {
+		r.enums[name] = enum
+		r.vm.DefineEnum(enum)
+	}
+
+	// 注册内置函数
+	r.registerBuiltinsToVM()
+
+	// 运行
+	result := r.vm.Run(cf.MainFunction)
+	if result != vm.InterpretOK {
+		return fmt.Errorf("")
+	}
+
+	return nil
+}
+
 // Disassemble 反汇编
 func (r *Runtime) Disassemble(source, filename string) (string, error) {
 	// 解析

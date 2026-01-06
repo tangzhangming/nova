@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
+	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/lexer"
 	"github.com/tangzhangming/nova/internal/loader"
@@ -119,7 +121,7 @@ func printUsage() {
 	fmt.Printf("  sola --lang zh help\n")
 }
 
-// cmdRun 运行 Sola 源文件
+// cmdRun 运行 Sola 源文件或编译后的字节码
 func cmdRun(args []string) {
 	m := Msg()
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
@@ -146,6 +148,13 @@ func cmdRun(args []string) {
 	}
 
 	filename := fs.Arg(0)
+
+	// 检查是否是编译后的文件
+	if strings.HasSuffix(filename, bytecode.CompiledFileExtension) {
+		runCompiled(filename)
+		return
+	}
+
 	source, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
@@ -181,7 +190,44 @@ func cmdRun(args []string) {
 	}
 }
 
-// cmdBuild 编译为字节码（预留）
+// runCompiled 运行编译后的字节码文件
+func runCompiled(filename string) {
+	m := Msg()
+
+	// 读取编译后的文件
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
+		os.Exit(1)
+	}
+
+	// 验证文件头
+	if err := bytecode.ValidateHeader(data); err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrDeserializeFailed+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 反序列化
+	cf, err := bytecode.DeserializeFromBytes(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrDeserializeFailed+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 设置源文件名（用于错误报告）
+	cf.SourceFile = filepath.Base(filename)
+
+	// 运行
+	r := runtime.New()
+	if err := r.RunCompiled(cf); err != nil {
+		if err.Error() != "" {
+			fmt.Fprintf(os.Stderr, m.ErrRuntime+"\n", err)
+		}
+		os.Exit(1)
+	}
+}
+
+// cmdBuild 编译为字节码
 func cmdBuild(args []string) {
 	m := Msg()
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
@@ -206,10 +252,52 @@ func cmdBuild(args []string) {
 	}
 
 	filename := fs.Arg(0)
-	_ = output // 暂未使用
 
-	fmt.Printf(m.SuccessBuilding+"\n", filename)
-	fmt.Println(m.NotImplemented)
+	// 检查文件后缀
+	if !strings.HasSuffix(filename, loader.SourceFileExtension) {
+		fmt.Fprintf(os.Stderr, m.ErrInvalidSourceFile+"\n", filename, loader.SourceFileExtension)
+		os.Exit(1)
+	}
+
+	// 读取源文件
+	source, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
+		os.Exit(1)
+	}
+
+	// 编译
+	r := runtime.New()
+	cf, err := r.CompileToCompiledFile(string(source), filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrCompileFailed+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 确定输出文件名
+	outputFile := *output
+	if outputFile == "" {
+		// 默认：将 .sola 替换为 .solac
+		base := strings.TrimSuffix(filename, loader.SourceFileExtension)
+		outputFile = base + bytecode.CompiledFileExtension
+	}
+
+	// 序列化
+	data, err := bytecode.SerializeToBytes(cf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrSerializeFailed+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 写入文件
+	if err := os.WriteFile(outputFile, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrWriteFile+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 获取文件大小
+	fi, _ := os.Stat(outputFile)
+	fmt.Printf(m.SuccessBuildComplete+"\n", outputFile, fi.Size())
 }
 
 // cmdCheck 语法检查
