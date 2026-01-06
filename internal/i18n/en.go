@@ -124,6 +124,49 @@ var messagesEN = map[string]string{
 	ErrCompileError:       "Compile error: %s",
 	ErrCompileFailed:      "compile failed",
 	ErrCompileFailedFor:   "compile failed for %s",
+
+	// ========== Suggestions ==========
+	// Variable related
+	"suggestion.declare_variable":      "Did you mean to declare a new variable? Use `$%s := value`",
+	"suggestion.did_you_mean":          "Did you mean `$%s`?",
+	"suggestion.use_assign_instead":    "To modify the variable, use `$%s = newValue` instead of `:=`",
+	"suggestion.rename_variable":       "Consider using a different variable name",
+	"suggestion.use_clause":            "To use external variables in a closure, add `use ($%s)`",
+
+	// Type related
+	"suggestion.convert_string_to_int":   "Use `Str::toInt($var)` to convert string to integer",
+	"suggestion.convert_int_to_string":   "Use `\"\" + $var` or string interpolation `\"${var}\"` to convert to string",
+	"suggestion.convert_string_to_float": "Use `Str::toFloat($var)` to convert string to float",
+	"suggestion.convert_float_to_string": "Use `\"\" + $var` or string interpolation `\"${var}\"` to convert to string",
+	"suggestion.cast_float_to_int":       "Use `(int)$var` to convert float to int (truncates decimal part)",
+	"suggestion.implicit_int_to_float":   "Integer can be implicitly converted to float",
+	"suggestion.explicit_bool_check":     "Use an explicit boolean expression like `$var != 0` or `$var != \"\"`",
+	"suggestion.wrap_in_array":           "Use `[$var]` to wrap the value in an array",
+	"suggestion.explicit_type":           "Add an explicit type declaration for variable `$%s`",
+	"suggestion.check_return_type":       "Ensure the return value is of type `%s`",
+
+	// Function related
+	"suggestion.check_function_name":   "Check if function name `%s` is spelled correctly",
+	"suggestion.did_you_mean_func":     "Did you mean `%s()`?",
+	"suggestion.check_import":          "Check if you need to import the relevant module",
+	"suggestion.add_arguments":         "Add %d missing argument(s)",
+	"suggestion.remove_arguments":      "Remove %d extra argument(s)",
+	"suggestion.break_only_in_loop":    "`break` can only be used inside `for`, `while`, `foreach`, or `switch`",
+	"suggestion.use_return_instead":    "To exit a function, use `return`",
+	"suggestion.continue_only_in_loop": "`continue` can only be used inside `for`, `while`, or `foreach` loops",
+
+	// Class/Object related
+	"suggestion.check_method_name":   "Check if method `%s` exists on type `%s`",
+	"suggestion.did_you_mean_method": "Did you mean `%s()`?",
+	"suggestion.check_property_name": "Check if property `%s` exists on type `%s`",
+
+	// Runtime related
+	"suggestion.array_index_range":       "Valid index range is [0, %d]",
+	"suggestion.check_index_before_access": "Check index before accessing: `if ($i >= 0 && $i < len($arr))`",
+	"suggestion.check_divisor":           "Check if divisor is zero before division",
+	"suggestion.check_type_before_cast":  "Check value type before casting: `%s` cannot be converted to `%s`",
+	"suggestion.check_recursion":         "Check if recursive function has proper termination condition",
+	"suggestion.add_base_case":           "Ensure recursive function has a base case to terminate recursion",
 }
 
 

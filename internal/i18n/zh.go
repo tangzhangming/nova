@@ -124,6 +124,49 @@ var messagesZH = map[string]string{
 	ErrCompileError:       "编译错误: %s",
 	ErrCompileFailed:      "编译失败",
 	ErrCompileFailedFor:   "%s 编译失败",
+
+	// ========== 修复建议 ==========
+	// 变量相关
+	"suggestion.declare_variable":      "是否想要声明新变量？使用 `$%s := 值`",
+	"suggestion.did_you_mean":          "是否想用 `$%s`？",
+	"suggestion.use_assign_instead":    "如果要修改变量，使用 `$%s = 新值` 而不是 `:=`",
+	"suggestion.rename_variable":       "考虑使用不同的变量名",
+	"suggestion.use_clause":            "在闭包中使用外部变量需要 `use ($%s)`",
+
+	// 类型相关
+	"suggestion.convert_string_to_int":   "使用 `Str::toInt($var)` 将字符串转换为整数",
+	"suggestion.convert_int_to_string":   "使用 `\"\" + $var` 或字符串插值 `\"${var}\"` 转换为字符串",
+	"suggestion.convert_string_to_float": "使用 `Str::toFloat($var)` 将字符串转换为浮点数",
+	"suggestion.convert_float_to_string": "使用 `\"\" + $var` 或字符串插值 `\"${var}\"` 转换为字符串",
+	"suggestion.cast_float_to_int":       "使用 `(int)$var` 将浮点数转换为整数（会截断小数部分）",
+	"suggestion.implicit_int_to_float":   "整数可以自动转换为浮点数",
+	"suggestion.explicit_bool_check":     "使用显式的布尔表达式，如 `$var != 0` 或 `$var != \"\"`",
+	"suggestion.wrap_in_array":           "使用 `[$var]` 将值包装成数组",
+	"suggestion.explicit_type":           "为变量 `$%s` 添加显式类型声明",
+	"suggestion.check_return_type":       "确保返回值类型为 `%s`",
+
+	// 函数相关
+	"suggestion.check_function_name":   "检查函数名 `%s` 是否拼写正确",
+	"suggestion.did_you_mean_func":     "是否想用 `%s()`？",
+	"suggestion.check_import":          "检查是否需要导入相关模块",
+	"suggestion.add_arguments":         "添加 %d 个缺失的参数",
+	"suggestion.remove_arguments":      "移除 %d 个多余的参数",
+	"suggestion.break_only_in_loop":    "`break` 只能在 `for`、`while`、`foreach` 或 `switch` 中使用",
+	"suggestion.use_return_instead":    "如果要退出函数，使用 `return`",
+	"suggestion.continue_only_in_loop": "`continue` 只能在 `for`、`while` 或 `foreach` 循环中使用",
+
+	// 类/对象相关
+	"suggestion.check_method_name":   "检查方法名 `%s` 是否存在于类型 `%s`",
+	"suggestion.did_you_mean_method": "是否想用 `%s()`？",
+	"suggestion.check_property_name": "检查属性 `%s` 是否存在于类型 `%s`",
+
+	// 运行时相关
+	"suggestion.array_index_range":       "有效的索引范围是 [0, %d]",
+	"suggestion.check_index_before_access": "访问数组前检查索引：`if ($i >= 0 && $i < len($arr))`",
+	"suggestion.check_divisor":           "在除法运算前检查除数是否为零",
+	"suggestion.check_type_before_cast":  "在类型转换前检查值类型：`%s` 不能转换为 `%s`",
+	"suggestion.check_recursion":         "检查递归函数是否有正确的终止条件",
+	"suggestion.add_base_case":           "确保递归函数有基本情况（base case）来终止递归",
 }
 
 

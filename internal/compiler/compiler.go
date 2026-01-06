@@ -6,6 +6,7 @@ import (
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
+	"github.com/tangzhangming/nova/internal/errors"
 	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/token"
 )
@@ -2433,7 +2434,59 @@ func (c *Compiler) emitLoop(loopStart int) {
 }
 
 func (c *Compiler) error(pos token.Position, message string, args ...interface{}) {
-	c.errors = append(c.errors, Error{Pos: pos, Message: fmt.Sprintf(message, args...)})
+	formattedMsg := fmt.Sprintf(message, args...)
+	c.errors = append(c.errors, Error{Pos: pos, Message: formattedMsg})
+}
+
+// errorWithCode 使用错误码报告错误
+func (c *Compiler) errorWithCode(code string, pos token.Position, message string, context map[string]interface{}) {
+	// 创建增强的错误对象
+	err := &errors.CompileError{
+		Code:      code,
+		Level:     errors.LevelError,
+		Message:   message,
+		File:      c.sourceFile,
+		Line:      pos.Line,
+		Column:    pos.Column,
+		EndColumn: pos.Column + 1,
+	}
+
+	// 获取修复建议
+	if context == nil {
+		context = make(map[string]interface{})
+	}
+	err.Hints = errors.GetSuggestions(code, context)
+
+	// 添加到错误列表（保持兼容性）
+	c.errors = append(c.errors, Error{Pos: pos, Message: message})
+
+	// 使用新的错误报告器（如果启用）
+	if useEnhancedErrors {
+		reporter := errors.GetDefaultReporter()
+		reporter.SetSource(c.sourceFile, c.getSourceContent())
+		// 直接格式化输出（不通过 ReportError 以避免重复输出）
+		_ = err // 错误已记录，格式化输出在 Compile 结束时统一处理
+	}
+}
+
+// getSourceContent 获取当前源文件内容（用于错误报告）
+func (c *Compiler) getSourceContent() string {
+	// 这个方法需要在编译时保存源文件内容
+	// 暂时返回空字符串，后续可以扩展
+	return ""
+}
+
+// useEnhancedErrors 是否使用增强的错误报告（默认关闭，保持兼容性）
+var useEnhancedErrors = false
+
+// EnableEnhancedErrors 启用增强的错误报告
+func EnableEnhancedErrors() {
+	useEnhancedErrors = true
+}
+
+// DisableEnhancedErrors 禁用增强的错误报告
+func DisableEnhancedErrors() {
+	useEnhancedErrors = false
 }
 
 // inferExprType 推断表达式的类型名

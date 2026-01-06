@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
+	"github.com/tangzhangming/nova/internal/errors"
 	"github.com/tangzhangming/nova/internal/i18n"
 )
 
@@ -2096,20 +2097,101 @@ func (vm *VM) runtimeError(format string, args ...interface{}) InterpretResult {
 	vm.hadError = true
 	vm.errorMessage = fmt.Sprintf(format, args...)
 
-	// 打印错误信息（Java/C# 风格）
-	fmt.Printf("%s\n", vm.errorMessage)
-	
-	// 打印堆栈跟踪
-	frames := vm.captureStackTrace()
-	for _, frame := range frames {
-		if frame.FileName != "" {
-			fmt.Printf("    at %s (%s:%d)\n", frame.FunctionName, frame.FileName, frame.LineNumber)
-		} else {
-			fmt.Printf("    at %s (line %d)\n", frame.FunctionName, frame.LineNumber)
+	// 使用增强的错误报告（如果启用）
+	if useEnhancedRuntimeErrors {
+		frames := vm.captureStackTrace()
+		vm.reportEnhancedError(vm.errorMessage, frames)
+	} else {
+		// 传统错误输出（Java/C# 风格）
+		fmt.Printf("%s\n", vm.errorMessage)
+		
+		// 打印堆栈跟踪
+		frames := vm.captureStackTrace()
+		for _, frame := range frames {
+			if frame.FileName != "" {
+				fmt.Printf("    at %s (%s:%d)\n", frame.FunctionName, frame.FileName, frame.LineNumber)
+			} else {
+				fmt.Printf("    at %s (line %d)\n", frame.FunctionName, frame.LineNumber)
+			}
 		}
 	}
 
 	return InterpretRuntimeError
+}
+
+// reportEnhancedError 使用增强格式报告运行时错误
+func (vm *VM) reportEnhancedError(message string, bcFrames []bytecode.StackFrame) {
+	// 转换堆栈帧
+	errFrames := make([]errors.StackFrame, len(bcFrames))
+	for i, f := range bcFrames {
+		errFrames[i] = errors.StackFrame{
+			FunctionName: f.FunctionName,
+			ClassName:    f.ClassName,
+			FileName:     f.FileName,
+			LineNumber:   f.LineNumber,
+		}
+	}
+
+	// 创建运行时错误
+	err := &errors.RuntimeError{
+		Code:    errors.R0001, // 默认错误码，后续可以根据消息推断
+		Level:   errors.LevelError,
+		Message: message,
+		Frames:  errFrames,
+		Context: make(map[string]interface{}),
+	}
+
+	// 推断错误码
+	err.Code = inferRuntimeErrorCode(message)
+
+	// 使用报告器输出
+	reporter := errors.GetDefaultReporter()
+	reporter.ReportRuntimeError(err)
+}
+
+// inferRuntimeErrorCode 从消息推断错误码
+func inferRuntimeErrorCode(message string) string {
+	msg := strings.ToLower(message)
+
+	if strings.Contains(msg, "索引") || strings.Contains(msg, "index") || strings.Contains(msg, "越界") {
+		return errors.R0100
+	}
+	if strings.Contains(msg, "除") && strings.Contains(msg, "零") {
+		return errors.R0200
+	}
+	if strings.Contains(msg, "division") && strings.Contains(msg, "zero") {
+		return errors.R0200
+	}
+	if strings.Contains(msg, "数字") || strings.Contains(msg, "number") || strings.Contains(msg, "operand") {
+		return errors.R0201
+	}
+	if strings.Contains(msg, "转换") || strings.Contains(msg, "cast") {
+		return errors.R0301
+	}
+	if strings.Contains(msg, "栈溢出") || strings.Contains(msg, "stack overflow") {
+		return errors.R0400
+	}
+	if strings.Contains(msg, "死循环") || strings.Contains(msg, "execution limit") {
+		return errors.R0401
+	}
+	if strings.Contains(msg, "未定义的变量") || strings.Contains(msg, "undefined variable") {
+		return errors.R0500
+	}
+
+	return errors.R0001
+}
+
+// useEnhancedRuntimeErrors 是否使用增强的运行时错误报告
+var useEnhancedRuntimeErrors = false
+
+// EnableEnhancedRuntimeErrors 启用增强的运行时错误报告
+func EnableEnhancedRuntimeErrors() {
+	useEnhancedRuntimeErrors = true
+}
+
+// DisableEnhancedRuntimeErrors 禁用增强的运行时错误报告
+func DisableEnhancedRuntimeErrors() {
+	useEnhancedRuntimeErrors = false
 }
 
 // DefineGlobal 定义全局变量
