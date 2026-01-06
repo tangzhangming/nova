@@ -67,6 +67,7 @@ var messagesZH = map[string]string{
 	ErrStaticMemberNotFound: "类 '%s' 没有静态成员 '%s'",
 	ErrCannotInferVarType:   "无法推断变量 '$%s' 的类型，请显式声明类型",
 	ErrIndexTargetUnknown:   "无法确定索引操作的目标类型",
+	ErrUndeclaredVariable:   "变量 '$%s' 未声明，请使用 ':=' 声明变量",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",

@@ -68,6 +68,7 @@ const (
 	ErrStaticMemberNotFound  = "compiler.static_member_not_found"
 	ErrCannotInferVarType    = "compiler.cannot_infer_var_type"
 	ErrIndexTargetUnknown    = "compiler.index_target_unknown"
+	ErrUndeclaredVariable    = "compiler.undeclared_variable"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

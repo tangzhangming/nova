@@ -67,6 +67,7 @@ var messagesEN = map[string]string{
 	ErrStaticMemberNotFound: "class '%s' has no static member '%s'",
 	ErrCannotInferVarType:   "cannot infer type of variable '$%s', explicit type declaration required",
 	ErrIndexTargetUnknown:   "cannot determine type of index target",
+	ErrUndeclaredVariable:   "variable '$%s' is not declared, use ':=' to declare a new variable",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

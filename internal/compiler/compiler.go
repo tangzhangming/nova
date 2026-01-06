@@ -702,6 +702,25 @@ func (c *Compiler) compileForStmt(s *ast.ForStmt) {
 func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 	c.beginScope()
 
+	// 推断迭代对象类型，用于确定 key 和 value 的类型
+	iterableType := c.inferExprType(s.Iterable)
+	keyType := "any"
+	valueType := "any"
+	
+	// 根据可迭代对象类型确定 key/value 类型
+	if strings.HasSuffix(iterableType, "[]") {
+		// 数组：key 是 int，value 是元素类型
+		keyType = "int"
+		valueType = strings.TrimSuffix(iterableType, "[]")
+	} else if strings.HasPrefix(iterableType, "map[") {
+		// Map：从 map[K]V 中提取 K 和 V
+		if idx := strings.Index(iterableType, "]"); idx != -1 {
+			keyType = iterableType[4:idx]
+			valueType = iterableType[idx+1:]
+		}
+	}
+	// superarray 和其他类型使用默认的 "any"
+
 	// 编译迭代对象并创建迭代器
 	c.compileExpr(s.Iterable)
 	c.emit(bytecode.OpIterInit) // 栈上: [iterator]
@@ -716,13 +735,13 @@ func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 	if s.Key != nil {
 		c.emit(bytecode.OpNull)
 		keySlot = c.localCount
-		c.addLocal(s.Key.Name)
+		c.addLocalWithType(s.Key.Name, keyType)
 	}
 	
 	// 声明 value 变量
 	c.emit(bytecode.OpNull)
 	valueSlot := c.localCount
-	c.addLocal(s.Value.Name)
+	c.addLocalWithType(s.Value.Name, valueType)
 
 	// 循环开始
 	loopStart := c.currentChunk().Len()
@@ -1415,9 +1434,13 @@ func (c *Compiler) compileAssignTarget(target ast.Expression) {
 	case *ast.Variable:
 		if idx := c.resolveLocal(t.Name); idx != -1 {
 			c.emitU16(bytecode.OpStoreLocal, uint16(idx))
-		} else {
+		} else if _, ok := c.globalTypes[t.Name]; ok {
+			// 只有已声明的全局变量才能赋值
 			idx := c.makeConstant(bytecode.NewString(t.Name))
 			c.emitU16(bytecode.OpStoreGlobal, idx)
+		} else {
+			// 变量未声明，报错
+			c.error(t.Pos(), i18n.T(i18n.ErrUndeclaredVariable, t.Name))
 		}
 	case *ast.IndexExpr:
 		// 栈上现在有值，需要按 array, index, value 顺序排列
@@ -2069,6 +2092,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 			}
 		}
 		return "map"
+	case *ast.SuperArrayLiteral:
+		// PHP 风格万能数组，类型固定为 superarray
+		return "superarray"
 	case *ast.BinaryExpr:
 		leftType := c.inferExprType(e.Left)
 		rightType := c.inferExprType(e.Right)

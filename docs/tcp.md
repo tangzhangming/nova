@@ -676,3 +676,4 @@ if ($client->isConnected()) {
 | `getKeyFile()` | 获取私钥路径 |
 
 
+

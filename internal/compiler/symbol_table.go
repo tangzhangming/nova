@@ -53,6 +53,8 @@ func NewSymbolTable() *SymbolTable {
 	}
 	// 注册内置函数签名
 	st.registerBuiltinFunctions()
+	// 注册内置类型方法
+	st.registerBuiltinTypeMethods()
 	return st
 }
 
@@ -183,6 +185,31 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_reflect_get_parent_class"] = &FunctionSignature{Name: "native_reflect_get_parent_class", ParamTypes: []string{"object"}, ReturnType: "string"}
 	st.Functions["native_reflect_get_interfaces"] = &FunctionSignature{Name: "native_reflect_get_interfaces", ParamTypes: []string{"object"}, ReturnType: "string[]"}
 	st.Functions["native_reflect_is_instance_of"] = &FunctionSignature{Name: "native_reflect_is_instance_of", ParamTypes: []string{"object", "string"}, ReturnType: "bool"}
+	
+	// typeof 函数
+	st.Functions["typeof"] = &FunctionSignature{Name: "typeof", ParamTypes: []string{"any"}, ReturnType: "string"}
+}
+
+// registerBuiltinTypeMethods 注册内置类型的方法签名
+func (st *SymbolTable) registerBuiltinTypeMethods() {
+	// SuperArray 万能数组方法
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "len", ParamTypes: []string{}, ReturnType: "int"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "hasKey", ParamTypes: []string{"any"}, ReturnType: "bool"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "get", ParamTypes: []string{"any"}, ReturnType: "any"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "get", ParamTypes: []string{"any", "any"}, ReturnType: "any"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "set", ParamTypes: []string{"any", "any"}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "keys", ParamTypes: []string{}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "values", ParamTypes: []string{}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "push", ParamTypes: []string{"any"}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "pop", ParamTypes: []string{}, ReturnType: "any"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "shift", ParamTypes: []string{}, ReturnType: "any"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "unshift", ParamTypes: []string{"any"}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "merge", ParamTypes: []string{"superarray"}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "slice", ParamTypes: []string{"int"}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "slice", ParamTypes: []string{"int", "int"}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "remove", ParamTypes: []string{"any"}, ReturnType: "bool"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "clear", ParamTypes: []string{}, ReturnType: "void"})
+	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "copy", ParamTypes: []string{}, ReturnType: "superarray"})
 }
 
 // RegisterFunction 注册函数签名
