@@ -80,3 +80,4 @@ func nativeMathRound(args []bytecode.Value) bytecode.Value {
 	return bytecode.NewInt(int64(math.Round(args[0].AsFloat())))
 }
 
+

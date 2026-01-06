@@ -250,3 +250,4 @@ func (r *Runtime) nativeStreamClose(args []bytecode.Value) bytecode.Value {
 	return bytecode.NewBool(err == nil)
 }
 
+

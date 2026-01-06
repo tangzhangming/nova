@@ -119,3 +119,4 @@ func annotationsToArray(annotations []*bytecode.Annotation) bytecode.Value {
 	return bytecode.NewArray(result)
 }
 
+

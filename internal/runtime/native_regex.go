@@ -201,3 +201,4 @@ func nativeRegexEscape(args []bytecode.Value) bytecode.Value {
 	return bytecode.NewString(regexp.QuoteMeta(str))
 }
 
+

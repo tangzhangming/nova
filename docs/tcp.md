@@ -675,3 +675,4 @@ if ($client->isConnected()) {
 | `getCertFile()` | 获取证书路径 |
 | `getKeyFile()` | 获取私钥路径 |
 
+

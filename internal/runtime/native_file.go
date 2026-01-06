@@ -334,3 +334,4 @@ func nativeIsLink(args []bytecode.Value) bytecode.Value {
 	return bytecode.NewBool(info.Mode()&os.ModeSymlink != 0)
 }
 
+

@@ -20,3 +20,4 @@ use sola.net.SocketException;
 public class ConnectionException extends SocketException {
 }
 
+
