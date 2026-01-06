@@ -1151,6 +1151,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	case *ast.StaticAccess:
 		c.compileStaticAccess(e)
 
+	case *ast.ClassAccessExpr:
+		c.compileClassAccessExpr(e)
+
 	case *ast.NewExpr:
 		c.compileNewExpr(e)
 
@@ -1864,6 +1867,40 @@ func (c *Compiler) compileArrowFuncExpr(e *ast.ArrowFuncExpr) {
 	c.emitConstant(bytecode.NewFunc(fn))
 }
 
+func (c *Compiler) compileClassAccessExpr(e *ast.ClassAccessExpr) {
+	// ::class 语法编译时解析为类名字符串
+	// PHP 风格：支持 ClassName::class 和 self::class
+	var className string
+	
+	switch obj := e.Object.(type) {
+	case *ast.SelfExpr:
+		// self::class - 返回当前类名
+		if c.currentClassName == "" {
+			c.error(e.Pos(), i18n.T(i18n.ErrSelfOutsideClass))
+			return
+		}
+		className = c.currentClassName
+		
+	case *ast.Identifier:
+		// ClassName::class - 返回指定类名
+		className = obj.Name
+		// 注意：不验证类是否存在，因为可能是前置引用
+		// 运行时会自然报错如果类真的不存在
+		
+	default:
+		c.error(e.Pos(), "::class 只能用于类名或 self")
+		return
+	}
+	
+	// 如果有命名空间，添加命名空间前缀
+	if c.currentNamespace != "" {
+		className = c.currentNamespace + "\\" + className
+	}
+	
+	// 将类名作为字符串常量压入栈
+	c.emitConstant(bytecode.NewString(className))
+}
+
 func (c *Compiler) compileTypeCastExpr(e *ast.TypeCastExpr) {
 	// 编译被转换的表达式
 	c.compileExpr(e.Expr)
@@ -2062,6 +2099,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.FloatLiteral:
 		return "float"
 	case *ast.StringLiteral, *ast.InterpStringLiteral:
+		return "string"
+	case *ast.ClassAccessExpr:
+		// ::class 语法返回 string 类型（类名）
 		return "string"
 	case *ast.BoolLiteral:
 		return "bool"

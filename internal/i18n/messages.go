@@ -76,6 +76,9 @@ const (
 	ErrGenericConstraintViolated = "compiler.generic_constraint_violated"
 	ErrGenericTypeRequired       = "compiler.generic_type_required"
 	ErrDuplicateTypeParam        = "compiler.duplicate_type_param"
+	
+	// 类名解析相关
+	ErrSelfOutsideClass = "compiler.self_outside_class"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

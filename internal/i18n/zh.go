@@ -75,6 +75,9 @@ var messagesZH = map[string]string{
 	ErrGenericConstraintViolated: "类型 '%s' 不满足约束 '%s'",
 	ErrGenericTypeRequired:       "泛型类型 '%s' 需要类型参数",
 	ErrDuplicateTypeParam:        "重复的类型参数 '%s'",
+	
+	// 类名解析相关
+	ErrSelfOutsideClass: "不能在类外使用 self::class",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",

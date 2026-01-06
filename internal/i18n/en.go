@@ -75,6 +75,9 @@ var messagesEN = map[string]string{
 	ErrGenericConstraintViolated: "type '%s' does not satisfy constraint '%s'",
 	ErrGenericTypeRequired:       "generic type '%s' requires type arguments",
 	ErrDuplicateTypeParam:        "duplicate type parameter '%s'",
+	
+	// Class name resolution
+	ErrSelfOutsideClass: "cannot use self::class outside of class",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",
