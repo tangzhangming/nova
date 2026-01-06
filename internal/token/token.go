@@ -150,6 +150,7 @@ const (
 	USE       // use
 	MAP       // map
 	ECHO      // echo
+	WHERE     // where (泛型约束)
 	keyword_end
 )
 
@@ -270,6 +271,7 @@ var tokenNames = map[TokenType]string{
 	USE:            "use",
 	MAP:            "map",
 	ECHO:           "echo",
+	WHERE:          "where",
 }
 
 var keywords = map[string]TokenType{
@@ -332,6 +334,7 @@ var keywords = map[string]TokenType{
 	"use":        USE,
 	"map":        MAP,
 	"echo":       ECHO,
+	"where":      WHERE,
 }
 
 // LookupIdent 查找标识符是否为关键字

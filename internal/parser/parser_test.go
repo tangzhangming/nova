@@ -254,7 +254,9 @@ func TestParseClass(t *testing.T) {
 		t.Error("expected extends BaseModel")
 	}
 
-	if len(class.Implements) != 1 || class.Implements[0].Name != "Serializable" {
+	if len(class.Implements) != 1 {
+		t.Error("expected implements Serializable")
+	} else if classType, ok := class.Implements[0].(*ast.ClassType); !ok || classType.Name.Literal != "Serializable" {
 		t.Error("expected implements Serializable")
 	}
 

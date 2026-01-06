@@ -2151,6 +2151,14 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		// 从符号表查询静态成员类型
 		return c.inferStaticAccessType(e)
 	case *ast.NewExpr:
+		// 如果有泛型类型参数，返回完整的泛型类型
+		if len(e.TypeArgs) > 0 {
+			var args []string
+			for _, arg := range e.TypeArgs {
+				args = append(args, c.getTypeName(arg))
+			}
+			return e.ClassName.Name + "<" + strings.Join(args, ", ") + ">"
+		}
 		return e.ClassName.Name
 	case *ast.TernaryExpr:
 		// 三元表达式：两个分支类型应该相同
@@ -2274,8 +2282,11 @@ func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 		return "error"
 	}
 	
+	// 从泛型类型中提取基类名（Box<int> -> Box）
+	baseType := c.extractBaseTypeName(objType)
+	
 	// 获取方法签名
-	if sig := c.symbolTable.GetMethod(objType, e.Method.Name, len(e.Arguments)); sig != nil {
+	if sig := c.symbolTable.GetMethod(baseType, e.Method.Name, len(e.Arguments)); sig != nil {
 		return sig.ReturnType
 	}
 	
@@ -2492,6 +2503,17 @@ func (c *Compiler) getTypeName(t ast.TypeNode) string {
 		return strings.Join(names, "|")
 	case *ast.NullType:
 		return "null"
+	case *ast.GenericType:
+		// 泛型类型: List<int> -> List<int>
+		base := c.getTypeName(typ.BaseType)
+		var args []string
+		for _, arg := range typ.TypeArgs {
+			args = append(args, c.getTypeName(arg))
+		}
+		return base + "<" + strings.Join(args, ", ") + ">"
+	case *ast.TypeParameter:
+		// 类型参数直接返回其名称
+		return typ.Name.Name
 	default:
 		return "unknown"
 	}
@@ -2530,6 +2552,41 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 	// any/mixed 类型接受任何值
 	if expected == "any" || expected == "mixed" {
 		return true
+	}
+	
+	// 泛型类型参数（单个大写字母如 T, K, V, E, R）视为 any 类型
+	// 这实现了类型擦除：在编译时泛型参数可以接受任何类型
+	if c.isTypeParameter(expected) {
+		return true
+	}
+	if c.isTypeParameter(actual) {
+		return true
+	}
+	
+	// 泛型类型匹配: Box<int> 和 Box<int>
+	// 只比较基础类型名，忽略类型参数（类型擦除）
+	if strings.Contains(actual, "<") && strings.Contains(expected, "<") {
+		actualBase := strings.Split(actual, "<")[0]
+		expectedBase := strings.Split(expected, "<")[0]
+		if actualBase == expectedBase {
+			return true // 同一泛型类的不同实例化视为兼容（类型擦除）
+		}
+	}
+	
+	// 泛型类型赋给非泛型基类型: Box<int> 赋给 Box
+	if strings.Contains(actual, "<") {
+		actualBase := strings.Split(actual, "<")[0]
+		if actualBase == expected {
+			return true
+		}
+	}
+	
+	// 非泛型类型赋给泛型类型: Box 赋给 Box<int>（需要类型参数）
+	if strings.Contains(expected, "<") {
+		expectedBase := strings.Split(expected, "<")[0]
+		if actual == expectedBase {
+			return true // 类型擦除后兼容
+		}
 	}
 	
 	// null 可以赋值给可空类型或包含 null 的联合类型
@@ -2632,6 +2689,33 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 	}
 	
 	return false
+}
+
+// extractBaseTypeName 从泛型类型中提取基类名
+// Box<int> -> Box, Map<string, int> -> Map
+func (c *Compiler) extractBaseTypeName(typeName string) string {
+	if idx := strings.Index(typeName, "<"); idx != -1 {
+		return typeName[:idx]
+	}
+	return typeName
+}
+
+// isTypeParameter 检查类型名是否是泛型类型参数
+// 类型参数通常是单个大写字母（T, K, V, E, R 等）
+func (c *Compiler) isTypeParameter(typeName string) bool {
+	if len(typeName) == 0 {
+		return false
+	}
+	// 单个大写字母
+	if len(typeName) == 1 && typeName[0] >= 'A' && typeName[0] <= 'Z' {
+		return true
+	}
+	// 常见的多字符类型参数名
+	commonTypeParams := map[string]bool{
+		"TKey": true, "TValue": true, "TResult": true, "TElement": true,
+		"Key": true, "Value": true, "Element": true,
+	}
+	return commonTypeParams[typeName]
 }
 
 // isSubclassOf 检查 child 是否是 parent 的子类

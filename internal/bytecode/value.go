@@ -794,10 +794,17 @@ type Annotation struct {
 	Args []Value
 }
 
+// TypeParamDef 泛型类型参数定义
+type TypeParamDef struct {
+	Name       string // 类型参数名 (T, K, V 等)
+	Constraint string // 约束类型名 (extends 后的类型)
+}
+
 // Class 类定义
 type Class struct {
 	Name           string
 	Namespace      string   // 命名空间（如 "sola.lang"）
+	TypeParams     []*TypeParamDef // 泛型类型参数
 	ParentName     string   // 父类名（用于运行时解析）
 	Parent         *Class
 	Implements     []string // 实现的接口名

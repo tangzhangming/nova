@@ -68,6 +68,13 @@ var messagesEN = map[string]string{
 	ErrCannotInferVarType:   "cannot infer type of variable '$%s', explicit type declaration required",
 	ErrIndexTargetUnknown:   "cannot determine type of index target",
 	ErrUndeclaredVariable:   "variable '$%s' is not declared, use ':=' to declare a new variable",
+	
+	// Generics
+	ErrGenericTypeParamName:      "expected type parameter name",
+	ErrGenericTypeArgCount:       "type '%s' requires %d type argument(s), but %d provided",
+	ErrGenericConstraintViolated: "type '%s' does not satisfy constraint '%s'",
+	ErrGenericTypeRequired:       "generic type '%s' requires type arguments",
+	ErrDuplicateTypeParam:        "duplicate type parameter '%s'",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

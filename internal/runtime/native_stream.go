@@ -252,3 +252,5 @@ func (r *Runtime) nativeStreamClose(args []bytecode.Value) bytecode.Value {
 
 
 
+
+

@@ -24,6 +24,21 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	
 	// 设置命名空间
 	class.Namespace = c.currentNamespace
+	
+	// 处理泛型类型参数
+	if len(decl.TypeParams) > 0 {
+		class.TypeParams = make([]*bytecode.TypeParamDef, len(decl.TypeParams))
+		for i, tp := range decl.TypeParams {
+			constraint := ""
+			if tp.Constraint != nil {
+				constraint = c.getTypeName(tp.Constraint)
+			}
+			class.TypeParams[i] = &bytecode.TypeParamDef{
+				Name:       tp.Name.Name,
+				Constraint: constraint,
+			}
+		}
+	}
 
 	// 处理类注解
 	class.Annotations = c.compileAnnotations(decl.Annotations)
@@ -33,9 +48,11 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 		class.ParentName = decl.Extends.Name
 	}
 
-	// 处理接口
+	// 处理接口 - 支持泛型接口（类型擦除，只保存基础接口名）
 	for _, iface := range decl.Implements {
-		class.Implements = append(class.Implements, iface.Name)
+		fullName := c.getTypeName(iface)
+		baseName := c.extractBaseTypeName(fullName)
+		class.Implements = append(class.Implements, baseName)
 	}
 	
 	// 抽象类标记

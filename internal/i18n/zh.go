@@ -68,6 +68,13 @@ var messagesZH = map[string]string{
 	ErrCannotInferVarType:   "无法推断变量 '$%s' 的类型，请显式声明类型",
 	ErrIndexTargetUnknown:   "无法确定索引操作的目标类型",
 	ErrUndeclaredVariable:   "变量 '$%s' 未声明，请使用 ':=' 声明变量",
+	
+	// 泛型相关
+	ErrGenericTypeParamName:      "需要类型参数名",
+	ErrGenericTypeArgCount:       "类型 '%s' 需要 %d 个类型参数，但提供了 %d 个",
+	ErrGenericConstraintViolated: "类型 '%s' 不满足约束 '%s'",
+	ErrGenericTypeRequired:       "泛型类型 '%s' 需要类型参数",
+	ErrDuplicateTypeParam:        "重复的类型参数 '%s'",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",

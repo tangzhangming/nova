@@ -69,6 +69,13 @@ const (
 	ErrCannotInferVarType    = "compiler.cannot_infer_var_type"
 	ErrIndexTargetUnknown    = "compiler.index_target_unknown"
 	ErrUndeclaredVariable    = "compiler.undeclared_variable"
+	
+	// 泛型相关
+	ErrGenericTypeParamName      = "compiler.generic_type_param_name"
+	ErrGenericTypeArgCount       = "compiler.generic_type_arg_count"
+	ErrGenericConstraintViolated = "compiler.generic_constraint_violated"
+	ErrGenericTypeRequired       = "compiler.generic_type_required"
+	ErrDuplicateTypeParam        = "compiler.duplicate_type_param"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

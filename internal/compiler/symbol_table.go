@@ -9,6 +9,7 @@ import (
 // FunctionSignature 函数签名
 type FunctionSignature struct {
 	Name       string   // 函数名
+	TypeParams []string // 泛型类型参数 <T, K>
 	ParamTypes []string // 参数类型列表
 	ReturnType string   // 返回类型 (可以是 "int", "string", "(int, string)" 等)
 	MinArity   int      // 最小参数数量（考虑默认参数）
@@ -19,6 +20,7 @@ type FunctionSignature struct {
 type MethodSignature struct {
 	ClassName  string   // 类名
 	MethodName string   // 方法名
+	TypeParams []string // 泛型类型参数 <T, K>
 	ParamTypes []string // 参数类型列表
 	ReturnType string   // 返回类型
 	MinArity   int      // 最小参数数量
@@ -33,13 +35,33 @@ type PropertySignature struct {
 	IsStatic  bool   // 是否是静态属性
 }
 
+// TypeParamInfo 类型参数信息
+type TypeParamInfo struct {
+	Name       string // 类型参数名 (T, K, V 等)
+	Constraint string // 约束类型 (extends 后的类型)
+}
+
+// ClassSignature 类签名 (用于泛型类)
+type ClassSignature struct {
+	Name       string           // 类名
+	TypeParams []*TypeParamInfo // 泛型类型参数
+}
+
+// InterfaceSignature 接口签名 (用于泛型接口)
+type InterfaceSignature struct {
+	Name       string           // 接口名
+	TypeParams []*TypeParamInfo // 泛型类型参数
+}
+
 // SymbolTable 符号表
 type SymbolTable struct {
-	Functions       map[string]*FunctionSignature                      // 全局函数: 函数名 -> 签名
-	ClassMethods    map[string]map[string][]*MethodSignature           // 类方法: 类名 -> 方法名 -> 签名列表（支持重载）
-	ClassProperties map[string]map[string]*PropertySignature           // 类属性: 类名 -> 属性名 -> 签名
-	GlobalVars      map[string]string                                  // 全局变量类型
-	ClassParents    map[string]string                                  // 类继承关系: 子类名 -> 父类名
+	Functions       map[string]*FunctionSignature            // 全局函数: 函数名 -> 签名
+	ClassMethods    map[string]map[string][]*MethodSignature // 类方法: 类名 -> 方法名 -> 签名列表（支持重载）
+	ClassProperties map[string]map[string]*PropertySignature // 类属性: 类名 -> 属性名 -> 签名
+	GlobalVars      map[string]string                        // 全局变量类型
+	ClassParents    map[string]string                        // 类继承关系: 子类名 -> 父类名
+	ClassSignatures map[string]*ClassSignature               // 泛型类签名: 类名 -> 签名
+	InterfaceSigs   map[string]*InterfaceSignature           // 泛型接口签名: 接口名 -> 签名
 }
 
 // NewSymbolTable 创建符号表
@@ -50,6 +72,8 @@ func NewSymbolTable() *SymbolTable {
 		ClassProperties: make(map[string]map[string]*PropertySignature),
 		GlobalVars:      make(map[string]string),
 		ClassParents:    make(map[string]string),
+		ClassSignatures: make(map[string]*ClassSignature),
+		InterfaceSigs:   make(map[string]*InterfaceSignature),
 	}
 	// 注册内置函数签名
 	st.registerBuiltinFunctions()
@@ -318,6 +342,25 @@ func (st *SymbolTable) CollectFromFile(file *ast.File) {
 func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 	className := decl.Name.Name
 	
+	// 收集泛型类型参数
+	if len(decl.TypeParams) > 0 {
+		typeParams := make([]*TypeParamInfo, len(decl.TypeParams))
+		for i, tp := range decl.TypeParams {
+			constraint := ""
+			if tp.Constraint != nil {
+				constraint = typeNodeToString(tp.Constraint)
+			}
+			typeParams[i] = &TypeParamInfo{
+				Name:       tp.Name.Name,
+				Constraint: constraint,
+			}
+		}
+		st.ClassSignatures[className] = &ClassSignature{
+			Name:       className,
+			TypeParams: typeParams,
+		}
+	}
+	
 	// 注册继承关系
 	if decl.Extends != nil {
 		st.RegisterClassParent(className, decl.Extends.Name)
@@ -339,6 +382,12 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 	
 	// 收集方法
 	for _, method := range decl.Methods {
+		// 收集方法的泛型类型参数
+		var methodTypeParams []string
+		for _, tp := range method.TypeParams {
+			methodTypeParams = append(methodTypeParams, tp.Name.Name)
+		}
+		
 		paramTypes := make([]string, len(method.Parameters))
 		minArity := len(method.Parameters)
 		
@@ -361,6 +410,7 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 		st.RegisterMethod(&MethodSignature{
 			ClassName:  className,
 			MethodName: method.Name.Name,
+			TypeParams: methodTypeParams,
 			ParamTypes: paramTypes,
 			ReturnType: returnType,
 			MinArity:   minArity,
@@ -373,8 +423,33 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl) {
 	interfaceName := decl.Name.Name
 	
+	// 收集泛型类型参数
+	if len(decl.TypeParams) > 0 {
+		typeParams := make([]*TypeParamInfo, len(decl.TypeParams))
+		for i, tp := range decl.TypeParams {
+			constraint := ""
+			if tp.Constraint != nil {
+				constraint = typeNodeToString(tp.Constraint)
+			}
+			typeParams[i] = &TypeParamInfo{
+				Name:       tp.Name.Name,
+				Constraint: constraint,
+			}
+		}
+		st.InterfaceSigs[interfaceName] = &InterfaceSignature{
+			Name:       interfaceName,
+			TypeParams: typeParams,
+		}
+	}
+	
 	// 收集接口方法
 	for _, method := range decl.Methods {
+		// 收集方法的泛型类型参数
+		var methodTypeParams []string
+		for _, tp := range method.TypeParams {
+			methodTypeParams = append(methodTypeParams, tp.Name.Name)
+		}
+		
 		paramTypes := make([]string, len(method.Parameters))
 		for i, param := range method.Parameters {
 			if param.Type != nil {
@@ -392,6 +467,7 @@ func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl) {
 		st.RegisterMethod(&MethodSignature{
 			ClassName:  interfaceName,
 			MethodName: method.Name.Name,
+			TypeParams: methodTypeParams,
 			ParamTypes: paramTypes,
 			ReturnType: returnType,
 			IsStatic:   method.Static,
@@ -447,6 +523,16 @@ func typeNodeToString(t ast.TypeNode) string {
 			ret = typeNodeToString(typ.ReturnType)
 		}
 		return "func(" + strings.Join(params, ", ") + "): " + ret
+	case *ast.GenericType:
+		base := typeNodeToString(typ.BaseType)
+		var args []string
+		for _, arg := range typ.TypeArgs {
+			args = append(args, typeNodeToString(arg))
+		}
+		return base + "<" + strings.Join(args, ", ") + ">"
+	case *ast.TypeParameter:
+		// 类型参数直接返回其名称
+		return typ.Name.Name
 	default:
 		return "any"
 	}

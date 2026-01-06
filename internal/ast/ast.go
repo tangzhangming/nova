@@ -176,6 +176,46 @@ func (t *NullType) End() token.Position { return t.Token.Pos }
 func (t *NullType) String() string      { return "null" }
 func (t *NullType) typeNode()           {}
 
+// TypeParameter 泛型类型参数 <T extends Comparable<T>>
+type TypeParameter struct {
+	Name       *Identifier // 类型参数名 (T, K, V 等)
+	Constraint TypeNode    // 约束类型 (extends 后的类型)，可为 nil
+}
+
+func (t *TypeParameter) Pos() token.Position { return t.Name.Pos() }
+func (t *TypeParameter) End() token.Position {
+	if t.Constraint != nil {
+		return t.Constraint.End()
+	}
+	return t.Name.End()
+}
+func (t *TypeParameter) String() string {
+	if t.Constraint != nil {
+		return t.Name.String() + " extends " + t.Constraint.String()
+	}
+	return t.Name.String()
+}
+func (t *TypeParameter) typeNode() {}
+
+// GenericType 泛型类型实例化 List<int>, Map<string, User>
+type GenericType struct {
+	BaseType TypeNode    // 基础类型
+	LAngle   token.Token // <
+	TypeArgs []TypeNode  // 类型参数列表
+	RAngle   token.Token // >
+}
+
+func (t *GenericType) Pos() token.Position { return t.BaseType.Pos() }
+func (t *GenericType) End() token.Position { return t.RAngle.Pos }
+func (t *GenericType) String() string {
+	var args []string
+	for _, arg := range t.TypeArgs {
+		args = append(args, arg.String())
+	}
+	return t.BaseType.String() + "<" + strings.Join(args, ", ") + ">"
+}
+func (t *GenericType) typeNode() {}
+
 // ============================================================================
 // 表达式节点
 // ============================================================================
@@ -549,10 +589,11 @@ func (e *ParentExpr) End() token.Position { return e.Token.Pos }
 func (e *ParentExpr) String() string      { return "parent" }
 func (e *ParentExpr) exprNode()           {}
 
-// NewExpr new 表达式 (new User())
+// NewExpr new 表达式 (new User() 或 new Box<int>())
 type NewExpr struct {
 	NewToken  token.Token
 	ClassName *Identifier
+	TypeArgs  []TypeNode // 泛型类型参数 <int, string>
 	LParen    token.Token
 	Arguments []Expression
 	RParen    token.Token
@@ -565,7 +606,15 @@ func (e *NewExpr) String() string {
 	for _, arg := range e.Arguments {
 		args = append(args, arg.String())
 	}
-	return "new " + e.ClassName.String() + "(" + strings.Join(args, ", ") + ")"
+	typeArgsStr := ""
+	if len(e.TypeArgs) > 0 {
+		var typeArgStrs []string
+		for _, ta := range e.TypeArgs {
+			typeArgStrs = append(typeArgStrs, ta.String())
+		}
+		typeArgsStr = "<" + strings.Join(typeArgStrs, ", ") + ">"
+	}
+	return "new " + e.ClassName.String() + typeArgsStr + "(" + strings.Join(args, ", ") + ")"
 }
 func (e *NewExpr) exprNode() {}
 
@@ -1039,6 +1088,7 @@ type MethodDecl struct {
 	Abstract    bool
 	FuncToken   token.Token
 	Name        *Identifier
+	TypeParams  []*TypeParameter // 泛型类型参数 <T, K extends Comparable>
 	LParen      token.Token
 	Parameters  []*Parameter
 	RParen      token.Token
@@ -1066,8 +1116,9 @@ type ClassDecl struct {
 	Abstract    bool
 	ClassToken  token.Token
 	Name        *Identifier
-	Extends     *Identifier   // 可为 nil
-	Implements  []*Identifier // 可为空
+	TypeParams  []*TypeParameter // 泛型类型参数 <T, K extends Comparable>
+	Extends     *Identifier      // 可为 nil
+	Implements  []TypeNode       // 支持泛型接口 Container<T>
 	LBrace      token.Token
 	Constants   []*ConstDecl
 	Properties  []*PropertyDecl
@@ -1086,7 +1137,8 @@ type InterfaceDecl struct {
 	Visibility     Visibility
 	InterfaceToken token.Token
 	Name           *Identifier
-	Extends        []*Identifier // 可继承多个接口
+	TypeParams     []*TypeParameter // 泛型类型参数 <T, K extends Comparable>
+	Extends        []TypeNode       // 支持泛型接口 Comparable<T>
 	LBrace         token.Token
 	Methods        []*MethodDecl
 	RBrace         token.Token

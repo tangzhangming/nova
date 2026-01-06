@@ -336,3 +336,5 @@ func nativeIsLink(args []bytecode.Value) bytecode.Value {
 
 
 
+
+

@@ -252,8 +252,33 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 			Token: p.previous(),
 		}
 	case p.check(token.IDENT):
+		nameToken := p.advance()
 		baseType = &ast.ClassType{
-			Name: p.advance(),
+			Name: nameToken,
+		}
+		// 检查是否是泛型类型 List<int>
+		if p.check(token.LT) {
+			langle := p.advance() // 消费 <
+			var typeArgs []ast.TypeNode
+			// 解析第一个类型参数
+			arg := p.parseType()
+			if arg != nil {
+				typeArgs = append(typeArgs, arg)
+			}
+			// 解析剩余的类型参数
+			for p.match(token.COMMA) {
+				arg = p.parseType()
+				if arg != nil {
+					typeArgs = append(typeArgs, arg)
+				}
+			}
+			rangle := p.consume(token.GT, "expected '>' after type arguments")
+			baseType = &ast.GenericType{
+				BaseType: &ast.ClassType{Name: nameToken},
+				LAngle:   langle,
+				TypeArgs: typeArgs,
+				RAngle:   rangle,
+			}
 		}
 	default:
 		p.error(i18n.T(i18n.ErrExpectedType))
@@ -328,6 +353,79 @@ func (p *Parser) parseReturnType() ast.TypeNode {
 		}
 	}
 	return p.parseType()
+}
+
+// parseTypeParameters 解析泛型类型参数声明 <T, K extends Comparable<K>>
+// 用于类、接口、方法声明
+func (p *Parser) parseTypeParameters() []*ast.TypeParameter {
+	if !p.check(token.LT) {
+		return nil
+	}
+	p.advance() // 消费 <
+
+	var params []*ast.TypeParameter
+
+	// 解析第一个类型参数
+	param := p.parseTypeParameter()
+	if param != nil {
+		params = append(params, param)
+	}
+
+	// 解析剩余的类型参数
+	for p.match(token.COMMA) {
+		param = p.parseTypeParameter()
+		if param != nil {
+			params = append(params, param)
+		}
+	}
+
+	p.consume(token.GT, "expected '>' after type parameters")
+	return params
+}
+
+// parseTypeParameter 解析单个类型参数 T 或 T extends Comparable<T>
+func (p *Parser) parseTypeParameter() *ast.TypeParameter {
+	nameToken := p.consume(token.IDENT, "expected type parameter name")
+	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
+
+	var constraint ast.TypeNode
+	// 检查是否有约束 extends
+	if p.match(token.EXTENDS) {
+		constraint = p.parseType()
+	}
+
+	return &ast.TypeParameter{
+		Name:       name,
+		Constraint: constraint,
+	}
+}
+
+// parseTypeArguments 解析泛型类型参数列表 <int, string>
+// 用于泛型类型实例化
+func (p *Parser) parseTypeArguments() []ast.TypeNode {
+	if !p.check(token.LT) {
+		return nil
+	}
+	p.advance() // 消费 <
+
+	var args []ast.TypeNode
+
+	// 解析第一个类型参数
+	arg := p.parseType()
+	if arg != nil {
+		args = append(args, arg)
+	}
+
+	// 解析剩余的类型参数
+	for p.match(token.COMMA) {
+		arg = p.parseType()
+		if arg != nil {
+			args = append(args, arg)
+		}
+	}
+
+	p.consume(token.GT, "expected '>' after type arguments")
+	return args
 }
 
 func (p *Parser) matchAny(types ...token.TokenType) bool {
@@ -1149,6 +1247,25 @@ func (p *Parser) parseNewExpr() ast.Expression {
 	newToken := p.advance()
 	className := p.consume(token.IDENT, "expected class name after 'new'")
 
+	// 解析泛型类型参数 <T, K>
+	var typeArgs []ast.TypeNode
+	if p.check(token.LT) {
+		p.advance() // 消费 <
+		// 解析第一个类型参数
+		arg := p.parseType()
+		if arg != nil {
+			typeArgs = append(typeArgs, arg)
+		}
+		// 解析剩余的类型参数
+		for p.match(token.COMMA) {
+			arg = p.parseType()
+			if arg != nil {
+				typeArgs = append(typeArgs, arg)
+			}
+		}
+		p.consume(token.GT, "expected '>' after type arguments")
+	}
+
 	lparen := p.consume(token.LPAREN, "expected '(' after class name")
 	var args []ast.Expression
 	if !p.check(token.RPAREN) {
@@ -1162,6 +1279,7 @@ func (p *Parser) parseNewExpr() ast.Expression {
 	return &ast.NewExpr{
 		NewToken:  newToken,
 		ClassName: &ast.Identifier{Token: className, Name: className.Literal},
+		TypeArgs:  typeArgs,
 		LParen:    lparen,
 		Arguments: args,
 		RParen:    rparen,
@@ -1323,12 +1441,68 @@ func (p *Parser) parseExprOrVarDeclStmt() ast.Statement {
 }
 
 func (p *Parser) isTypeStart() bool {
-	return p.checkAny(token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
+	// 基础类型关键字
+	if p.checkAny(token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
 		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
 		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
 		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.OBJECT,
-		token.MAP, token.FUNC_TYPE, token.QUESTION) ||
-		(p.check(token.IDENT) && p.lookAhead(1).Type == token.VARIABLE)
+		token.MAP, token.FUNC_TYPE, token.QUESTION) {
+		return true
+	}
+	
+	// 类名后跟变量: ClassName $var
+	if p.check(token.IDENT) && p.lookAhead(1).Type == token.VARIABLE {
+		return true
+	}
+	
+	// 泛型类型: ClassName<...> $var
+	// 需要检查 IDENT < 的情况，并且找到匹配的 > 后面是变量
+	if p.check(token.IDENT) && p.lookAhead(1).Type == token.LT {
+		return p.isGenericTypeStart()
+	}
+	
+	return false
+}
+
+// isGenericTypeStart 检查是否是泛型类型的开始（如 Box<int> $var）
+func (p *Parser) isGenericTypeStart() bool {
+	// 从当前位置开始，查找匹配的 >
+	depth := 0
+	i := 2 // 跳过 IDENT 和 <
+	for p.current+i < len(p.tokens) {
+		tok := p.tokens[p.current+i]
+		switch tok.Type {
+		case token.LT:
+			depth++
+		case token.GT:
+			if depth == 0 {
+				// 找到匹配的 >，检查下一个 token 是否是变量或数组标记
+				nextIdx := p.current + i + 1
+				if nextIdx < len(p.tokens) {
+					next := p.tokens[nextIdx]
+					// > $var 或 >[] $var
+					if next.Type == token.VARIABLE {
+						return true
+					}
+					if next.Type == token.LBRACKET {
+						// 检查是否是数组类型 >[]
+						if nextIdx+1 < len(p.tokens) && p.tokens[nextIdx+1].Type == token.RBRACKET {
+							if nextIdx+2 < len(p.tokens) && p.tokens[nextIdx+2].Type == token.VARIABLE {
+								return true
+							}
+						}
+					}
+				}
+				return false
+			}
+			depth--
+		case token.EOF, token.SEMICOLON, token.LBRACE, token.RBRACE:
+			// 遇到这些 token 说明不是泛型类型声明
+			return false
+		}
+		i++
+	}
+	return false
 }
 
 func (p *Parser) lookAhead(n int) token.Token {
@@ -1834,6 +2008,9 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 	nameToken := p.consume(token.IDENT, "expected class name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 
+	// 泛型类型参数 <T, K extends Comparable>
+	typeParams := p.parseTypeParameters()
+
 	// extends
 	var extends *ast.Identifier
 	if p.match(token.EXTENDS) {
@@ -1841,14 +2018,18 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 		extends = &ast.Identifier{Token: extendsToken, Name: extendsToken.Literal}
 	}
 
-	// implements
-	var implements []*ast.Identifier
+	// implements - 支持泛型接口
+	var implements []ast.TypeNode
 	if p.match(token.IMPLEMENTS) {
-		implToken := p.consume(token.IDENT, "expected interface name")
-		implements = append(implements, &ast.Identifier{Token: implToken, Name: implToken.Literal})
+		implType := p.parseType()
+		if implType != nil {
+			implements = append(implements, implType)
+		}
 		for p.match(token.COMMA) {
-			implToken = p.consume(token.IDENT, "expected interface name")
-			implements = append(implements, &ast.Identifier{Token: implToken, Name: implToken.Literal})
+			implType = p.parseType()
+			if implType != nil {
+				implements = append(implements, implType)
+			}
 		}
 	}
 
@@ -1878,6 +2059,7 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 		Abstract:    isAbstract,
 		ClassToken:  classToken,
 		Name:        name,
+		TypeParams:  typeParams,
 		Extends:     extends,
 		Implements:  implements,
 		LBrace:      lbrace,
@@ -1984,6 +2166,9 @@ func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.V
 	nameToken := p.consume(token.IDENT, "expected method name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 
+	// 泛型类型参数 <T, K extends Comparable>
+	typeParams := p.parseTypeParameters()
+
 	lparen := p.consume(token.LPAREN, "expected '('")
 	var params []*ast.Parameter
 	if !p.check(token.RPAREN) {
@@ -2013,6 +2198,7 @@ func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.V
 		Abstract:    isAbstract,
 		FuncToken:   funcToken,
 		Name:        name,
+		TypeParams:  typeParams,
 		LParen:      lparen,
 		Parameters:  params,
 		RParen:      rparen,
@@ -2026,14 +2212,21 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 	nameToken := p.consume(token.IDENT, "expected interface name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 
-	// extends (接口可以继承多个接口)
-	var extends []*ast.Identifier
+	// 泛型类型参数 <T, K extends Comparable>
+	typeParams := p.parseTypeParameters()
+
+	// extends (接口可以继承多个接口) - 支持泛型接口
+	var extends []ast.TypeNode
 	if p.match(token.EXTENDS) {
-		extToken := p.consume(token.IDENT, "expected interface name")
-		extends = append(extends, &ast.Identifier{Token: extToken, Name: extToken.Literal})
+		extType := p.parseType()
+		if extType != nil {
+			extends = append(extends, extType)
+		}
 		for p.match(token.COMMA) {
-			extToken = p.consume(token.IDENT, "expected interface name")
-			extends = append(extends, &ast.Identifier{Token: extToken, Name: extToken.Literal})
+			extType = p.parseType()
+			if extType != nil {
+				extends = append(extends, extType)
+			}
 		}
 	}
 
@@ -2050,6 +2243,9 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 		funcToken := p.consume(token.FUNCTION, "expected 'function'")
 		nameToken := p.consume(token.IDENT, "expected method name")
 		methodName := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
+
+		// 方法的泛型类型参数
+		methodTypeParams := p.parseTypeParameters()
 
 		lparen := p.consume(token.LPAREN, "expected '('")
 		var params []*ast.Parameter
@@ -2073,6 +2269,7 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 			Abstract:   true,
 			FuncToken:  funcToken,
 			Name:       methodName,
+			TypeParams: methodTypeParams,
 			LParen:     lparen,
 			Parameters: params,
 			RParen:     rparen,
@@ -2087,6 +2284,7 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 		Visibility:     visibility,
 		InterfaceToken: interfaceToken,
 		Name:           name,
+		TypeParams:     typeParams,
 		Extends:        extends,
 		LBrace:         lbrace,
 		Methods:        methods,
