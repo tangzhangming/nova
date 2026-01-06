@@ -1,0 +1,423 @@
+// Sola 标准库 - 有序哈希映射
+namespace sola.collections
+
+/**
+ * 有序哈希映射
+ * 
+ * 保持插入顺序（或访问顺序）的哈希映射。
+ * 
+ * 特点：
+ * - 添加/删除/查找 O(1) 平均
+ * - 保持插入顺序
+ * - 可配置为访问顺序（LRU缓存）
+ * 
+ * @template K 键类型
+ * @template V 值类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.LinkedHashMap;
+ * 
+ * $map := new LinkedHashMap<string, int>();
+ * $map->put("c", 3);
+ * $map->put("a", 1);
+ * $map->put("b", 2);
+ * 
+ * foreach ($map->keys() as $key) {
+ *     echo $key;  // c, a, b (保持插入顺序)
+ * }
+ * ```
+ */
+public class LinkedHashMap<K, V> implements IMap<K, V> {
+    
+    /** 键数组（保持顺序） */
+    private array $orderedKeys;
+    
+    /** 值数组 */
+    private array $orderedValues;
+    
+    /** 快速查找索引 */
+    private array $index;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 是否使用访问顺序 */
+    private bool $accessOrder;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空的有序哈希映射
+     * 
+     * @param accessOrder 如果为 true，则按访问顺序排序（最近访问的在最后）
+     */
+    public function __construct(bool $accessOrder = false) {
+        $this->orderedKeys = [];
+        $this->orderedValues = [];
+        $this->index = [];
+        $this->count = 0;
+        $this->accessOrder = $accessOrder;
+        $this->modCount = 0;
+    }
+    
+    // ========================================================================
+    // IMap 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function containsKey(mixed $key): bool {
+        $hashKey := $this->hashKey($key);
+        return isset($this->index[$hashKey]);
+    }
+    
+    public function containsValue(mixed $value): bool {
+        for ($i := 0; $i < $this->count; $i++) {
+            if ($this->orderedValues[$i] == $value) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function get(mixed $key): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->index[$hashKey])) {
+            return null;
+        }
+        
+        $idx := $this->index[$hashKey];
+        $value := $this->orderedValues[$idx];
+        
+        // 如果是访问顺序，移动到末尾
+        if ($this->accessOrder) {
+            $this->moveToEnd($idx);
+        }
+        
+        return $value;
+    }
+    
+    public function getOrDefault(mixed $key, mixed $defaultValue): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->index[$hashKey])) {
+            return $defaultValue;
+        }
+        return $this->get($key);
+    }
+    
+    public function put(mixed $key, mixed $value): mixed {
+        $hashKey := $this->hashKey($key);
+        
+        if (isset($this->index[$hashKey])) {
+            // 更新现有键
+            $idx := $this->index[$hashKey];
+            $old := $this->orderedValues[$idx];
+            $this->orderedValues[$idx] = $value;
+            
+            if ($this->accessOrder) {
+                $this->moveToEnd($idx);
+            }
+            
+            $this->modCount++;
+            return $old;
+        }
+        
+        // 添加新键
+        $this->orderedKeys[$this->count] = $key;
+        $this->orderedValues[$this->count] = $value;
+        $this->index[$hashKey] = $this->count;
+        $this->count++;
+        $this->modCount++;
+        
+        return null;
+    }
+    
+    public function putIfAbsent(mixed $key, mixed $value): mixed {
+        $hashKey := $this->hashKey($key);
+        if (isset($this->index[$hashKey])) {
+            return $this->get($key);
+        }
+        $this->put($key, $value);
+        return null;
+    }
+    
+    public function putAll(IMap<K, V> $map): void {
+        $map->forEach(function($key, $value) {
+            $this->put($key, $value);
+        });
+    }
+    
+    public function remove(mixed $key): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->index[$hashKey])) {
+            return null;
+        }
+        
+        $idx := $this->index[$hashKey];
+        $old := $this->orderedValues[$idx];
+        
+        unset($this->index[$hashKey]);
+        
+        // 移动后面的元素
+        for ($i := $idx; $i < $this->count - 1; $i++) {
+            $this->orderedKeys[$i] = $this->orderedKeys[$i + 1];
+            $this->orderedValues[$i] = $this->orderedValues[$i + 1];
+            $k := $this->hashKey($this->orderedKeys[$i]);
+            $this->index[$k] = $i;
+        }
+        
+        $this->count--;
+        $this->modCount++;
+        
+        return $old;
+    }
+    
+    public function removeIf(mixed $key, mixed $value): bool {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->index[$hashKey])) {
+            return false;
+        }
+        
+        $idx := $this->index[$hashKey];
+        if ($this->orderedValues[$idx] != $value) {
+            return false;
+        }
+        
+        $this->remove($key);
+        return true;
+    }
+    
+    public function replace(mixed $key, mixed $value): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->index[$hashKey])) {
+            return null;
+        }
+        
+        $idx := $this->index[$hashKey];
+        $old := $this->orderedValues[$idx];
+        $this->orderedValues[$idx] = $value;
+        $this->modCount++;
+        
+        return $old;
+    }
+    
+    public function replaceIf(mixed $key, mixed $oldValue, mixed $newValue): bool {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->index[$hashKey])) {
+            return false;
+        }
+        
+        $idx := $this->index[$hashKey];
+        if ($this->orderedValues[$idx] != $oldValue) {
+            return false;
+        }
+        
+        $this->orderedValues[$idx] = $newValue;
+        $this->modCount++;
+        
+        return true;
+    }
+    
+    public function clear(): void {
+        $this->orderedKeys = [];
+        $this->orderedValues = [];
+        $this->index = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function keys(): LinkedHashSet<K> {
+        $set := new LinkedHashSet<K>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $set->add($this->orderedKeys[$i]);
+        }
+        return $set;
+    }
+    
+    public function values(): ArrayList<V> {
+        $list := new ArrayList<V>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $list->add($this->orderedValues[$i]);
+        }
+        return $list;
+    }
+    
+    public function entries(): LinkedHashSet<LinkedHashMapEntry<K, V>> {
+        $set := new LinkedHashSet<LinkedHashMapEntry<K, V>>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $entry := new LinkedHashMapEntry<K, V>(
+                $this->orderedKeys[$i], 
+                $this->orderedValues[$i], 
+                $this, 
+                $i
+            );
+            $set->add($entry);
+        }
+        return $set;
+    }
+    
+    public function forEach(function(K $key, V $value): void $action): void {
+        for ($i := 0; $i < $this->count; $i++) {
+            $action($this->orderedKeys[$i], $this->orderedValues[$i]);
+        }
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 获取第一个键
+     */
+    public function firstKey(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Map is empty");
+        }
+        return $this->orderedKeys[0];
+    }
+    
+    /**
+     * 获取最后一个键
+     */
+    public function lastKey(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Map is empty");
+        }
+        return $this->orderedKeys[$this->count - 1];
+    }
+    
+    /**
+     * 移除并返回第一个条目
+     */
+    public function pollFirst(): LinkedHashMapEntry<K, V> {
+        if ($this->count == 0) {
+            return null;
+        }
+        $key := $this->orderedKeys[0];
+        $value := $this->orderedValues[0];
+        $entry := new LinkedHashMapEntry<K, V>($key, $value, $this, 0);
+        $this->remove($key);
+        return $entry;
+    }
+    
+    /**
+     * 移除并返回最后一个条目
+     */
+    public function pollLast(): LinkedHashMapEntry<K, V> {
+        if ($this->count == 0) {
+            return null;
+        }
+        $idx := $this->count - 1;
+        $key := $this->orderedKeys[$idx];
+        $value := $this->orderedValues[$idx];
+        $entry := new LinkedHashMapEntry<K, V>($key, $value, $this, $idx);
+        $this->remove($key);
+        return $entry;
+    }
+    
+    /**
+     * 克隆映射
+     */
+    public function clone(): LinkedHashMap<K, V> {
+        $copy := new LinkedHashMap<K, V>($this->accessOrder);
+        $copy->putAll($this);
+        return $copy;
+    }
+    
+    /**
+     * 转换为数组
+     */
+    public function toArray(): array {
+        $result := [];
+        for ($i := 0; $i < $this->count; $i++) {
+            $result[$i] = [$this->orderedKeys[$i], $this->orderedValues[$i]];
+        }
+        return $result;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+    
+    /**
+     * 更新指定索引的值
+     */
+    public function updateValueAt(int $idx, mixed $value): void {
+        if ($idx >= 0 && $idx < $this->count) {
+            $this->orderedValues[$idx] = $value;
+            $this->modCount++;
+        }
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function hashKey(mixed $key): string {
+        return "_" + $key;
+    }
+    
+    private function moveToEnd(int $idx): void {
+        if ($idx == $this->count - 1) {
+            return;
+        }
+        
+        $key := $this->orderedKeys[$idx];
+        $value := $this->orderedValues[$idx];
+        $hashKey := $this->hashKey($key);
+        
+        // 移动后面的元素
+        for ($i := $idx; $i < $this->count - 1; $i++) {
+            $this->orderedKeys[$i] = $this->orderedKeys[$i + 1];
+            $this->orderedValues[$i] = $this->orderedValues[$i + 1];
+            $k := $this->hashKey($this->orderedKeys[$i]);
+            $this->index[$k] = $i;
+        }
+        
+        // 放到末尾
+        $this->orderedKeys[$this->count - 1] = $key;
+        $this->orderedValues[$this->count - 1] = $value;
+        $this->index[$hashKey] = $this->count - 1;
+    }
+}
+
+/**
+ * LinkedHashMap 条目
+ */
+public class LinkedHashMapEntry<K, V> implements MapEntry<K, V> {
+    private mixed $key;
+    private mixed $value;
+    private LinkedHashMap<K, V> $map;
+    private int $index;
+    
+    public function __construct(mixed $key, mixed $value, LinkedHashMap<K, V> $map, int $index) {
+        $this->key = $key;
+        $this->value = $value;
+        $this->map = $map;
+        $this->index = $index;
+    }
+    
+    public function getKey(): mixed {
+        return $this->key;
+    }
+    
+    public function getValue(): mixed {
+        return $this->value;
+    }
+    
+    public function setValue(mixed $value): mixed {
+        $old := $this->value;
+        $this->value = $value;
+        $this->map->updateValueAt($this->index, $value);
+        return $old;
+    }
+}
+

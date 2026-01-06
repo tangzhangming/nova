@@ -1,0 +1,101 @@
+// Sola 标准库 - 集合接口
+namespace sola.collections
+
+/**
+ * 集合接口
+ * 
+ * 不包含重复元素的集合。
+ * 
+ * @template T 元素类型
+ */
+public interface ISet<T> extends ICollection<T> {
+    
+    // ========================================================================
+    // 集合运算
+    // ========================================================================
+    
+    /**
+     * 返回此集合与另一集合的并集
+     * 
+     * @param other 另一个集合
+     * @return 包含两个集合所有元素的新集合
+     */
+    public function union(ISet<T> $other): ISet<T>;
+    
+    /**
+     * 返回此集合与另一集合的交集
+     * 
+     * @param other 另一个集合
+     * @return 包含两个集合共有元素的新集合
+     */
+    public function intersection(ISet<T> $other): ISet<T>;
+    
+    /**
+     * 返回此集合与另一集合的差集
+     * 
+     * @param other 另一个集合
+     * @return 包含在此集合但不在另一集合的元素的新集合
+     */
+    public function difference(ISet<T> $other): ISet<T>;
+    
+    /**
+     * 返回此集合与另一集合的对称差集
+     * 
+     * @param other 另一个集合
+     * @return 包含仅存在于其中一个集合的元素的新集合
+     */
+    public function symmetricDifference(ISet<T> $other): ISet<T>;
+    
+    // ========================================================================
+    // 集合关系
+    // ========================================================================
+    
+    /**
+     * 检查此集合是否是另一集合的子集
+     * 
+     * @param other 另一个集合
+     * @return 如果此集合的所有元素都在另一集合中返回 true
+     */
+    public function isSubsetOf(ISet<T> $other): bool;
+    
+    /**
+     * 检查此集合是否是另一集合的超集
+     * 
+     * @param other 另一个集合
+     * @return 如果另一集合的所有元素都在此集合中返回 true
+     */
+    public function isSupersetOf(ISet<T> $other): bool;
+    
+    /**
+     * 检查此集合是否是另一集合的真子集
+     * 
+     * @param other 另一个集合
+     * @return 如果是子集且不相等返回 true
+     */
+    public function isProperSubsetOf(ISet<T> $other): bool;
+    
+    /**
+     * 检查此集合是否是另一集合的真超集
+     * 
+     * @param other 另一个集合
+     * @return 如果是超集且不相等返回 true
+     */
+    public function isProperSupersetOf(ISet<T> $other): bool;
+    
+    /**
+     * 检查两个集合是否有交集
+     * 
+     * @param other 另一个集合
+     * @return 如果有共同元素返回 true
+     */
+    public function overlaps(ISet<T> $other): bool;
+    
+    /**
+     * 检查两个集合是否相等（包含相同的元素）
+     * 
+     * @param other 另一个集合
+     * @return 如果包含相同元素返回 true
+     */
+    public function setEquals(ISet<T> $other): bool;
+}
+

@@ -1,0 +1,338 @@
+// Sola 标准库 - 队列
+namespace sola.collections
+
+/**
+ * 队列
+ * 
+ * 先进先出（FIFO）的集合。
+ * 
+ * 特点：
+ * - enqueue/dequeue/peek O(1) 均摊
+ * - 基于循环数组实现
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.Queue;
+ * 
+ * $queue := new Queue<string>();
+ * $queue->enqueue("first");
+ * $queue->enqueue("second");
+ * $queue->enqueue("third");
+ * 
+ * echo $queue->dequeue();  // first
+ * echo $queue->peek();     // second
+ * ```
+ */
+public class Queue<T> implements IQueue<T> {
+    
+    /** 内部存储 */
+    private array $data;
+    
+    /** 队首索引 */
+    private int $head;
+    
+    /** 队尾索引 */
+    private int $tail;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空队列
+     */
+    public function __construct() {
+        $this->data = [];
+        $this->head = 0;
+        $this->tail = 0;
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建队列
+     */
+    public static function fromArray<T>(array $array): Queue<T> {
+        $queue := new Queue<T>();
+        foreach ($array as $item) {
+            $queue->enqueue($item);
+        }
+        return $queue;
+    }
+    
+    // ========================================================================
+    // IQueue 实现
+    // ========================================================================
+    
+    public function enqueue(mixed $element): bool {
+        $this->data[$this->tail] = $element;
+        $this->tail++;
+        $this->count++;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function offer(mixed $element): bool {
+        return $this->enqueue($element);
+    }
+    
+    public function dequeue(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Queue is empty");
+        }
+        
+        $element := $this->data[$this->head];
+        $this->head++;
+        $this->count--;
+        $this->modCount++;
+        
+        // 如果队列为空，重置索引
+        if ($this->count == 0) {
+            $this->head = 0;
+            $this->tail = 0;
+            $this->data = [];
+        }
+        
+        return $element;
+    }
+    
+    public function poll(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->dequeue();
+    }
+    
+    public function front(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Queue is empty");
+        }
+        return $this->data[$this->head];
+    }
+    
+    public function peek(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->data[$this->head];
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        for ($i := $this->head; $i < $this->tail; $i++) {
+            if ($this->data[$i] == $element) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        return $this->enqueue($element);
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            $this->enqueue($item);
+        }
+        return true;
+    }
+    
+    public function remove(mixed $element): bool {
+        // 查找并移除第一个匹配的元素
+        $newData := [];
+        $newIndex := 0;
+        $found := false;
+        
+        for ($i := $this->head; $i < $this->tail; $i++) {
+            if (!$found && $this->data[$i] == $element) {
+                $found = true;
+                continue;
+            }
+            $newData[$newIndex] = $this->data[$i];
+            $newIndex++;
+        }
+        
+        if ($found) {
+            $this->data = $newData;
+            $this->head = 0;
+            $this->tail = $newIndex;
+            $this->count--;
+            $this->modCount++;
+        }
+        
+        return $found;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            while ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $newData := [];
+        $newIndex := 0;
+        $modified := false;
+        
+        for ($i := $this->head; $i < $this->tail; $i++) {
+            if ($collection->contains($this->data[$i])) {
+                $newData[$newIndex] = $this->data[$i];
+                $newIndex++;
+            } else {
+                $modified = true;
+            }
+        }
+        
+        if ($modified) {
+            $this->data = $newData;
+            $this->head = 0;
+            $this->tail = $newIndex;
+            $this->count = $newIndex;
+            $this->modCount++;
+        }
+        
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->data = [];
+        $this->head = 0;
+        $this->tail = 0;
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        $j := 0;
+        for ($i := $this->head; $i < $this->tail; $i++) {
+            $result[$j] = $this->data[$i];
+            $j++;
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): QueueIterator<T> {
+        return new QueueIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆队列
+     */
+    public function clone(): Queue<T> {
+        $copy := new Queue<T>();
+        for ($i := $this->head; $i < $this->tail; $i++) {
+            $copy->enqueue($this->data[$i]);
+        }
+        return $copy;
+    }
+    
+    /**
+     * 转换为列表
+     */
+    public function toList(): ArrayList<T> {
+        $list := new ArrayList<T>();
+        for ($i := $this->head; $i < $this->tail; $i++) {
+            $list->add($this->data[$i]);
+        }
+        return $list;
+    }
+    
+    /**
+     * 获取内部数据（供迭代器使用）
+     */
+    public function getHead(): int {
+        return $this->head;
+    }
+    
+    public function getTail(): int {
+        return $this->tail;
+    }
+    
+    public function getData(): array {
+        return $this->data;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+}
+
+/**
+ * Queue 迭代器
+ */
+public class QueueIterator<T> implements IIterator<T> {
+    private Queue<T> $queue;
+    private int $index;
+    private int $expectedModCount;
+    
+    public function __construct(Queue<T> $queue) {
+        $this->queue = $queue;
+        $this->index = $queue->getHead();
+        $this->expectedModCount = $queue->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->index < $this->queue->getTail();
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $data := $this->queue->getData();
+        $element := $data[$this->index];
+        $this->index++;
+        return $element;
+    }
+    
+    public function remove(): void {
+        throw new UnsupportedOperationException("Remove not supported during iteration");
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->queue->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

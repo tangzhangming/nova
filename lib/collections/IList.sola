@@ -1,0 +1,134 @@
+// Sola 标准库 - 列表接口
+namespace sola.collections
+
+/**
+ * 列表接口
+ * 
+ * 有序集合，可以通过索引访问元素。允许重复元素。
+ * 
+ * @template T 元素类型
+ */
+public interface IList<T> extends ICollection<T> {
+    
+    // ========================================================================
+    // 索引访问
+    // ========================================================================
+    
+    /**
+     * 获取指定索引的元素
+     * 
+     * @param index 索引位置（0-based）
+     * @return 指定位置的元素
+     * @throws IndexOutOfBoundsException 如果索引越界
+     */
+    public function get(int $index): T;
+    
+    /**
+     * 设置指定索引的元素
+     * 
+     * @param index 索引位置
+     * @param element 新元素
+     * @return 被替换的旧元素
+     * @throws IndexOutOfBoundsException 如果索引越界
+     */
+    public function set(int $index, T $element): T;
+    
+    /**
+     * 在指定索引插入元素
+     * 
+     * @param index 插入位置
+     * @param element 要插入的元素
+     * @throws IndexOutOfBoundsException 如果索引越界
+     */
+    public function insert(int $index, T $element): void;
+    
+    /**
+     * 在指定索引插入集合的所有元素
+     * 
+     * @param index 插入位置
+     * @param collection 要插入的元素集合
+     * @return 如果列表因此操作而改变返回 true
+     * @throws IndexOutOfBoundsException 如果索引越界
+     */
+    public function insertAll(int $index, ICollection<T> $collection): bool;
+    
+    /**
+     * 移除指定索引的元素
+     * 
+     * @param index 索引位置
+     * @return 被移除的元素
+     * @throws IndexOutOfBoundsException 如果索引越界
+     */
+    public function removeAt(int $index): T;
+    
+    // ========================================================================
+    // 搜索操作
+    // ========================================================================
+    
+    /**
+     * 返回指定元素首次出现的索引
+     * 
+     * @param element 要搜索的元素
+     * @return 索引位置，如果不存在返回 -1
+     */
+    public function indexOf(T $element): int;
+    
+    /**
+     * 返回指定元素最后一次出现的索引
+     * 
+     * @param element 要搜索的元素
+     * @return 索引位置，如果不存在返回 -1
+     */
+    public function lastIndexOf(T $element): int;
+    
+    // ========================================================================
+    // 子列表
+    // ========================================================================
+    
+    /**
+     * 返回列表的子列表视图
+     * 
+     * @param fromIndex 起始索引（包含）
+     * @param toIndex 结束索引（不包含）
+     * @return 子列表
+     * @throws IndexOutOfBoundsException 如果索引越界
+     */
+    public function subList(int $fromIndex, int $toIndex): IList<T>;
+    
+    // ========================================================================
+    // 排序
+    // ========================================================================
+    
+    /**
+     * 对列表进行原地排序
+     * 
+     * @param comparator 比较器（可选，null则使用自然顺序）
+     */
+    public function sort(IComparator<T> $comparator = null): void;
+    
+    /**
+     * 反转列表中元素的顺序
+     */
+    public function reverse(): void;
+    
+    // ========================================================================
+    // 便捷方法
+    // ========================================================================
+    
+    /**
+     * 获取第一个元素
+     * 
+     * @return 第一个元素
+     * @throws NoSuchElementException 如果列表为空
+     */
+    public function first(): T;
+    
+    /**
+     * 获取最后一个元素
+     * 
+     * @return 最后一个元素
+     * @throws NoSuchElementException 如果列表为空
+     */
+    public function last(): T;
+}
+

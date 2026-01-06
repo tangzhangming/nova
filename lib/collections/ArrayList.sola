@@ -1,0 +1,569 @@
+// Sola 标准库 - 动态数组
+namespace sola.collections
+
+use sola.lang.IndexOutOfBoundsException;
+
+/**
+ * 动态数组
+ * 
+ * 基于数组实现的列表，支持随机访问，自动扩容。
+ * 
+ * 特点：
+ * - 随机访问 O(1)
+ * - 尾部添加/移除 O(1) 均摊
+ * - 中间插入/移除 O(n)
+ * - 查找 O(n)
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.ArrayList;
+ * 
+ * $list := new ArrayList<int>();
+ * $list->add(1);
+ * $list->add(2);
+ * $list->add(3);
+ * 
+ * echo $list->get(0);  // 1
+ * echo $list->size();  // 3
+ * 
+ * foreach ($list as $item) {
+ *     echo $item;
+ * }
+ * ```
+ */
+public class ArrayList<T> implements IList<T> {
+    
+    /** 内部存储 */
+    private array $data;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数（用于检测并发修改） */
+    private int $modCount;
+    
+    /**
+     * 创建空的动态数组
+     * 
+     * @param int $initialCapacity 初始容量
+     */
+    public function __construct(int $initialCapacity = 10) {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从现有数组创建
+     * 
+     * @param array $array 源数组
+     * @return ArrayList<T>
+     */
+    public static function fromArray<T>(array $array): ArrayList<T> {
+        $list := new ArrayList<T>();
+        foreach ($array as $item) {
+            $list->add($item);
+        }
+        return $list;
+    }
+    
+    /**
+     * 创建包含指定元素的列表
+     * 
+     * @param ...elements 元素列表
+     * @return ArrayList<T>
+     */
+    public static function of<T>(...$elements): ArrayList<T> {
+        $list := new ArrayList<T>();
+        foreach ($elements as $item) {
+            $list->add($item);
+        }
+        return $list;
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        return $this->indexOf($element) >= 0;
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $this->data[$this->count] = $element;
+        $this->count++;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            $this->add($item);
+            $modified = true;
+        }
+        return $modified;
+    }
+    
+    public function remove(mixed $element): bool {
+        $index := $this->indexOf($element);
+        if ($index >= 0) {
+            $this->removeAt($index);
+            return true;
+        }
+        return false;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            while ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $i := 0;
+        while ($i < $this->count) {
+            if (!$collection->contains($this->data[$i])) {
+                $this->removeAt($i);
+                $modified = true;
+            } else {
+                $i++;
+            }
+        }
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        for ($i := 0; $i < $this->count; $i++) {
+            $result[$i] = $this->data[$i];
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // IList 实现
+    // ========================================================================
+    
+    public function get(int $index): mixed {
+        $this->checkIndex($index);
+        return $this->data[$index];
+    }
+    
+    public function set(int $index, mixed $element): mixed {
+        $this->checkIndex($index);
+        $old := $this->data[$index];
+        $this->data[$index] = $element;
+        return $old;
+    }
+    
+    public function insert(int $index, mixed $element): void {
+        $this->checkIndexForAdd($index);
+        
+        // 移动元素
+        for ($i := $this->count; $i > $index; $i--) {
+            $this->data[$i] = $this->data[$i - 1];
+        }
+        
+        $this->data[$index] = $element;
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    public function insertAll(int $index, ICollection<T> $collection): bool {
+        $this->checkIndexForAdd($index);
+        
+        $items := $collection->toArray();
+        $insertCount := len($items);
+        
+        if ($insertCount == 0) {
+            return false;
+        }
+        
+        // 移动现有元素
+        for ($i := $this->count - 1; $i >= $index; $i--) {
+            $this->data[$i + $insertCount] = $this->data[$i];
+        }
+        
+        // 插入新元素
+        for ($i := 0; $i < $insertCount; $i++) {
+            $this->data[$index + $i] = $items[$i];
+        }
+        
+        $this->count += $insertCount;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function removeAt(int $index): mixed {
+        $this->checkIndex($index);
+        
+        $old := $this->data[$index];
+        
+        // 移动元素
+        for ($i := $index; $i < $this->count - 1; $i++) {
+            $this->data[$i] = $this->data[$i + 1];
+        }
+        
+        $this->count--;
+        $this->modCount++;
+        return $old;
+    }
+    
+    public function indexOf(mixed $element): int {
+        for ($i := 0; $i < $this->count; $i++) {
+            if ($this->data[$i] == $element) {
+                return $i;
+            }
+        }
+        return -1;
+    }
+    
+    public function lastIndexOf(mixed $element): int {
+        for ($i := $this->count - 1; $i >= 0; $i--) {
+            if ($this->data[$i] == $element) {
+                return $i;
+            }
+        }
+        return -1;
+    }
+    
+    public function subList(int $fromIndex, int $toIndex): ArrayList<T> {
+        $this->checkRange($fromIndex, $toIndex);
+        
+        $sub := new ArrayList<T>();
+        for ($i := $fromIndex; $i < $toIndex; $i++) {
+            $sub->add($this->data[$i]);
+        }
+        return $sub;
+    }
+    
+    public function sort(IComparator<T> $comparator = null): void {
+        // 简单的冒泡排序实现
+        // TODO: 使用更高效的排序算法
+        for ($i := 0; $i < $this->count - 1; $i++) {
+            for ($j := 0; $j < $this->count - 1 - $i; $j++) {
+                $shouldSwap := false;
+                if ($comparator != null) {
+                    $shouldSwap = $comparator->compare($this->data[$j], $this->data[$j + 1]) > 0;
+                } else {
+                    $shouldSwap = $this->data[$j] > $this->data[$j + 1];
+                }
+                
+                if ($shouldSwap) {
+                    $temp := $this->data[$j];
+                    $this->data[$j] = $this->data[$j + 1];
+                    $this->data[$j + 1] = $temp;
+                }
+            }
+        }
+        $this->modCount++;
+    }
+    
+    public function reverse(): void {
+        $left := 0;
+        $right := $this->count - 1;
+        while ($left < $right) {
+            $temp := $this->data[$left];
+            $this->data[$left] = $this->data[$right];
+            $this->data[$right] = $temp;
+            $left++;
+            $right--;
+        }
+        $this->modCount++;
+    }
+    
+    public function first(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("List is empty");
+        }
+        return $this->data[0];
+    }
+    
+    public function last(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("List is empty");
+        }
+        return $this->data[$this->count - 1];
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): ArrayListIterator<T> {
+        return new ArrayListIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 确保容量足够
+     * 
+     * @param minCapacity 最小容量
+     */
+    public function ensureCapacity(int $minCapacity): void {
+        // 在 Sola 中数组是动态的，此方法仅为 API 兼容
+    }
+    
+    /**
+     * 缩减容量到实际大小
+     */
+    public function trimToSize(): void {
+        // 在 Sola 中数组是动态的，此方法仅为 API 兼容
+    }
+    
+    /**
+     * 克隆列表
+     * 
+     * @return 新的列表副本
+     */
+    public function clone(): ArrayList<T> {
+        $copy := new ArrayList<T>();
+        $copy->addAll($this);
+        return $copy;
+    }
+    
+    /**
+     * 使用过滤函数筛选元素
+     * 
+     * @param predicate 过滤函数
+     * @return 包含符合条件元素的新列表
+     */
+    public function filter(function(T $item): bool $predicate): ArrayList<T> {
+        $result := new ArrayList<T>();
+        foreach ($this as $item) {
+            if ($predicate($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 使用映射函数转换元素
+     * 
+     * @param mapper 映射函数
+     * @return 包含转换后元素的新列表
+     */
+    public function map<R>(function(T $item): R $mapper): ArrayList<R> {
+        $result := new ArrayList<R>();
+        foreach ($this as $item) {
+            $result->add($mapper($item));
+        }
+        return $result;
+    }
+    
+    /**
+     * 使用归约函数聚合元素
+     * 
+     * @param identity 初始值
+     * @param accumulator 累加函数
+     * @return 归约结果
+     */
+    public function reduce<R>(R $identity, function(R $acc, T $item): R $accumulator): R {
+        $result := $identity;
+        foreach ($this as $item) {
+            $result = $accumulator($result, $item);
+        }
+        return $result;
+    }
+    
+    /**
+     * 查找第一个满足条件的元素
+     * 
+     * @param predicate 条件函数
+     * @return 满足条件的元素，如果没有返回 null
+     */
+    public function find(function(T $item): bool $predicate): mixed {
+        foreach ($this as $item) {
+            if ($predicate($item)) {
+                return $item;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否任意元素满足条件
+     * 
+     * @param predicate 条件函数
+     * @return 如果有任意元素满足条件返回 true
+     */
+    public function any(function(T $item): bool $predicate): bool {
+        foreach ($this as $item) {
+            if ($predicate($item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 检查是否所有元素都满足条件
+     * 
+     * @param predicate 条件函数
+     * @return 如果所有元素都满足条件返回 true
+     */
+    public function all(function(T $item): bool $predicate): bool {
+        foreach ($this as $item) {
+            if (!$predicate($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    /**
+     * 对每个元素执行操作
+     * 
+     * @param action 要执行的操作
+     */
+    public function forEach(function(T $item): void $action): void {
+        foreach ($this as $item) {
+            $action($item);
+        }
+    }
+    
+    /**
+     * 使用分隔符连接所有元素
+     * 
+     * @param separator 分隔符
+     * @return 连接后的字符串
+     */
+    public function join(string $separator = ", "): string {
+        if ($this->count == 0) {
+            return "";
+        }
+        
+        $result := "" + $this->data[0];
+        for ($i := 1; $i < $this->count; $i++) {
+            $result = $result + $separator + $this->data[$i];
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function checkIndex(int $index): void {
+        if ($index < 0 || $index >= $this->count) {
+            throw new IndexOutOfBoundsException("Index: " + $index + ", Size: " + $this->count);
+        }
+    }
+    
+    private function checkIndexForAdd(int $index): void {
+        if ($index < 0 || $index > $this->count) {
+            throw new IndexOutOfBoundsException("Index: " + $index + ", Size: " + $this->count);
+        }
+    }
+    
+    private function checkRange(int $fromIndex, int $toIndex): void {
+        if ($fromIndex < 0) {
+            throw new IndexOutOfBoundsException("fromIndex: " + $fromIndex);
+        }
+        if ($toIndex > $this->count) {
+            throw new IndexOutOfBoundsException("toIndex: " + $toIndex);
+        }
+        if ($fromIndex > $toIndex) {
+            throw new IndexOutOfBoundsException("fromIndex(" + $fromIndex + ") > toIndex(" + $toIndex + ")");
+        }
+    }
+    
+    /**
+     * 获取内部数据（供迭代器使用）
+     */
+    public function getData(): array {
+        return $this->data;
+    }
+    
+    /**
+     * 获取修改计数（供迭代器使用）
+     */
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+}
+
+/**
+ * ArrayList 迭代器
+ */
+public class ArrayListIterator<T> implements IIterator<T> {
+    private ArrayList<T> $list;
+    private int $cursor;
+    private int $lastRet;
+    private int $expectedModCount;
+    
+    public function __construct(ArrayList<T> $list) {
+        $this->list = $list;
+        $this->cursor = 0;
+        $this->lastRet = -1;
+        $this->expectedModCount = $list->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->cursor < $this->list->size();
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        $this->lastRet = $this->cursor;
+        $this->cursor++;
+        return $this->list->get($this->lastRet);
+    }
+    
+    public function remove(): void {
+        if ($this->lastRet < 0) {
+            throw new InvalidOperationException("next() has not been called");
+        }
+        $this->checkForComodification();
+        
+        $this->list->removeAt($this->lastRet);
+        $this->cursor = $this->lastRet;
+        $this->lastRet = -1;
+        $this->expectedModCount = $this->list->getModCount();
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->list->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

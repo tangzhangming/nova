@@ -1,0 +1,201 @@
+// Sola 标准库 - 队列接口
+namespace sola.collections
+
+/**
+ * 队列接口
+ * 
+ * 先进先出（FIFO）的集合。
+ * 
+ * @template T 元素类型
+ */
+public interface IQueue<T> extends ICollection<T> {
+    
+    // ========================================================================
+    // 入队操作
+    // ========================================================================
+    
+    /**
+     * 将元素添加到队列尾部
+     * 
+     * @param element 要添加的元素
+     * @return 如果添加成功返回 true
+     * @throws InvalidOperationException 如果队列已满（容量受限的情况）
+     */
+    public function enqueue(T $element): bool;
+    
+    /**
+     * 尝试将元素添加到队列尾部
+     * 
+     * @param element 要添加的元素
+     * @return 如果添加成功返回 true，如果队列已满返回 false
+     */
+    public function offer(T $element): bool;
+    
+    // ========================================================================
+    // 出队操作
+    // ========================================================================
+    
+    /**
+     * 移除并返回队首元素
+     * 
+     * @return 队首元素
+     * @throws NoSuchElementException 如果队列为空
+     */
+    public function dequeue(): T;
+    
+    /**
+     * 尝试移除并返回队首元素
+     * 
+     * @return 队首元素，如果队列为空返回 null
+     */
+    public function poll(): T;
+    
+    // ========================================================================
+    // 查看操作
+    // ========================================================================
+    
+    /**
+     * 返回队首元素但不移除
+     * 
+     * @return 队首元素
+     * @throws NoSuchElementException 如果队列为空
+     */
+    public function front(): T;
+    
+    /**
+     * 尝试返回队首元素但不移除
+     * 
+     * @return 队首元素，如果队列为空返回 null
+     */
+    public function peek(): T;
+}
+
+/**
+ * 双端队列接口
+ * 
+ * 支持在两端添加和移除元素。
+ * 
+ * @template T 元素类型
+ */
+public interface IDeque<T> extends IQueue<T> {
+    
+    // ========================================================================
+    // 头部操作
+    // ========================================================================
+    
+    /**
+     * 在队首添加元素
+     * 
+     * @param element 要添加的元素
+     * @throws InvalidOperationException 如果队列已满
+     */
+    public function addFirst(T $element): void;
+    
+    /**
+     * 尝试在队首添加元素
+     * 
+     * @param element 要添加的元素
+     * @return 如果添加成功返回 true
+     */
+    public function offerFirst(T $element): bool;
+    
+    /**
+     * 移除并返回队首元素
+     * 
+     * @return 队首元素
+     * @throws NoSuchElementException 如果队列为空
+     */
+    public function removeFirst(): T;
+    
+    /**
+     * 尝试移除并返回队首元素
+     * 
+     * @return 队首元素，如果为空返回 null
+     */
+    public function pollFirst(): T;
+    
+    /**
+     * 获取队首元素
+     * 
+     * @return 队首元素
+     * @throws NoSuchElementException 如果队列为空
+     */
+    public function getFirst(): T;
+    
+    /**
+     * 尝试获取队首元素
+     * 
+     * @return 队首元素，如果为空返回 null
+     */
+    public function peekFirst(): T;
+    
+    // ========================================================================
+    // 尾部操作
+    // ========================================================================
+    
+    /**
+     * 在队尾添加元素
+     * 
+     * @param element 要添加的元素
+     * @throws InvalidOperationException 如果队列已满
+     */
+    public function addLast(T $element): void;
+    
+    /**
+     * 尝试在队尾添加元素
+     * 
+     * @param element 要添加的元素
+     * @return 如果添加成功返回 true
+     */
+    public function offerLast(T $element): bool;
+    
+    /**
+     * 移除并返回队尾元素
+     * 
+     * @return 队尾元素
+     * @throws NoSuchElementException 如果队列为空
+     */
+    public function removeLast(): T;
+    
+    /**
+     * 尝试移除并返回队尾元素
+     * 
+     * @return 队尾元素，如果为空返回 null
+     */
+    public function pollLast(): T;
+    
+    /**
+     * 获取队尾元素
+     * 
+     * @return 队尾元素
+     * @throws NoSuchElementException 如果队列为空
+     */
+    public function getLast(): T;
+    
+    /**
+     * 尝试获取队尾元素
+     * 
+     * @return 队尾元素，如果为空返回 null
+     */
+    public function peekLast(): T;
+    
+    // ========================================================================
+    // 栈操作（双端队列可以当栈使用）
+    // ========================================================================
+    
+    /**
+     * 压入元素（等同于 addFirst）
+     * 
+     * @param element 要压入的元素
+     */
+    public function push(T $element): void;
+    
+    /**
+     * 弹出元素（等同于 removeFirst）
+     * 
+     * @return 弹出的元素
+     * @throws NoSuchElementException 如果为空
+     */
+    public function pop(): T;
+}
+

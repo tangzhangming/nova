@@ -1,0 +1,17 @@
+// Sola 标准库 - 并发修改异常
+namespace sola.collections
+
+use sola.lang.RuntimeException;
+
+/**
+ * 并发修改异常
+ * 
+ * 当集合在迭代过程中被修改时抛出。
+ */
+public class ConcurrentModificationException extends RuntimeException {
+    
+    public function __construct(string $message = "Collection was modified during iteration") {
+        parent::__construct($message);
+    }
+}
+

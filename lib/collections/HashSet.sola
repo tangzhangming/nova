@@ -1,0 +1,388 @@
+// Sola 标准库 - 哈希集合
+namespace sola.collections
+
+/**
+ * 哈希集合
+ * 
+ * 基于哈希表实现的集合，不保证顺序。
+ * 
+ * 特点：
+ * - 添加/删除/查找 O(1) 平均
+ * - 不保证迭代顺序
+ * - 不允许重复元素
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.HashSet;
+ * 
+ * $set := new HashSet<int>();
+ * $set->add(1);
+ * $set->add(2);
+ * $set->add(1);  // 忽略，已存在
+ * 
+ * echo $set->size();      // 2
+ * echo $set->contains(1); // true
+ * ```
+ */
+public class HashSet<T> implements ISet<T> {
+    
+    /** 内部存储（使用 SuperArray 模拟哈希表） */
+    private array $data;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空的哈希集合
+     */
+    public function __construct() {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建集合
+     */
+    public static function fromArray<T>(array $array): HashSet<T> {
+        $set := new HashSet<T>();
+        foreach ($array as $item) {
+            $set->add($item);
+        }
+        return $set;
+    }
+    
+    /**
+     * 创建包含指定元素的集合
+     */
+    public static function of<T>(...$elements): HashSet<T> {
+        $set := new HashSet<T>();
+        foreach ($elements as $item) {
+            $set->add($item);
+        }
+        return $set;
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        $key := $this->hashKey($element);
+        return isset($this->data[$key]);
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $key := $this->hashKey($element);
+        if (isset($this->data[$key])) {
+            return false;  // 已存在
+        }
+        $this->data[$key] = $element;
+        $this->count++;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            if ($this->add($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function remove(mixed $element): bool {
+        $key := $this->hashKey($element);
+        if (!isset($this->data[$key])) {
+            return false;
+        }
+        unset($this->data[$key]);
+        $this->count--;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            if ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $toRemove := [];
+        
+        foreach ($this->data as $key => $value) {
+            if (!$collection->contains($value)) {
+                $toRemove[] = $value;
+            }
+        }
+        
+        foreach ($toRemove as $item) {
+            $this->remove($item);
+            $modified = true;
+        }
+        
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        $i := 0;
+        foreach ($this->data as $value) {
+            $result[$i] = $value;
+            $i++;
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // ISet 实现
+    // ========================================================================
+    
+    public function union(ISet<T> $other): HashSet<T> {
+        $result := new HashSet<T>();
+        $result->addAll($this);
+        $result->addAll($other);
+        return $result;
+    }
+    
+    public function intersection(ISet<T> $other): HashSet<T> {
+        $result := new HashSet<T>();
+        foreach ($this as $item) {
+            if ($other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    public function difference(ISet<T> $other): HashSet<T> {
+        $result := new HashSet<T>();
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    public function symmetricDifference(ISet<T> $other): HashSet<T> {
+        $result := new HashSet<T>();
+        
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        
+        foreach ($other as $item) {
+            if (!$this->contains($item)) {
+                $result->add($item);
+            }
+        }
+        
+        return $result;
+    }
+    
+    public function isSubsetOf(ISet<T> $other): bool {
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function isSupersetOf(ISet<T> $other): bool {
+        foreach ($other as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function isProperSubsetOf(ISet<T> $other): bool {
+        return $this->size() < $other->size() && $this->isSubsetOf($other);
+    }
+    
+    public function isProperSupersetOf(ISet<T> $other): bool {
+        return $this->size() > $other->size() && $this->isSupersetOf($other);
+    }
+    
+    public function overlaps(ISet<T> $other): bool {
+        foreach ($this as $item) {
+            if ($other->contains($item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function setEquals(ISet<T> $other): bool {
+        return $this->size() == $other->size() && $this->isSubsetOf($other);
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): HashSetIterator<T> {
+        return new HashSetIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆集合
+     */
+    public function clone(): HashSet<T> {
+        $copy := new HashSet<T>();
+        $copy->addAll($this);
+        return $copy;
+    }
+    
+    /**
+     * 使用过滤函数筛选元素
+     */
+    public function filter(function(T $item): bool $predicate): HashSet<T> {
+        $result := new HashSet<T>();
+        foreach ($this as $item) {
+            if ($predicate($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 对每个元素执行操作
+     */
+    public function forEach(function(T $item): void $action): void {
+        foreach ($this as $item) {
+            $action($item);
+        }
+    }
+    
+    /**
+     * 获取内部数据（供迭代器使用）
+     */
+    public function getData(): array {
+        return $this->data;
+    }
+    
+    /**
+     * 获取修改计数
+     */
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function hashKey(mixed $element): string {
+        // 使用字符串表示作为键
+        return "_" + $element;
+    }
+}
+
+/**
+ * HashSet 迭代器
+ */
+public class HashSetIterator<T> implements IIterator<T> {
+    private HashSet<T> $set;
+    private array $keys;
+    private int $index;
+    private int $expectedModCount;
+    private mixed $lastReturned;
+    
+    public function __construct(HashSet<T> $set) {
+        $this->set = $set;
+        $this->keys = [];
+        $this->index = 0;
+        $this->expectedModCount = $set->getModCount();
+        $this->lastReturned = null;
+        
+        // 收集所有键
+        $data := $set->getData();
+        $i := 0;
+        foreach ($data as $key => $value) {
+            $this->keys[$i] = $key;
+            $i++;
+        }
+    }
+    
+    public function hasNext(): bool {
+        return $this->index < len($this->keys);
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $data := $this->set->getData();
+        $key := $this->keys[$this->index];
+        $this->lastReturned = $data[$key];
+        $this->index++;
+        return $this->lastReturned;
+    }
+    
+    public function remove(): void {
+        if ($this->lastReturned == null) {
+            throw new InvalidOperationException("next() has not been called");
+        }
+        $this->checkForComodification();
+        
+        $this->set->remove($this->lastReturned);
+        $this->lastReturned = null;
+        $this->expectedModCount = $this->set->getModCount();
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->set->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

@@ -1,0 +1,589 @@
+// Sola 标准库 - 集合工具类
+namespace sola.collections
+
+/**
+ * 集合工具类
+ * 
+ * 提供各种集合操作的静态工具方法。
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.{ArrayList, Collections};
+ * 
+ * $list := ArrayList::of(3, 1, 4, 1, 5, 9);
+ * Collections::sort($list);
+ * Collections::reverse($list);
+ * Collections::shuffle($list);
+ * 
+ * echo Collections::max($list);
+ * echo Collections::min($list);
+ * ```
+ */
+public class Collections {
+    
+    // ========================================================================
+    // 排序
+    // ========================================================================
+    
+    /**
+     * 对列表进行原地排序
+     * 
+     * @param list 要排序的列表
+     * @param comparator 比较器（可选）
+     */
+    public static function sort<T>(IList<T> $list, IComparator<T> $comparator = null): void {
+        $list->sort($comparator);
+    }
+    
+    /**
+     * 对数组进行原地排序
+     * 
+     * @param array 要排序的数组
+     * @param comparator 比较器（可选）
+     */
+    public static function sortArray<T>(array $arr, IComparator<T> $comparator = null): void {
+        $n := len($arr);
+        Collections::quickSort($arr, 0, $n - 1, $comparator);
+    }
+    
+    /**
+     * 返回排序后的新数组（不修改原数组）
+     */
+    public static function sorted<T>(array $arr, IComparator<T> $comparator = null): array {
+        $result := [];
+        $n := len($arr);
+        for ($i := 0; $i < $n; $i++) {
+            $result[$i] = $arr[$i];
+        }
+        Collections::sortArray($result, $comparator);
+        return $result;
+    }
+    
+    // ========================================================================
+    // 反转和洗牌
+    // ========================================================================
+    
+    /**
+     * 反转列表
+     * 
+     * @param list 要反转的列表
+     */
+    public static function reverse<T>(IList<T> $list): void {
+        $list->reverse();
+    }
+    
+    /**
+     * 反转数组
+     */
+    public static function reverseArray<T>(array $arr): void {
+        $n := len($arr);
+        $left := 0;
+        $right := $n - 1;
+        while ($left < $right) {
+            $temp := $arr[$left];
+            $arr[$left] = $arr[$right];
+            $arr[$right] = $temp;
+            $left++;
+            $right--;
+        }
+    }
+    
+    /**
+     * 随机打乱列表
+     * 
+     * @param list 要打乱的列表
+     */
+    public static function shuffle<T>(IList<T> $list): void {
+        $n := $list->size();
+        for ($i := $n - 1; $i > 0; $i--) {
+            $j := native_random_int(0, $i);
+            // 交换
+            $temp := $list->get($i);
+            $list->set($i, $list->get($j));
+            $list->set($j, $temp);
+        }
+    }
+    
+    /**
+     * 随机打乱数组
+     */
+    public static function shuffleArray<T>(array $arr): void {
+        $n := len($arr);
+        for ($i := $n - 1; $i > 0; $i--) {
+            $j := native_random_int(0, $i);
+            $temp := $arr[$i];
+            $arr[$i] = $arr[$j];
+            $arr[$j] = $temp;
+        }
+    }
+    
+    // ========================================================================
+    // 查找极值
+    // ========================================================================
+    
+    /**
+     * 返回集合中的最大元素
+     * 
+     * @param collection 集合
+     * @param comparator 比较器（可选）
+     * @return 最大元素
+     * @throws NoSuchElementException 如果集合为空
+     */
+    public static function max<T>(ICollection<T> $collection, IComparator<T> $comparator = null): mixed {
+        if ($collection->isEmpty()) {
+            throw new NoSuchElementException("Collection is empty");
+        }
+        
+        $max := null;
+        $first := true;
+        
+        foreach ($collection as $item) {
+            if ($first) {
+                $max = $item;
+                $first = false;
+            } else {
+                if (Collections::compareElements($item, $max, $comparator) > 0) {
+                    $max = $item;
+                }
+            }
+        }
+        
+        return $max;
+    }
+    
+    /**
+     * 返回集合中的最小元素
+     * 
+     * @param collection 集合
+     * @param comparator 比较器（可选）
+     * @return 最小元素
+     * @throws NoSuchElementException 如果集合为空
+     */
+    public static function min<T>(ICollection<T> $collection, IComparator<T> $comparator = null): mixed {
+        if ($collection->isEmpty()) {
+            throw new NoSuchElementException("Collection is empty");
+        }
+        
+        $min := null;
+        $first := true;
+        
+        foreach ($collection as $item) {
+            if ($first) {
+                $min = $item;
+                $first = false;
+            } else {
+                if (Collections::compareElements($item, $min, $comparator) < 0) {
+                    $min = $item;
+                }
+            }
+        }
+        
+        return $min;
+    }
+    
+    /**
+     * 返回数组中的最大元素
+     */
+    public static function maxArray<T>(array $arr, IComparator<T> $comparator = null): mixed {
+        $n := len($arr);
+        if ($n == 0) {
+            throw new NoSuchElementException("Array is empty");
+        }
+        
+        $max := $arr[0];
+        for ($i := 1; $i < $n; $i++) {
+            if (Collections::compareElements($arr[$i], $max, $comparator) > 0) {
+                $max = $arr[$i];
+            }
+        }
+        return $max;
+    }
+    
+    /**
+     * 返回数组中的最小元素
+     */
+    public static function minArray<T>(array $arr, IComparator<T> $comparator = null): mixed {
+        $n := len($arr);
+        if ($n == 0) {
+            throw new NoSuchElementException("Array is empty");
+        }
+        
+        $min := $arr[0];
+        for ($i := 1; $i < $n; $i++) {
+            if (Collections::compareElements($arr[$i], $min, $comparator) < 0) {
+                $min = $arr[$i];
+            }
+        }
+        return $min;
+    }
+    
+    // ========================================================================
+    // 搜索
+    // ========================================================================
+    
+    /**
+     * 在有序列表中二分查找
+     * 
+     * @param list 有序列表
+     * @param key 要查找的键
+     * @param comparator 比较器（可选）
+     * @return 找到则返回索引，否则返回 -(插入点 + 1)
+     */
+    public static function binarySearch<T>(IList<T> $list, T $key, IComparator<T> $comparator = null): int {
+        $low := 0;
+        $high := $list->size() - 1;
+        
+        while ($low <= $high) {
+            $mid := ($low + $high) / 2;
+            $midVal := $list->get($mid);
+            $cmp := Collections::compareElements($midVal, $key, $comparator);
+            
+            if ($cmp < 0) {
+                $low = $mid + 1;
+            } else if ($cmp > 0) {
+                $high = $mid - 1;
+            } else {
+                return $mid;
+            }
+        }
+        
+        return -($low + 1);
+    }
+    
+    /**
+     * 在有序数组中二分查找
+     */
+    public static function binarySearchArray<T>(array $arr, T $key, IComparator<T> $comparator = null): int {
+        $low := 0;
+        $high := len($arr) - 1;
+        
+        while ($low <= $high) {
+            $mid := ($low + $high) / 2;
+            $cmp := Collections::compareElements($arr[$mid], $key, $comparator);
+            
+            if ($cmp < 0) {
+                $low = $mid + 1;
+            } else if ($cmp > 0) {
+                $high = $mid - 1;
+            } else {
+                return $mid;
+            }
+        }
+        
+        return -($low + 1);
+    }
+    
+    /**
+     * 计算元素在集合中出现的次数
+     * 
+     * @param collection 集合
+     * @param element 要计数的元素
+     * @return 出现次数
+     */
+    public static function frequency<T>(ICollection<T> $collection, T $element): int {
+        $count := 0;
+        foreach ($collection as $item) {
+            if ($item == $element) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+    
+    /**
+     * 检查两个集合是否有共同元素
+     * 
+     * @param c1 第一个集合
+     * @param c2 第二个集合
+     * @return 如果没有共同元素返回 true
+     */
+    public static function disjoint<T>(ICollection<T> $c1, ICollection<T> $c2): bool {
+        foreach ($c1 as $item) {
+            if ($c2->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    // ========================================================================
+    // 填充和替换
+    // ========================================================================
+    
+    /**
+     * 用指定值填充列表
+     * 
+     * @param list 要填充的列表
+     * @param value 填充值
+     */
+    public static function fill<T>(IList<T> $list, T $value): void {
+        $n := $list->size();
+        for ($i := 0; $i < $n; $i++) {
+            $list->set($i, $value);
+        }
+    }
+    
+    /**
+     * 用指定值填充数组
+     */
+    public static function fillArray<T>(array $arr, T $value): void {
+        $n := len($arr);
+        for ($i := 0; $i < $n; $i++) {
+            $arr[$i] = $value;
+        }
+    }
+    
+    /**
+     * 替换列表中所有匹配的元素
+     * 
+     * @param list 列表
+     * @param oldVal 旧值
+     * @param newVal 新值
+     * @return 如果有替换发生返回 true
+     */
+    public static function replaceAll<T>(IList<T> $list, T $oldVal, T $newVal): bool {
+        $replaced := false;
+        $n := $list->size();
+        for ($i := 0; $i < $n; $i++) {
+            if ($list->get($i) == $oldVal) {
+                $list->set($i, $newVal);
+                $replaced = true;
+            }
+        }
+        return $replaced;
+    }
+    
+    // ========================================================================
+    // 复制和旋转
+    // ========================================================================
+    
+    /**
+     * 将源集合的元素复制到目标列表
+     * 
+     * @param dest 目标列表（必须足够大）
+     * @param src 源集合
+     */
+    public static function copy<T>(IList<T> $dest, ICollection<T> $src): void {
+        $i := 0;
+        foreach ($src as $item) {
+            $dest->set($i, $item);
+            $i++;
+        }
+    }
+    
+    /**
+     * 旋转列表
+     * 
+     * @param list 要旋转的列表
+     * @param distance 旋转距离（正数向右，负数向左）
+     */
+    public static function rotate<T>(IList<T> $list, int $distance): void {
+        $size := $list->size();
+        if ($size == 0) {
+            return;
+        }
+        
+        $distance = $distance % $size;
+        if ($distance < 0) {
+            $distance = $distance + $size;
+        }
+        
+        if ($distance == 0) {
+            return;
+        }
+        
+        // 三次反转算法
+        Collections::reverseRange($list, 0, $size);
+        Collections::reverseRange($list, 0, $distance);
+        Collections::reverseRange($list, $distance, $size);
+    }
+    
+    // ========================================================================
+    // 生成
+    // ========================================================================
+    
+    /**
+     * 创建包含 n 个相同元素的列表
+     * 
+     * @param n 元素数量
+     * @param element 元素
+     * @return 新列表
+     */
+    public static function nCopies<T>(int $n, T $element): ArrayList<T> {
+        $list := new ArrayList<T>();
+        for ($i := 0; $i < $n; $i++) {
+            $list->add($element);
+        }
+        return $list;
+    }
+    
+    /**
+     * 创建空列表
+     */
+    public static function emptyList<T>(): ArrayList<T> {
+        return new ArrayList<T>();
+    }
+    
+    /**
+     * 创建空集合
+     */
+    public static function emptySet<T>(): HashSet<T> {
+        return new HashSet<T>();
+    }
+    
+    /**
+     * 创建空映射
+     */
+    public static function emptyMap<K, V>(): HashMap<K, V> {
+        return new HashMap<K, V>();
+    }
+    
+    /**
+     * 创建包含单个元素的列表
+     */
+    public static function singletonList<T>(T $element): ArrayList<T> {
+        $list := new ArrayList<T>();
+        $list->add($element);
+        return $list;
+    }
+    
+    /**
+     * 创建包含单个元素的集合
+     */
+    public static function singleton<T>(T $element): HashSet<T> {
+        $set := new HashSet<T>();
+        $set->add($element);
+        return $set;
+    }
+    
+    /**
+     * 创建包含单个键值对的映射
+     */
+    public static function singletonMap<K, V>(K $key, V $value): HashMap<K, V> {
+        $map := new HashMap<K, V>();
+        $map->put($key, $value);
+        return $map;
+    }
+    
+    // ========================================================================
+    // 统计
+    // ========================================================================
+    
+    /**
+     * 计算数值集合的和
+     */
+    public static function sum(ICollection<int> $collection): int {
+        $total := 0;
+        foreach ($collection as $item) {
+            $total = $total + $item;
+        }
+        return $total;
+    }
+    
+    /**
+     * 计算浮点数集合的和
+     */
+    public static function sumFloat(ICollection<float> $collection): float {
+        $total := 0.0;
+        foreach ($collection as $item) {
+            $total = $total + $item;
+        }
+        return $total;
+    }
+    
+    /**
+     * 计算数值集合的平均值
+     */
+    public static function average(ICollection<int> $collection): float {
+        if ($collection->isEmpty()) {
+            return 0.0;
+        }
+        return Collections::sum($collection) * 1.0 / $collection->size();
+    }
+    
+    // ========================================================================
+    // 转换
+    // ========================================================================
+    
+    /**
+     * 将数组转换为 ArrayList
+     */
+    public static function asList<T>(array $arr): ArrayList<T> {
+        return ArrayList::fromArray($arr);
+    }
+    
+    /**
+     * 将数组转换为 HashSet
+     */
+    public static function asSet<T>(array $arr): HashSet<T> {
+        return HashSet::fromArray($arr);
+    }
+    
+    /**
+     * 连接多个集合
+     */
+    public static function concat<T>(ICollection<T> ...$collections): ArrayList<T> {
+        $result := new ArrayList<T>();
+        foreach ($collections as $collection) {
+            $result->addAll($collection);
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private static function compareElements<T>(mixed $a, mixed $b, IComparator<T> $comparator): int {
+        if ($comparator != null) {
+            return $comparator->compare($a, $b);
+        }
+        if ($a < $b) {
+            return -1;
+        } else if ($a > $b) {
+            return 1;
+        }
+        return 0;
+    }
+    
+    private static function reverseRange<T>(IList<T> $list, int $from, int $to): void {
+        $left := $from;
+        $right := $to - 1;
+        while ($left < $right) {
+            $temp := $list->get($left);
+            $list->set($left, $list->get($right));
+            $list->set($right, $temp);
+            $left++;
+            $right--;
+        }
+    }
+    
+    private static function quickSort<T>(array $arr, int $low, int $high, IComparator<T> $comparator): void {
+        if ($low < $high) {
+            $pivot := Collections::partition($arr, $low, $high, $comparator);
+            Collections::quickSort($arr, $low, $pivot - 1, $comparator);
+            Collections::quickSort($arr, $pivot + 1, $high, $comparator);
+        }
+    }
+    
+    private static function partition<T>(array $arr, int $low, int $high, IComparator<T> $comparator): int {
+        $pivot := $arr[$high];
+        $i := $low - 1;
+        
+        for ($j := $low; $j < $high; $j++) {
+            if (Collections::compareElements($arr[$j], $pivot, $comparator) <= 0) {
+                $i++;
+                $temp := $arr[$i];
+                $arr[$i] = $arr[$j];
+                $arr[$j] = $temp;
+            }
+        }
+        
+        $temp := $arr[$i + 1];
+        $arr[$i + 1] = $arr[$high];
+        $arr[$high] = $temp;
+        
+        return $i + 1;
+    }
+}
+

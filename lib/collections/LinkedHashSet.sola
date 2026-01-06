@@ -1,0 +1,360 @@
+// Sola 标准库 - 有序哈希集合
+namespace sola.collections
+
+/**
+ * 有序哈希集合
+ * 
+ * 保持插入顺序的哈希集合。
+ * 
+ * 特点：
+ * - 添加/删除/查找 O(1) 平均
+ * - 保持插入顺序
+ * - 不允许重复元素
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.LinkedHashSet;
+ * 
+ * $set := new LinkedHashSet<string>();
+ * $set->add("c");
+ * $set->add("a");
+ * $set->add("b");
+ * 
+ * foreach ($set as $item) {
+ *     echo $item;  // c, a, b (保持插入顺序)
+ * }
+ * ```
+ */
+public class LinkedHashSet<T> implements ISet<T> {
+    
+    /** 元素存储（保持顺序） */
+    private array $elements;
+    
+    /** 快速查找索引 */
+    private array $index;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空的有序哈希集合
+     */
+    public function __construct() {
+        $this->elements = [];
+        $this->index = [];
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建
+     */
+    public static function fromArray<T>(array $array): LinkedHashSet<T> {
+        $set := new LinkedHashSet<T>();
+        foreach ($array as $item) {
+            $set->add($item);
+        }
+        return $set;
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        $key := $this->hashKey($element);
+        return isset($this->index[$key]);
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $key := $this->hashKey($element);
+        if (isset($this->index[$key])) {
+            return false;
+        }
+        
+        $this->elements[$this->count] = $element;
+        $this->index[$key] = $this->count;
+        $this->count++;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            if ($this->add($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function remove(mixed $element): bool {
+        $key := $this->hashKey($element);
+        if (!isset($this->index[$key])) {
+            return false;
+        }
+        
+        $idx := $this->index[$key];
+        unset($this->index[$key]);
+        
+        // 移动后面的元素
+        for ($i := $idx; $i < $this->count - 1; $i++) {
+            $this->elements[$i] = $this->elements[$i + 1];
+            $k := $this->hashKey($this->elements[$i]);
+            $this->index[$k] = $i;
+        }
+        
+        $this->count--;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            if ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $i := 0;
+        while ($i < $this->count) {
+            if (!$collection->contains($this->elements[$i])) {
+                $this->remove($this->elements[$i]);
+                $modified = true;
+            } else {
+                $i++;
+            }
+        }
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->elements = [];
+        $this->index = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        for ($i := 0; $i < $this->count; $i++) {
+            $result[$i] = $this->elements[$i];
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // ISet 实现
+    // ========================================================================
+    
+    public function union(ISet<T> $other): LinkedHashSet<T> {
+        $result := new LinkedHashSet<T>();
+        $result->addAll($this);
+        $result->addAll($other);
+        return $result;
+    }
+    
+    public function intersection(ISet<T> $other): LinkedHashSet<T> {
+        $result := new LinkedHashSet<T>();
+        foreach ($this as $item) {
+            if ($other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    public function difference(ISet<T> $other): LinkedHashSet<T> {
+        $result := new LinkedHashSet<T>();
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    public function symmetricDifference(ISet<T> $other): LinkedHashSet<T> {
+        $result := new LinkedHashSet<T>();
+        
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        
+        foreach ($other as $item) {
+            if (!$this->contains($item)) {
+                $result->add($item);
+            }
+        }
+        
+        return $result;
+    }
+    
+    public function isSubsetOf(ISet<T> $other): bool {
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function isSupersetOf(ISet<T> $other): bool {
+        foreach ($other as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function isProperSubsetOf(ISet<T> $other): bool {
+        return $this->size() < $other->size() && $this->isSubsetOf($other);
+    }
+    
+    public function isProperSupersetOf(ISet<T> $other): bool {
+        return $this->size() > $other->size() && $this->isSupersetOf($other);
+    }
+    
+    public function overlaps(ISet<T> $other): bool {
+        foreach ($this as $item) {
+            if ($other->contains($item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function setEquals(ISet<T> $other): bool {
+        return $this->size() == $other->size() && $this->isSubsetOf($other);
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): LinkedHashSetIterator<T> {
+        return new LinkedHashSetIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 获取第一个元素
+     */
+    public function first(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Set is empty");
+        }
+        return $this->elements[0];
+    }
+    
+    /**
+     * 获取最后一个元素
+     */
+    public function last(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Set is empty");
+        }
+        return $this->elements[$this->count - 1];
+    }
+    
+    /**
+     * 克隆集合
+     */
+    public function clone(): LinkedHashSet<T> {
+        $copy := new LinkedHashSet<T>();
+        $copy->addAll($this);
+        return $copy;
+    }
+    
+    public function getElements(): array {
+        return $this->elements;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function hashKey(mixed $element): string {
+        return "_" + $element;
+    }
+}
+
+/**
+ * LinkedHashSet 迭代器
+ */
+public class LinkedHashSetIterator<T> implements IIterator<T> {
+    private LinkedHashSet<T> $set;
+    private int $index;
+    private int $expectedModCount;
+    
+    public function __construct(LinkedHashSet<T> $set) {
+        $this->set = $set;
+        $this->index = 0;
+        $this->expectedModCount = $set->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->index < $this->set->size();
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $elements := $this->set->getElements();
+        $element := $elements[$this->index];
+        $this->index++;
+        return $element;
+    }
+    
+    public function remove(): void {
+        throw new UnsupportedOperationException("Remove not supported during iteration");
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->set->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

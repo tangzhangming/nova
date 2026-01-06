@@ -1,0 +1,68 @@
+// Sola 标准库 - HTTP 方法常量
+namespace sola.net.http
+
+/**
+ * HTTP 方法常量
+ * 
+ * 定义标准 HTTP 请求方法及相关工具函数。
+ */
+public class HttpMethod {
+    
+    // 标准方法
+    public const string GET = "GET";
+    public const string POST = "POST";
+    public const string PUT = "PUT";
+    public const string DELETE = "DELETE";
+    public const string PATCH = "PATCH";
+    public const string HEAD = "HEAD";
+    public const string OPTIONS = "OPTIONS";
+    public const string TRACE = "TRACE";
+    public const string CONNECT = "CONNECT";
+    
+    /**
+     * 检查是否为有效的 HTTP 方法
+     */
+    public static function isValid(string $method): bool {
+        return $method == HttpMethod::GET
+            || $method == HttpMethod::POST
+            || $method == HttpMethod::PUT
+            || $method == HttpMethod::DELETE
+            || $method == HttpMethod::PATCH
+            || $method == HttpMethod::HEAD
+            || $method == HttpMethod::OPTIONS
+            || $method == HttpMethod::TRACE
+            || $method == HttpMethod::CONNECT;
+    }
+    
+    /**
+     * 检查是否为安全方法（不会修改资源）
+     */
+    public static function isSafe(string $method): bool {
+        return $method == HttpMethod::GET
+            || $method == HttpMethod::HEAD
+            || $method == HttpMethod::OPTIONS
+            || $method == HttpMethod::TRACE;
+    }
+    
+    /**
+     * 检查是否为幂等方法（多次执行结果相同）
+     */
+    public static function isIdempotent(string $method): bool {
+        return $method == HttpMethod::GET
+            || $method == HttpMethod::HEAD
+            || $method == HttpMethod::PUT
+            || $method == HttpMethod::DELETE
+            || $method == HttpMethod::OPTIONS
+            || $method == HttpMethod::TRACE;
+    }
+    
+    /**
+     * 检查方法是否允许请求体
+     */
+    public static function allowsBody(string $method): bool {
+        return $method == HttpMethod::POST
+            || $method == HttpMethod::PUT
+            || $method == HttpMethod::PATCH;
+    }
+}
+

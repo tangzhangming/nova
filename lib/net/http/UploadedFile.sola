@@ -1,0 +1,394 @@
+// Sola 标准库 - 上传文件
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.io.{File, Stream};
+
+/**
+ * 上传文件
+ * 
+ * 表示通过 HTTP multipart/form-data 上传的文件。
+ */
+public class UploadedFile {
+    
+    // ========================================================================
+    // 错误码常量
+    // ========================================================================
+    
+    /** 上传成功 */
+    public const int UPLOAD_ERR_OK = 0;
+    
+    /** 超过 php.ini 中 upload_max_filesize 限制 */
+    public const int UPLOAD_ERR_INI_SIZE = 1;
+    
+    /** 超过表单中 MAX_FILE_SIZE 限制 */
+    public const int UPLOAD_ERR_FORM_SIZE = 2;
+    
+    /** 文件只上传了部分 */
+    public const int UPLOAD_ERR_PARTIAL = 3;
+    
+    /** 没有文件被上传 */
+    public const int UPLOAD_ERR_NO_FILE = 4;
+    
+    /** 找不到临时目录 */
+    public const int UPLOAD_ERR_NO_TMP_DIR = 6;
+    
+    /** 写入磁盘失败 */
+    public const int UPLOAD_ERR_CANT_WRITE = 7;
+    
+    /** 扩展程序中断了上传 */
+    public const int UPLOAD_ERR_EXTENSION = 8;
+    
+    // ========================================================================
+    // 属性
+    // ========================================================================
+    
+    /** 原始文件名（客户端提供） */
+    private string $clientName;
+    
+    /** 文件大小（字节） */
+    private int $size;
+    
+    /** MIME 类型 */
+    private string $contentType;
+    
+    /** 临时文件路径 */
+    private string $tmpPath;
+    
+    /** 错误码 */
+    private int $error;
+    
+    /** 是否已移动 */
+    private bool $moved;
+    
+    /**
+     * 构造上传文件
+     */
+    public function __construct(
+        string $clientName,
+        string $contentType,
+        string $tmpPath,
+        int $size,
+        int $error = 0
+    ) {
+        $this->clientName = $clientName;
+        $this->contentType = $contentType;
+        $this->tmpPath = $tmpPath;
+        $this->size = $size;
+        $this->error = $error;
+        $this->moved = false;
+    }
+    
+    // ========================================================================
+    // 文件信息
+    // ========================================================================
+    
+    /**
+     * 获取原始文件名（客户端文件名）
+     */
+    public function getName(): string {
+        return $this->clientName;
+    }
+    
+    /**
+     * 获取客户端文件名（别名）
+     */
+    public function getClientName(): string {
+        return $this->clientName;
+    }
+    
+    /**
+     * 获取文件大小（字节）
+     */
+    public function getSize(): int {
+        return $this->size;
+    }
+    
+    /**
+     * 获取 MIME 类型
+     */
+    public function getContentType(): string {
+        return $this->contentType;
+    }
+    
+    /**
+     * 获取 MIME 类型（别名）
+     */
+    public function getMimeType(): string {
+        return $this->contentType;
+    }
+    
+    /**
+     * 获取文件扩展名（从文件名提取）
+     */
+    public function getExtension(): string {
+        $dotPos := Str::lastIndexOf($this->clientName, ".");
+        if ($dotPos < 0) {
+            return "";
+        }
+        return Str::toLowerCase(Str::substring($this->clientName, $dotPos + 1, Str::length($this->clientName)));
+    }
+    
+    /**
+     * 获取临时文件路径
+     */
+    public function getTmpPath(): string {
+        return $this->tmpPath;
+    }
+    
+    /**
+     * 获取临时文件名（别名）
+     */
+    public function getTmpName(): string {
+        return $this->tmpPath;
+    }
+    
+    // ========================================================================
+    // 错误处理
+    // ========================================================================
+    
+    /**
+     * 获取错误码
+     */
+    public function getError(): int {
+        return $this->error;
+    }
+    
+    /**
+     * 获取错误信息
+     */
+    public function getErrorMessage(): string {
+        if ($this->error == UploadedFile::UPLOAD_ERR_OK) {
+            return "";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_INI_SIZE) {
+            return "The uploaded file exceeds the server limit";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_FORM_SIZE) {
+            return "The uploaded file exceeds the form limit";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_PARTIAL) {
+            return "The uploaded file was only partially uploaded";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_NO_FILE) {
+            return "No file was uploaded";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_NO_TMP_DIR) {
+            return "Missing a temporary folder";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_CANT_WRITE) {
+            return "Failed to write file to disk";
+        }
+        if ($this->error == UploadedFile::UPLOAD_ERR_EXTENSION) {
+            return "A extension stopped the file upload";
+        }
+        return "Unknown upload error";
+    }
+    
+    /**
+     * 检查上传是否成功
+     */
+    public function isValid(): bool {
+        return $this->error == UploadedFile::UPLOAD_ERR_OK && $this->tmpPath != "";
+    }
+    
+    /**
+     * 检查是否有错误
+     */
+    public function hasError(): bool {
+        return $this->error != UploadedFile::UPLOAD_ERR_OK;
+    }
+    
+    // ========================================================================
+    // 文件操作
+    // ========================================================================
+    
+    /**
+     * 移动文件到目标路径
+     */
+    public function moveTo(string $destination): bool {
+        if ($this->moved) {
+            return false;
+        }
+        
+        if (!$this->isValid()) {
+            return false;
+        }
+        
+        // 使用文件系统移动
+        $result := File::move($this->tmpPath, $destination);
+        if ($result) {
+            $this->moved = true;
+            $this->tmpPath = $destination;
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 复制文件到目标路径
+     */
+    public function copyTo(string $destination): bool {
+        if (!$this->isValid()) {
+            return false;
+        }
+        
+        return File::copy($this->tmpPath, $destination);
+    }
+    
+    /**
+     * 读取文件内容
+     */
+    public function getContents(): byte[] {
+        if (!$this->isValid()) {
+            return Bytes::alloc(0);
+        }
+        
+        return File::readBytes($this->tmpPath);
+    }
+    
+    /**
+     * 读取文件内容为字符串
+     */
+    public function getContentsString(): string {
+        if (!$this->isValid()) {
+            return "";
+        }
+        
+        return File::read($this->tmpPath);
+    }
+    
+    /**
+     * 获取文件流
+     */
+    public function getStream(): Stream {
+        return new Stream($this->tmpPath, "r");
+    }
+    
+    /**
+     * 删除临时文件
+     */
+    public function delete(): bool {
+        if ($this->tmpPath == "") {
+            return false;
+        }
+        
+        if ($this->moved) {
+            return false;
+        }
+        
+        return File::delete($this->tmpPath);
+    }
+    
+    // ========================================================================
+    // 验证方法
+    // ========================================================================
+    
+    /**
+     * 检查是否为图片
+     */
+    public function isImage(): bool {
+        return Str::startsWith($this->contentType, "image/");
+    }
+    
+    /**
+     * 检查是否为视频
+     */
+    public function isVideo(): bool {
+        return Str::startsWith($this->contentType, "video/");
+    }
+    
+    /**
+     * 检查是否为音频
+     */
+    public function isAudio(): bool {
+        return Str::startsWith($this->contentType, "audio/");
+    }
+    
+    /**
+     * 检查是否为文本
+     */
+    public function isText(): bool {
+        return Str::startsWith($this->contentType, "text/");
+    }
+    
+    /**
+     * 检查 MIME 类型是否在允许列表中
+     */
+    public function isAllowedType(string[] $types): bool {
+        $typeCount := len($types);
+        for ($i := 0; $i < $typeCount; $i++) {
+            if ($this->contentType == $types[$i]) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 检查扩展名是否在允许列表中
+     */
+    public function isAllowedExtension(string[] $exts): bool {
+        $ext := $this->getExtension();
+        $extCount := len($exts);
+        for ($i := 0; $i < $extCount; $i++) {
+            if ($ext == Str::toLowerCase($exts[$i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 检查文件大小是否不超过限制
+     */
+    public function maxSize(int $bytes): bool {
+        return $this->size <= $bytes;
+    }
+    
+    /**
+     * 检查文件大小是否不小于限制
+     */
+    public function minSize(int $bytes): bool {
+        return $this->size >= $bytes;
+    }
+    
+    // ========================================================================
+    // 工具方法
+    // ========================================================================
+    
+    /**
+     * 生成安全的文件名（去除危险字符）
+     */
+    public function getSafeFileName(): string {
+        $name := $this->clientName;
+        
+        // 替换危险字符
+        $name = Str::replace($name, "..", "");
+        $name = Str::replace($name, "/", "_");
+        $name = Str::replace($name, "\\", "_");
+        $name = Str::replace($name, ":", "_");
+        $name = Str::replace($name, "*", "_");
+        $name = Str::replace($name, "?", "_");
+        $name = Str::replace($name, "\"", "_");
+        $name = Str::replace($name, "<", "_");
+        $name = Str::replace($name, ">", "_");
+        $name = Str::replace($name, "|", "_");
+        
+        return $name;
+    }
+    
+    /**
+     * 生成唯一文件名（保留扩展名）
+     */
+    public function generateUniqueName(): string {
+        $ext := $this->getExtension();
+        $unique := native_random_string(32);
+        
+        if ($ext != "") {
+            return $unique + "." + $ext;
+        }
+        return $unique;
+    }
+}
+

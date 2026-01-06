@@ -1,0 +1,67 @@
+// Sola 标准库 - 可比较接口
+namespace sola.collections
+
+/**
+ * 可比较接口
+ * 
+ * 实现此接口的类可以进行自然排序。
+ * 
+ * @template T 可比较的类型
+ */
+public interface IComparable<T> {
+    
+    /**
+     * 将此对象与指定对象进行比较
+     * 
+     * @param other 要比较的对象
+     * @return 负数表示小于，0表示等于，正数表示大于
+     */
+    public function compareTo(T $other): int;
+}
+
+/**
+ * 比较器接口
+ * 
+ * 用于自定义排序规则。
+ * 
+ * @template T 要比较的类型
+ */
+public interface IComparator<T> {
+    
+    /**
+     * 比较两个对象
+     * 
+     * @param a 第一个对象
+     * @param b 第二个对象
+     * @return 负数表示 a < b，0表示相等，正数表示 a > b
+     */
+    public function compare(T $a, T $b): int;
+}
+
+/**
+ * 相等比较器接口
+ * 
+ * 用于自定义相等判断和哈希计算。
+ * 
+ * @template T 要比较的类型
+ */
+public interface IEqualityComparer<T> {
+    
+    /**
+     * 判断两个对象是否相等
+     * 
+     * @param a 第一个对象
+     * @param b 第二个对象
+     * @return 如果相等返回 true
+     */
+    public function equals(T $a, T $b): bool;
+    
+    /**
+     * 计算对象的哈希码
+     * 
+     * @param obj 要计算哈希的对象
+     * @return 哈希码
+     */
+    public function hashCode(T $obj): int;
+}
+

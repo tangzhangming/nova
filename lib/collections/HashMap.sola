@@ -1,0 +1,402 @@
+// Sola 标准库 - 哈希映射
+namespace sola.collections
+
+/**
+ * 哈希映射
+ * 
+ * 基于哈希表实现的键值对集合。
+ * 
+ * 特点：
+ * - 添加/删除/查找 O(1) 平均
+ * - 不保证迭代顺序
+ * - 键不能重复，值可以重复
+ * 
+ * @template K 键类型
+ * @template V 值类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.HashMap;
+ * 
+ * $map := new HashMap<string, int>();
+ * $map->put("one", 1);
+ * $map->put("two", 2);
+ * 
+ * echo $map->get("one");      // 1
+ * echo $map->containsKey("two"); // true
+ * ```
+ */
+public class HashMap<K, V> implements IMap<K, V> {
+    
+    /** 键存储 */
+    private array $keys;
+    
+    /** 值存储 */
+    private array $values;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空的哈希映射
+     */
+    public function __construct() {
+        $this->keys = [];
+        $this->values = [];
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从键值对数组创建映射
+     * 
+     * @param entries 格式为 [[key, value], ...] 的数组
+     */
+    public static function fromEntries<K, V>(array $entries): HashMap<K, V> {
+        $map := new HashMap<K, V>();
+        foreach ($entries as $entry) {
+            $map->put($entry[0], $entry[1]);
+        }
+        return $map;
+    }
+    
+    /**
+     * 从另一个映射创建
+     */
+    public static function fromMap<K, V>(IMap<K, V> $other): HashMap<K, V> {
+        $map := new HashMap<K, V>();
+        $map->putAll($other);
+        return $map;
+    }
+    
+    // ========================================================================
+    // IMap 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function containsKey(mixed $key): bool {
+        $hashKey := $this->hashKey($key);
+        return isset($this->keys[$hashKey]);
+    }
+    
+    public function containsValue(mixed $value): bool {
+        foreach ($this->values as $v) {
+            if ($v == $value) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function get(mixed $key): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->values[$hashKey])) {
+            return null;
+        }
+        return $this->values[$hashKey];
+    }
+    
+    public function getOrDefault(mixed $key, mixed $defaultValue): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->values[$hashKey])) {
+            return $defaultValue;
+        }
+        return $this->values[$hashKey];
+    }
+    
+    public function put(mixed $key, mixed $value): mixed {
+        $hashKey := $this->hashKey($key);
+        $old := null;
+        
+        if (isset($this->values[$hashKey])) {
+            $old = $this->values[$hashKey];
+        } else {
+            $this->count++;
+        }
+        
+        $this->keys[$hashKey] = $key;
+        $this->values[$hashKey] = $value;
+        $this->modCount++;
+        
+        return $old;
+    }
+    
+    public function putIfAbsent(mixed $key, mixed $value): mixed {
+        $hashKey := $this->hashKey($key);
+        if (isset($this->values[$hashKey])) {
+            return $this->values[$hashKey];
+        }
+        
+        $this->keys[$hashKey] = $key;
+        $this->values[$hashKey] = $value;
+        $this->count++;
+        $this->modCount++;
+        
+        return null;
+    }
+    
+    public function putAll(IMap<K, V> $map): void {
+        $map->forEach(function($key, $value) {
+            $this->put($key, $value);
+        });
+    }
+    
+    public function remove(mixed $key): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->values[$hashKey])) {
+            return null;
+        }
+        
+        $old := $this->values[$hashKey];
+        unset($this->keys[$hashKey]);
+        unset($this->values[$hashKey]);
+        $this->count--;
+        $this->modCount++;
+        
+        return $old;
+    }
+    
+    public function removeIf(mixed $key, mixed $value): bool {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->values[$hashKey]) || $this->values[$hashKey] != $value) {
+            return false;
+        }
+        
+        unset($this->keys[$hashKey]);
+        unset($this->values[$hashKey]);
+        $this->count--;
+        $this->modCount++;
+        
+        return true;
+    }
+    
+    public function replace(mixed $key, mixed $value): mixed {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->values[$hashKey])) {
+            return null;
+        }
+        
+        $old := $this->values[$hashKey];
+        $this->values[$hashKey] = $value;
+        $this->modCount++;
+        
+        return $old;
+    }
+    
+    public function replaceIf(mixed $key, mixed $oldValue, mixed $newValue): bool {
+        $hashKey := $this->hashKey($key);
+        if (!isset($this->values[$hashKey]) || $this->values[$hashKey] != $oldValue) {
+            return false;
+        }
+        
+        $this->values[$hashKey] = $newValue;
+        $this->modCount++;
+        
+        return true;
+    }
+    
+    public function clear(): void {
+        $this->keys = [];
+        $this->values = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function keys(): HashSet<K> {
+        $set := new HashSet<K>();
+        foreach ($this->keys as $key) {
+            $set->add($key);
+        }
+        return $set;
+    }
+    
+    public function values(): ArrayList<V> {
+        $list := new ArrayList<V>();
+        foreach ($this->values as $value) {
+            $list->add($value);
+        }
+        return $list;
+    }
+    
+    public function entries(): HashSet<HashMapEntry<K, V>> {
+        $set := new HashSet<HashMapEntry<K, V>>();
+        foreach ($this->keys as $hashKey => $key) {
+            $entry := new HashMapEntry<K, V>($key, $this->values[$hashKey], $this, $hashKey);
+            $set->add($entry);
+        }
+        return $set;
+    }
+    
+    public function forEach(function(K $key, V $value): void $action): void {
+        foreach ($this->keys as $hashKey => $key) {
+            $action($key, $this->values[$hashKey]);
+        }
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆映射
+     */
+    public function clone(): HashMap<K, V> {
+        $copy := new HashMap<K, V>();
+        $copy->putAll($this);
+        return $copy;
+    }
+    
+    /**
+     * 合并另一个映射
+     * 
+     * @param other 要合并的映射
+     * @param merger 冲突解决函数
+     */
+    public function merge(IMap<K, V> $other, function(V $existing, V $incoming): V $merger): void {
+        $other->forEach(function($key, $value) use ($merger) {
+            if ($this->containsKey($key)) {
+                $existing := $this->get($key);
+                $this->put($key, $merger($existing, $value));
+            } else {
+                $this->put($key, $value);
+            }
+        });
+    }
+    
+    /**
+     * 计算映射值
+     * 
+     * @param key 键
+     * @param remapper 映射函数
+     */
+    public function compute(mixed $key, function(K $k, V $v): V $remapper): mixed {
+        $oldValue := $this->get($key);
+        $newValue := $remapper($key, $oldValue);
+        
+        if ($newValue == null) {
+            if ($oldValue != null) {
+                $this->remove($key);
+            }
+            return null;
+        }
+        
+        $this->put($key, $newValue);
+        return $newValue;
+    }
+    
+    /**
+     * 如果键不存在则计算并存储
+     */
+    public function computeIfAbsent(mixed $key, function(K $k): V $mapper): mixed {
+        $value := $this->get($key);
+        if ($value != null) {
+            return $value;
+        }
+        
+        $newValue := $mapper($key);
+        if ($newValue != null) {
+            $this->put($key, $newValue);
+        }
+        return $newValue;
+    }
+    
+    /**
+     * 过滤映射
+     */
+    public function filter(function(K $key, V $value): bool $predicate): HashMap<K, V> {
+        $result := new HashMap<K, V>();
+        $this->forEach(function($key, $value) use ($predicate, $result) {
+            if ($predicate($key, $value)) {
+                $result->put($key, $value);
+            }
+        });
+        return $result;
+    }
+    
+    /**
+     * 转换为数组（键值对数组）
+     */
+    public function toArray(): array {
+        $result := [];
+        $i := 0;
+        foreach ($this->keys as $hashKey => $key) {
+            $result[$i] = [$key, $this->values[$hashKey]];
+            $i++;
+        }
+        return $result;
+    }
+    
+    /**
+     * 获取内部数据（供内部使用）
+     */
+    public function getKeys(): array {
+        return $this->keys;
+    }
+    
+    public function getValues(): array {
+        return $this->values;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+    
+    /**
+     * 更新值（供 Entry 使用）
+     */
+    public function updateValue(string $hashKey, mixed $value): void {
+        $this->values[$hashKey] = $value;
+        $this->modCount++;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function hashKey(mixed $key): string {
+        return "_" + $key;
+    }
+}
+
+/**
+ * HashMap 条目
+ */
+public class HashMapEntry<K, V> implements MapEntry<K, V> {
+    private mixed $key;
+    private mixed $value;
+    private HashMap<K, V> $map;
+    private string $hashKey;
+    
+    public function __construct(mixed $key, mixed $value, HashMap<K, V> $map, string $hashKey) {
+        $this->key = $key;
+        $this->value = $value;
+        $this->map = $map;
+        $this->hashKey = $hashKey;
+    }
+    
+    public function getKey(): mixed {
+        return $this->key;
+    }
+    
+    public function getValue(): mixed {
+        return $this->value;
+    }
+    
+    public function setValue(mixed $value): mixed {
+        $old := $this->value;
+        $this->value = $value;
+        $this->map->updateValue($this->hashKey, $value);
+        return $old;
+    }
+}
+

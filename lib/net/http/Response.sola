@@ -1,0 +1,270 @@
+// Sola 标准库 - HTTP 响应
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.net.tcp.TcpConnection;
+
+/**
+ * HTTP 响应
+ * 
+ * 表示一个 HTTP 响应，提供头部设置和内容写入功能。
+ */
+public class Response {
+    
+    // ========================================================================
+    // 属性
+    // ========================================================================
+    
+    /** 响应头 */
+    private Header $header;
+    
+    /** 状态码 */
+    private int $statusCode;
+    
+    /** 是否已写入头部 */
+    private bool $headerWritten;
+    
+    /** 已写入字节数 */
+    private int $bytesWrittenCount;
+    
+    /** TCP 连接 */
+    private TcpConnection $conn;
+    
+    /** 协议版本 */
+    private string $protocol;
+    
+    // ========================================================================
+    // 构造函数
+    // ========================================================================
+    
+    public function __construct(TcpConnection $conn) {
+        $this->header = new Header();
+        $this->statusCode = HttpStatus::OK;
+        $this->headerWritten = false;
+        $this->bytesWrittenCount = 0;
+        $this->conn = $conn;
+        $this->protocol = "HTTP/1.1";
+    }
+    
+    // ========================================================================
+    // 状态码
+    // ========================================================================
+    
+    /**
+     * 写入状态码（Go 风格）
+     * 
+     * 如果状态码已写入，则忽略。
+     */
+    public function writeHeader(int $statusCode): void {
+        if ($this->headerWritten) {
+            return;
+        }
+        
+        $this->statusCode = $statusCode;
+        $this->flushHeaders();
+    }
+    
+    /**
+     * 设置状态码（链式调用）
+     */
+    public function setStatus(int $code): Response {
+        if (!$this->headerWritten) {
+            $this->statusCode = $code;
+        }
+        return $this;
+    }
+    
+    /**
+     * 获取状态码
+     */
+    public function getStatusCode(): int {
+        return $this->statusCode;
+    }
+    
+    // ========================================================================
+    // 头部
+    // ========================================================================
+    
+    /**
+     * 获取响应头（可修改）
+     */
+    public function getHeader(): Header {
+        return $this->header;
+    }
+    
+    /**
+     * 设置头部（覆盖）
+     */
+    public function setHeader(string $key, string $value): Response {
+        if (!$this->headerWritten) {
+            $this->header->set($key, $value);
+        }
+        return $this;
+    }
+    
+    /**
+     * 添加头部（不覆盖）
+     */
+    public function addHeader(string $key, string $value): Response {
+        if (!$this->headerWritten) {
+            $this->header->add($key, $value);
+        }
+        return $this;
+    }
+    
+    /**
+     * 删除头部
+     */
+    public function delHeader(string $key): Response {
+        if (!$this->headerWritten) {
+            $this->header->del($key);
+        }
+        return $this;
+    }
+    
+    // ========================================================================
+    // Cookie
+    // ========================================================================
+    
+    /**
+     * 设置 Cookie
+     */
+    public function setCookie(Cookie $cookie): Response {
+        if (!$this->headerWritten) {
+            $this->header->add("Set-Cookie", $cookie->toString());
+        }
+        return $this;
+    }
+    
+    /**
+     * 删除 Cookie
+     */
+    public function deleteCookie(string $name, string $path = "/"): Response {
+        $cookie := new Cookie($name, "");
+        $cookie->path = $path;
+        $cookie->maxAge = -1;
+        return $this->setCookie($cookie);
+    }
+    
+    // ========================================================================
+    // 写入 Body
+    // ========================================================================
+    
+    /**
+     * 写入字节数组
+     */
+    public function write(byte[] $data): int {
+        $this->ensureHeaderWritten();
+        
+        $written := $this->conn->writeBytes($data);
+        if ($written > 0) {
+            $this->bytesWrittenCount = $this->bytesWrittenCount + $written;
+        }
+        
+        return $written;
+    }
+    
+    /**
+     * 写入字符串
+     */
+    public function writeString(string $data): int {
+        $this->ensureHeaderWritten();
+        
+        $written := $this->conn->write($data);
+        if ($written > 0) {
+            $this->bytesWrittenCount = $this->bytesWrittenCount + $written;
+        }
+        
+        return $written;
+    }
+    
+    // ========================================================================
+    // 刷新
+    // ========================================================================
+    
+    /**
+     * 刷新输出缓冲区
+     */
+    public function flush(): void {
+        $this->ensureHeaderWritten();
+        $this->conn->flush();
+    }
+    
+    // ========================================================================
+    // 状态查询
+    // ========================================================================
+    
+    /**
+     * 头部是否已发送
+     */
+    public function isHeaderWritten(): bool {
+        return $this->headerWritten;
+    }
+    
+    /**
+     * 已写入的字节数
+     */
+    public function bytesWritten(): int {
+        return $this->bytesWrittenCount;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    /**
+     * 确保头部已写入
+     */
+    private function ensureHeaderWritten(): void {
+        if (!$this->headerWritten) {
+            $this->flushHeaders();
+        }
+    }
+    
+    /**
+     * 发送 HTTP 头部
+     */
+    private function flushHeaders(): void {
+        if ($this->headerWritten) {
+            return;
+        }
+        
+        $this->headerWritten = true;
+        
+        // 状态行
+        $statusLine := $this->protocol + " " + $this->statusCode + " " + HttpStatus::text($this->statusCode) + "\r\n";
+        $this->conn->write($statusLine);
+        
+        // 默认头部
+        if (!$this->header->has("Content-Type")) {
+            $this->header->set("Content-Type", "text/plain; charset=utf-8");
+        }
+        
+        if (!$this->header->has("Date")) {
+            $this->header->set("Date", Response::httpDate());
+        }
+        
+        // 写入头部
+        $this->conn->write($this->header->toString());
+        
+        // 空行分隔
+        $this->conn->write("\r\n");
+    }
+    
+    /**
+     * 设置协议版本（内部使用）
+     */
+    public function setProtocol(string $protocol): void {
+        $this->protocol = $protocol;
+    }
+    
+    /**
+     * 获取 HTTP 日期格式
+     */
+    private static function httpDate(): string {
+        // 简化实现，返回固定格式
+        // 完整实现需要日期格式化
+        return "Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+}
+

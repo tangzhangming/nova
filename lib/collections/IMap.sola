@@ -1,0 +1,208 @@
+// Sola 标准库 - 映射接口
+namespace sola.collections
+
+/**
+ * 映射接口
+ * 
+ * 键值对集合，每个键最多映射一个值。
+ * 
+ * @template K 键类型
+ * @template V 值类型
+ */
+public interface IMap<K, V> {
+    
+    // ========================================================================
+    // 基本属性
+    // ========================================================================
+    
+    /**
+     * 返回键值对的数量
+     * 
+     * @return 映射中的条目数量
+     */
+    public function size(): int;
+    
+    /**
+     * 检查映射是否为空
+     * 
+     * @return 如果映射不包含任何键值对返回 true
+     */
+    public function isEmpty(): bool;
+    
+    // ========================================================================
+    // 键值操作
+    // ========================================================================
+    
+    /**
+     * 检查是否包含指定键
+     * 
+     * @param key 要检查的键
+     * @return 如果包含该键返回 true
+     */
+    public function containsKey(K $key): bool;
+    
+    /**
+     * 检查是否包含指定值
+     * 
+     * @param value 要检查的值
+     * @return 如果包含该值返回 true
+     */
+    public function containsValue(V $value): bool;
+    
+    /**
+     * 获取指定键对应的值
+     * 
+     * @param key 键
+     * @return 对应的值，如果键不存在返回 null
+     */
+    public function get(K $key): V;
+    
+    /**
+     * 获取指定键对应的值，如果不存在返回默认值
+     * 
+     * @param key 键
+     * @param defaultValue 默认值
+     * @return 对应的值或默认值
+     */
+    public function getOrDefault(K $key, V $defaultValue): V;
+    
+    // ========================================================================
+    // 修改操作
+    // ========================================================================
+    
+    /**
+     * 添加或更新键值对
+     * 
+     * @param key 键
+     * @param value 值
+     * @return 之前关联的值，如果没有则返回 null
+     */
+    public function put(K $key, V $value): V;
+    
+    /**
+     * 仅在键不存在时添加键值对
+     * 
+     * @param key 键
+     * @param value 值
+     * @return 当前关联的值（如果已存在）或 null（如果添加成功）
+     */
+    public function putIfAbsent(K $key, V $value): V;
+    
+    /**
+     * 添加另一个映射的所有键值对
+     * 
+     * @param map 要添加的映射
+     */
+    public function putAll(IMap<K, V> $map): void;
+    
+    /**
+     * 移除指定键的键值对
+     * 
+     * @param key 要移除的键
+     * @return 被移除的值，如果键不存在返回 null
+     */
+    public function remove(K $key): V;
+    
+    /**
+     * 仅在键值匹配时移除
+     * 
+     * @param key 键
+     * @param value 期望的值
+     * @return 如果移除成功返回 true
+     */
+    public function removeIf(K $key, V $value): bool;
+    
+    /**
+     * 替换指定键的值
+     * 
+     * @param key 键
+     * @param value 新值
+     * @return 之前的值，如果键不存在返回 null
+     */
+    public function replace(K $key, V $value): V;
+    
+    /**
+     * 仅在旧值匹配时替换
+     * 
+     * @param key 键
+     * @param oldValue 期望的旧值
+     * @param newValue 新值
+     * @return 如果替换成功返回 true
+     */
+    public function replaceIf(K $key, V $oldValue, V $newValue): bool;
+    
+    /**
+     * 清空映射
+     */
+    public function clear(): void;
+    
+    // ========================================================================
+    // 视图操作
+    // ========================================================================
+    
+    /**
+     * 返回所有键的集合
+     * 
+     * @return 键集合
+     */
+    public function keys(): ISet<K>;
+    
+    /**
+     * 返回所有值的集合
+     * 
+     * @return 值集合（可能包含重复）
+     */
+    public function values(): ICollection<V>;
+    
+    /**
+     * 返回所有键值对的集合
+     * 
+     * @return 键值对集合
+     */
+    public function entries(): ISet<MapEntry<K, V>>;
+    
+    // ========================================================================
+    // 遍历
+    // ========================================================================
+    
+    /**
+     * 对每个键值对执行操作
+     * 
+     * @param action 要执行的操作
+     */
+    public function forEach(function(K $key, V $value): void $action): void;
+}
+
+/**
+ * 映射条目
+ * 
+ * 表示映射中的一个键值对。
+ * 
+ * @template K 键类型
+ * @template V 值类型
+ */
+public interface MapEntry<K, V> {
+    
+    /**
+     * 获取键
+     * 
+     * @return 键
+     */
+    public function getKey(): K;
+    
+    /**
+     * 获取值
+     * 
+     * @return 值
+     */
+    public function getValue(): V;
+    
+    /**
+     * 设置值
+     * 
+     * @param value 新值
+     * @return 旧值
+     */
+    public function setValue(V $value): V;
+}
+

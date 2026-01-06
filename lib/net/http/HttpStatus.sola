@@ -1,0 +1,219 @@
+// Sola 标准库 - HTTP 状态码常量
+namespace sola.net.http
+
+/**
+ * HTTP 状态码常量
+ * 
+ * 定义标准 HTTP 响应状态码及状态文本。
+ */
+public class HttpStatus {
+    
+    // ========================================================================
+    // 1xx Informational
+    // ========================================================================
+    
+    public const int CONTINUE = 100;
+    public const int SWITCHING_PROTOCOLS = 101;
+    public const int PROCESSING = 102;
+    public const int EARLY_HINTS = 103;
+    
+    // ========================================================================
+    // 2xx Success
+    // ========================================================================
+    
+    public const int OK = 200;
+    public const int CREATED = 201;
+    public const int ACCEPTED = 202;
+    public const int NON_AUTHORITATIVE_INFO = 203;
+    public const int NO_CONTENT = 204;
+    public const int RESET_CONTENT = 205;
+    public const int PARTIAL_CONTENT = 206;
+    public const int MULTI_STATUS = 207;
+    public const int ALREADY_REPORTED = 208;
+    public const int IM_USED = 226;
+    
+    // ========================================================================
+    // 3xx Redirection
+    // ========================================================================
+    
+    public const int MULTIPLE_CHOICES = 300;
+    public const int MOVED_PERMANENTLY = 301;
+    public const int FOUND = 302;
+    public const int SEE_OTHER = 303;
+    public const int NOT_MODIFIED = 304;
+    public const int USE_PROXY = 305;
+    public const int TEMPORARY_REDIRECT = 307;
+    public const int PERMANENT_REDIRECT = 308;
+    
+    // ========================================================================
+    // 4xx Client Error
+    // ========================================================================
+    
+    public const int BAD_REQUEST = 400;
+    public const int UNAUTHORIZED = 401;
+    public const int PAYMENT_REQUIRED = 402;
+    public const int FORBIDDEN = 403;
+    public const int NOT_FOUND = 404;
+    public const int METHOD_NOT_ALLOWED = 405;
+    public const int NOT_ACCEPTABLE = 406;
+    public const int PROXY_AUTH_REQUIRED = 407;
+    public const int REQUEST_TIMEOUT = 408;
+    public const int CONFLICT = 409;
+    public const int GONE = 410;
+    public const int LENGTH_REQUIRED = 411;
+    public const int PRECONDITION_FAILED = 412;
+    public const int PAYLOAD_TOO_LARGE = 413;
+    public const int URI_TOO_LONG = 414;
+    public const int UNSUPPORTED_MEDIA_TYPE = 415;
+    public const int RANGE_NOT_SATISFIABLE = 416;
+    public const int EXPECTATION_FAILED = 417;
+    public const int IM_A_TEAPOT = 418;
+    public const int MISDIRECTED_REQUEST = 421;
+    public const int UNPROCESSABLE_ENTITY = 422;
+    public const int LOCKED = 423;
+    public const int FAILED_DEPENDENCY = 424;
+    public const int TOO_EARLY = 425;
+    public const int UPGRADE_REQUIRED = 426;
+    public const int PRECONDITION_REQUIRED = 428;
+    public const int TOO_MANY_REQUESTS = 429;
+    public const int REQUEST_HEADER_FIELDS_TOO_LARGE = 431;
+    public const int UNAVAILABLE_FOR_LEGAL_REASONS = 451;
+    
+    // ========================================================================
+    // 5xx Server Error
+    // ========================================================================
+    
+    public const int INTERNAL_SERVER_ERROR = 500;
+    public const int NOT_IMPLEMENTED = 501;
+    public const int BAD_GATEWAY = 502;
+    public const int SERVICE_UNAVAILABLE = 503;
+    public const int GATEWAY_TIMEOUT = 504;
+    public const int HTTP_VERSION_NOT_SUPPORTED = 505;
+    public const int VARIANT_ALSO_NEGOTIATES = 506;
+    public const int INSUFFICIENT_STORAGE = 507;
+    public const int LOOP_DETECTED = 508;
+    public const int NOT_EXTENDED = 510;
+    public const int NETWORK_AUTH_REQUIRED = 511;
+    
+    /**
+     * 获取状态码对应的文本描述
+     */
+    public static function text(int $code): string {
+        // 1xx
+        if ($code == 100) { return "Continue"; }
+        if ($code == 101) { return "Switching Protocols"; }
+        if ($code == 102) { return "Processing"; }
+        if ($code == 103) { return "Early Hints"; }
+        
+        // 2xx
+        if ($code == 200) { return "OK"; }
+        if ($code == 201) { return "Created"; }
+        if ($code == 202) { return "Accepted"; }
+        if ($code == 203) { return "Non-Authoritative Information"; }
+        if ($code == 204) { return "No Content"; }
+        if ($code == 205) { return "Reset Content"; }
+        if ($code == 206) { return "Partial Content"; }
+        if ($code == 207) { return "Multi-Status"; }
+        if ($code == 208) { return "Already Reported"; }
+        if ($code == 226) { return "IM Used"; }
+        
+        // 3xx
+        if ($code == 300) { return "Multiple Choices"; }
+        if ($code == 301) { return "Moved Permanently"; }
+        if ($code == 302) { return "Found"; }
+        if ($code == 303) { return "See Other"; }
+        if ($code == 304) { return "Not Modified"; }
+        if ($code == 305) { return "Use Proxy"; }
+        if ($code == 307) { return "Temporary Redirect"; }
+        if ($code == 308) { return "Permanent Redirect"; }
+        
+        // 4xx
+        if ($code == 400) { return "Bad Request"; }
+        if ($code == 401) { return "Unauthorized"; }
+        if ($code == 402) { return "Payment Required"; }
+        if ($code == 403) { return "Forbidden"; }
+        if ($code == 404) { return "Not Found"; }
+        if ($code == 405) { return "Method Not Allowed"; }
+        if ($code == 406) { return "Not Acceptable"; }
+        if ($code == 407) { return "Proxy Authentication Required"; }
+        if ($code == 408) { return "Request Timeout"; }
+        if ($code == 409) { return "Conflict"; }
+        if ($code == 410) { return "Gone"; }
+        if ($code == 411) { return "Length Required"; }
+        if ($code == 412) { return "Precondition Failed"; }
+        if ($code == 413) { return "Payload Too Large"; }
+        if ($code == 414) { return "URI Too Long"; }
+        if ($code == 415) { return "Unsupported Media Type"; }
+        if ($code == 416) { return "Range Not Satisfiable"; }
+        if ($code == 417) { return "Expectation Failed"; }
+        if ($code == 418) { return "I'm a teapot"; }
+        if ($code == 421) { return "Misdirected Request"; }
+        if ($code == 422) { return "Unprocessable Entity"; }
+        if ($code == 423) { return "Locked"; }
+        if ($code == 424) { return "Failed Dependency"; }
+        if ($code == 425) { return "Too Early"; }
+        if ($code == 426) { return "Upgrade Required"; }
+        if ($code == 428) { return "Precondition Required"; }
+        if ($code == 429) { return "Too Many Requests"; }
+        if ($code == 431) { return "Request Header Fields Too Large"; }
+        if ($code == 451) { return "Unavailable For Legal Reasons"; }
+        
+        // 5xx
+        if ($code == 500) { return "Internal Server Error"; }
+        if ($code == 501) { return "Not Implemented"; }
+        if ($code == 502) { return "Bad Gateway"; }
+        if ($code == 503) { return "Service Unavailable"; }
+        if ($code == 504) { return "Gateway Timeout"; }
+        if ($code == 505) { return "HTTP Version Not Supported"; }
+        if ($code == 506) { return "Variant Also Negotiates"; }
+        if ($code == 507) { return "Insufficient Storage"; }
+        if ($code == 508) { return "Loop Detected"; }
+        if ($code == 510) { return "Not Extended"; }
+        if ($code == 511) { return "Network Authentication Required"; }
+        
+        return "Unknown Status";
+    }
+    
+    /**
+     * 检查是否为信息性状态码 (1xx)
+     */
+    public static function isInformational(int $code): bool {
+        return $code >= 100 && $code < 200;
+    }
+    
+    /**
+     * 检查是否为成功状态码 (2xx)
+     */
+    public static function isSuccess(int $code): bool {
+        return $code >= 200 && $code < 300;
+    }
+    
+    /**
+     * 检查是否为重定向状态码 (3xx)
+     */
+    public static function isRedirection(int $code): bool {
+        return $code >= 300 && $code < 400;
+    }
+    
+    /**
+     * 检查是否为客户端错误状态码 (4xx)
+     */
+    public static function isClientError(int $code): bool {
+        return $code >= 400 && $code < 500;
+    }
+    
+    /**
+     * 检查是否为服务器错误状态码 (5xx)
+     */
+    public static function isServerError(int $code): bool {
+        return $code >= 500 && $code < 600;
+    }
+    
+    /**
+     * 检查是否为错误状态码 (4xx 或 5xx)
+     */
+    public static function isError(int $code): bool {
+        return $code >= 400;
+    }
+}
+

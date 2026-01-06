@@ -1,0 +1,51 @@
+// Sola 标准库 - 可迭代接口
+namespace sola.collections
+
+/**
+ * 可迭代接口
+ * 
+ * 实现此接口的类可以在 foreach 循环中使用。
+ * 
+ * @template T 元素类型
+ */
+public interface IIterable<T> {
+    
+    /**
+     * 返回迭代器
+     * 
+     * @return 用于遍历元素的迭代器
+     */
+    public function iterator(): IIterator<T>;
+}
+
+/**
+ * 迭代器接口
+ * 
+ * @template T 元素类型
+ */
+public interface IIterator<T> {
+    
+    /**
+     * 检查是否还有更多元素
+     * 
+     * @return 如果还有元素返回 true
+     */
+    public function hasNext(): bool;
+    
+    /**
+     * 返回下一个元素
+     * 
+     * @return 下一个元素
+     * @throws NoSuchElementException 如果没有更多元素
+     */
+    public function next(): T;
+    
+    /**
+     * 移除迭代器返回的最后一个元素（可选操作）
+     * 
+     * @throws UnsupportedOperationException 如果不支持此操作
+     * @throws InvalidOperationException 如果尚未调用 next()
+     */
+    public function remove(): void;
+}
+

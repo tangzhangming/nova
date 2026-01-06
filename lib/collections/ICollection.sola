@@ -1,0 +1,111 @@
+// Sola 标准库 - 集合基础接口
+namespace sola.collections
+
+/**
+ * 集合基础接口
+ * 
+ * 所有集合类的根接口，定义了集合的基本操作。
+ * 
+ * @template T 元素类型
+ */
+public interface ICollection<T> extends IIterable<T> {
+    
+    // ========================================================================
+    // 基本属性
+    // ========================================================================
+    
+    /**
+     * 返回集合中元素的数量
+     * 
+     * @return 元素数量
+     */
+    public function size(): int;
+    
+    /**
+     * 检查集合是否为空
+     * 
+     * @return 如果集合不包含任何元素返回 true
+     */
+    public function isEmpty(): bool;
+    
+    // ========================================================================
+    // 元素操作
+    // ========================================================================
+    
+    /**
+     * 检查集合是否包含指定元素
+     * 
+     * @param element 要检查的元素
+     * @return 如果集合包含该元素返回 true
+     */
+    public function contains(T $element): bool;
+    
+    /**
+     * 检查集合是否包含指定集合的所有元素
+     * 
+     * @param collection 要检查的集合
+     * @return 如果包含所有元素返回 true
+     */
+    public function containsAll(ICollection<T> $collection): bool;
+    
+    // ========================================================================
+    // 修改操作
+    // ========================================================================
+    
+    /**
+     * 向集合添加元素
+     * 
+     * @param element 要添加的元素
+     * @return 如果集合因此操作而改变返回 true
+     */
+    public function add(T $element): bool;
+    
+    /**
+     * 添加指定集合的所有元素
+     * 
+     * @param collection 要添加的元素集合
+     * @return 如果集合因此操作而改变返回 true
+     */
+    public function addAll(ICollection<T> $collection): bool;
+    
+    /**
+     * 从集合中移除指定元素
+     * 
+     * @param element 要移除的元素
+     * @return 如果集合包含该元素返回 true
+     */
+    public function remove(T $element): bool;
+    
+    /**
+     * 移除指定集合中包含的所有元素
+     * 
+     * @param collection 要移除的元素集合
+     * @return 如果集合因此操作而改变返回 true
+     */
+    public function removeAll(ICollection<T> $collection): bool;
+    
+    /**
+     * 仅保留指定集合中包含的元素
+     * 
+     * @param collection 要保留的元素集合
+     * @return 如果集合因此操作而改变返回 true
+     */
+    public function retainAll(ICollection<T> $collection): bool;
+    
+    /**
+     * 清空集合
+     */
+    public function clear(): void;
+    
+    // ========================================================================
+    // 转换操作
+    // ========================================================================
+    
+    /**
+     * 返回包含所有元素的数组
+     * 
+     * @return 元素数组
+     */
+    public function toArray(): array;
+}
+

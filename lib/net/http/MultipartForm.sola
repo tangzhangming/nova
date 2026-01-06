@@ -1,0 +1,394 @@
+// Sola 标准库 - Multipart 表单
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.io.File;
+
+/**
+ * 表单字段
+ */
+public class FormField {
+    public string $name;
+    public string $value;
+    
+    public function __construct(string $name, string $value) {
+        $this->name = $name;
+        $this->value = $value;
+    }
+}
+
+/**
+ * Multipart 表单
+ * 
+ * 解析 multipart/form-data 格式的表单数据。
+ */
+public class MultipartForm {
+    
+    /** 表单字段 */
+    private FormField[] $fields;
+    private int $fieldCount;
+    
+    /** 上传文件 */
+    private UploadedFile[] $files;
+    private int $fileCount;
+    
+    /** 文件字段名 */
+    private string[] $fileNames;
+    
+    public function __construct() {
+        $this->fields = [];
+        $this->fieldCount = 0;
+        $this->files = [];
+        $this->fileCount = 0;
+        $this->fileNames = [];
+    }
+    
+    // ========================================================================
+    // 表单字段操作
+    // ========================================================================
+    
+    /**
+     * 获取表单字段值（第一个匹配的）
+     */
+    public function getValue(string $name): string {
+        for ($i := 0; $i < $this->fieldCount; $i++) {
+            if ($this->fields[$i]->name == $name) {
+                return $this->fields[$i]->value;
+            }
+        }
+        return "";
+    }
+    
+    /**
+     * 获取表单字段所有值（多值字段）
+     */
+    public function getValues(string $name): string[] {
+        $result := [];
+        $count := 0;
+        
+        for ($i := 0; $i < $this->fieldCount; $i++) {
+            if ($this->fields[$i]->name == $name) {
+                $result[$count] = $this->fields[$i]->value;
+                $count++;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 检查是否存在表单字段
+     */
+    public function hasValue(string $name): bool {
+        for ($i := 0; $i < $this->fieldCount; $i++) {
+            if ($this->fields[$i]->name == $name) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 获取所有表单字段
+     */
+    public function allValues(): FormField[] {
+        $result := [];
+        for ($i := 0; $i < $this->fieldCount; $i++) {
+            $result[$i] = $this->fields[$i];
+        }
+        return $result;
+    }
+    
+    /**
+     * 获取所有字段名
+     */
+    public function valueNames(): string[] {
+        $result := [];
+        $count := 0;
+        
+        for ($i := 0; $i < $this->fieldCount; $i++) {
+            $name := $this->fields[$i]->name;
+            $found := false;
+            
+            for ($j := 0; $j < $count; $j++) {
+                if ($result[$j] == $name) {
+                    $found = true;
+                    break;
+                }
+            }
+            
+            if (!$found) {
+                $result[$count] = $name;
+                $count++;
+            }
+        }
+        
+        return $result;
+    }
+    
+    // ========================================================================
+    // 文件操作
+    // ========================================================================
+    
+    /**
+     * 获取上传文件（第一个匹配的）
+     */
+    public function getFile(string $name): UploadedFile {
+        for ($i := 0; $i < $this->fileCount; $i++) {
+            if ($this->fileNames[$i] == $name) {
+                return $this->files[$i];
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 获取所有同名上传文件（多文件上传）
+     */
+    public function getFiles(string $name): UploadedFile[] {
+        $result := [];
+        $count := 0;
+        
+        for ($i := 0; $i < $this->fileCount; $i++) {
+            if ($this->fileNames[$i] == $name) {
+                $result[$count] = $this->files[$i];
+                $count++;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 检查是否存在上传文件
+     */
+    public function hasFile(string $name): bool {
+        for ($i := 0; $i < $this->fileCount; $i++) {
+            if ($this->fileNames[$i] == $name) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 获取所有上传文件
+     */
+    public function allFiles(): UploadedFile[] {
+        $result := [];
+        for ($i := 0; $i < $this->fileCount; $i++) {
+            $result[$i] = $this->files[$i];
+        }
+        return $result;
+    }
+    
+    /**
+     * 获取所有文件字段名
+     */
+    public function fileNames(): string[] {
+        $result := [];
+        $count := 0;
+        
+        for ($i := 0; $i < $this->fileCount; $i++) {
+            $name := $this->fileNames[$i];
+            $found := false;
+            
+            for ($j := 0; $j < $count; $j++) {
+                if ($result[$j] == $name) {
+                    $found = true;
+                    break;
+                }
+            }
+            
+            if (!$found) {
+                $result[$count] = $name;
+                $count++;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 获取文件数量
+     */
+    public function fileCount(): int {
+        return $this->fileCount;
+    }
+    
+    // ========================================================================
+    // 清理
+    // ========================================================================
+    
+    /**
+     * 清理所有临时文件
+     */
+    public function removeAll(): void {
+        for ($i := 0; $i < $this->fileCount; $i++) {
+            $this->files[$i]->delete();
+        }
+    }
+    
+    // ========================================================================
+    // 内部方法（供解析器使用）
+    // ========================================================================
+    
+    /**
+     * 添加表单字段
+     */
+    public function addField(string $name, string $value): void {
+        $this->fields[$this->fieldCount] = new FormField($name, $value);
+        $this->fieldCount++;
+    }
+    
+    /**
+     * 添加上传文件
+     */
+    public function addFile(string $name, UploadedFile $file): void {
+        $this->files[$this->fileCount] = $file;
+        $this->fileNames[$this->fileCount] = $name;
+        $this->fileCount++;
+    }
+    
+    // ========================================================================
+    // 静态解析方法
+    // ========================================================================
+    
+    /**
+     * 解析 multipart/form-data
+     * 
+     * @param body 请求体
+     * @param boundary 边界字符串
+     * @param maxMemory 最大内存使用（超过则写入临时文件）
+     */
+    public static function parse(byte[] $body, string $boundary, int $maxMemory = 33554432): MultipartForm {
+        $form := new MultipartForm();
+        
+        $bodyStr := Bytes::toString($body);
+        $delimiter := "--" + $boundary;
+        $endDelimiter := $delimiter + "--";
+        
+        // 分割各部分
+        $parts := Str::split($bodyStr, $delimiter);
+        $partCount := len($parts);
+        
+        for ($i := 0; $i < $partCount; $i++) {
+            $part := $parts[$i];
+            
+            // 跳过空部分和结束标记
+            if ($part == "" || Str::startsWith($part, "--")) {
+                continue;
+            }
+            
+            // 去除前后的 \r\n
+            if (Str::startsWith($part, "\r\n")) {
+                $part = Str::substring($part, 2, Str::length($part));
+            }
+            if (Str::endsWith($part, "\r\n")) {
+                $part = Str::substring($part, 0, Str::length($part) - 2);
+            }
+            
+            // 分离头部和内容
+            $headerEnd := Str::indexOf($part, "\r\n\r\n");
+            if ($headerEnd < 0) {
+                continue;
+            }
+            
+            $headerPart := Str::substring($part, 0, $headerEnd);
+            $contentPart := Str::substring($part, $headerEnd + 4, Str::length($part));
+            
+            // 解析 Content-Disposition
+            $name := MultipartForm::extractName($headerPart);
+            $filename := MultipartForm::extractFilename($headerPart);
+            $contentType := MultipartForm::extractContentType($headerPart);
+            
+            if ($name == "") {
+                continue;
+            }
+            
+            if ($filename != "") {
+                // 文件字段
+                $tmpPath := MultipartForm::saveTempFile($contentPart, $maxMemory);
+                $file := new UploadedFile(
+                    $filename,
+                    $contentType,
+                    $tmpPath,
+                    Str::length($contentPart),
+                    0
+                );
+                $form->addFile($name, $file);
+            } else {
+                // 普通字段
+                $form->addField($name, $contentPart);
+            }
+        }
+        
+        return $form;
+    }
+    
+    /**
+     * 从头部提取字段名
+     */
+    private static function extractName(string $header): string {
+        $pos := Str::indexOf($header, "name=\"");
+        if ($pos < 0) {
+            return "";
+        }
+        
+        $start := $pos + 6;
+        $end := Str::indexOf(Str::substring($header, $start, Str::length($header)), "\"");
+        if ($end < 0) {
+            return "";
+        }
+        
+        return Str::substring($header, $start, $start + $end);
+    }
+    
+    /**
+     * 从头部提取文件名
+     */
+    private static function extractFilename(string $header): string {
+        $pos := Str::indexOf($header, "filename=\"");
+        if ($pos < 0) {
+            return "";
+        }
+        
+        $start := $pos + 10;
+        $end := Str::indexOf(Str::substring($header, $start, Str::length($header)), "\"");
+        if ($end < 0) {
+            return "";
+        }
+        
+        return Str::substring($header, $start, $start + $end);
+    }
+    
+    /**
+     * 从头部提取 Content-Type
+     */
+    private static function extractContentType(string $header): string {
+        $lines := Str::split($header, "\r\n");
+        $lineCount := len($lines);
+        
+        for ($i := 0; $i < $lineCount; $i++) {
+            $line := $lines[$i];
+            if (Str::startsWith(Str::toLowerCase($line), "content-type:")) {
+                return Str::trim(Str::substring($line, 13, Str::length($line)));
+            }
+        }
+        
+        return "application/octet-stream";
+    }
+    
+    /**
+     * 保存临时文件
+     */
+    private static function saveTempFile(string $content, int $maxMemory): string {
+        $tmpDir := native_temp_dir();
+        $tmpFile := $tmpDir + "/sola_upload_" + native_random_string(16);
+        
+        File::write($tmpFile, $content);
+        
+        return $tmpFile;
+    }
+}
+

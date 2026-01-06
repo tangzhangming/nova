@@ -1,0 +1,483 @@
+// Sola 标准库 - HTTP 服务器
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.net.tcp.{TcpServer, TcpConnection};
+use sola.net.http.session.{Session, SessionStore, MemoryStore, SessionData};
+
+/**
+ * HTTP 处理器类型
+ */
+public type Handler = function(Request $req, Response $res): void;
+
+/**
+ * HTTP 服务器
+ * 
+ * 一个简单的 HTTP/1.1 服务器实现。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.http.{HttpServer, Request, Response, HttpStatus};
+ * 
+ * $server := new HttpServer("0.0.0.0", 8080);
+ * 
+ * $server->handle(function(Request $req, Response $res) {
+ *     $res->setHeader("Content-Type", "text/plain");
+ *     $res->setStatus(HttpStatus::OK);
+ *     $res->writeString("Hello, World!");
+ * });
+ * 
+ * echo "Server running on http://localhost:8080";
+ * $server->serve();
+ * ```
+ */
+public class HttpServer {
+    
+    // ========================================================================
+    // 服务器属性
+    // ========================================================================
+    
+    /** 主机地址 */
+    private string $host;
+    
+    /** 端口号 */
+    private int $port;
+    
+    /** TCP 服务器 */
+    private TcpServer $tcpServer;
+    
+    /** 处理器 */
+    private Handler $handler;
+    
+    /** 是否正在运行 */
+    private bool $running;
+    
+    // ========================================================================
+    // 超时配置
+    // ========================================================================
+    
+    /** 读取超时（毫秒） */
+    private int $readTimeout;
+    
+    /** 写入超时（毫秒） */
+    private int $writeTimeout;
+    
+    /** 空闲超时（毫秒） */
+    private int $idleTimeout;
+    
+    // ========================================================================
+    // 大小限制
+    // ========================================================================
+    
+    /** 最大头部大小 */
+    private int $maxHeaderBytes;
+    
+    /** 最大 Body 大小 */
+    private int $maxBodyBytes;
+    
+    /** Multipart 最大内存 */
+    private int $maxMultipartMemory;
+    
+    // ========================================================================
+    // Session 配置
+    // ========================================================================
+    
+    /** Session 存储 */
+    private SessionStore $sessionStore;
+    
+    /** Session Cookie 名称 */
+    private string $sessionCookieName;
+    
+    /** Session 生存时间（秒） */
+    private int $sessionLifetime;
+    
+    // ========================================================================
+    // 构造函数
+    // ========================================================================
+    
+    /**
+     * 构造 HTTP 服务器
+     * 
+     * @param host 监听地址，默认 "0.0.0.0"
+     * @param port 端口号，默认 8080
+     */
+    public function __construct(string $host = "0.0.0.0", int $port = 8080) {
+        $this->host = $host;
+        $this->port = $port;
+        $this->tcpServer = null;
+        $this->handler = null;
+        $this->running = false;
+        
+        // 默认超时
+        $this->readTimeout = 60000;    // 60 秒
+        $this->writeTimeout = 60000;   // 60 秒
+        $this->idleTimeout = 120000;   // 120 秒
+        
+        // 默认大小限制
+        $this->maxHeaderBytes = 1048576;        // 1 MB
+        $this->maxBodyBytes = 10485760;         // 10 MB
+        $this->maxMultipartMemory = 33554432;   // 32 MB
+        
+        // Session 默认配置
+        $this->sessionStore = null;
+        $this->sessionCookieName = "SOLASESSID";
+        $this->sessionLifetime = 3600;  // 1 小时
+    }
+    
+    // ========================================================================
+    // 处理器设置
+    // ========================================================================
+    
+    /**
+     * 设置请求处理器
+     */
+    public function handle(Handler $handler): void {
+        $this->handler = $handler;
+    }
+    
+    // ========================================================================
+    // 生命周期
+    // ========================================================================
+    
+    /**
+     * 启动服务器
+     */
+    public function serve(): void {
+        if ($this->running) {
+            return;
+        }
+        
+        // 创建 TCP 服务器
+        $this->tcpServer = new TcpServer($this->host, $this->port);
+        
+        if (!$this->tcpServer->start()) {
+            throw new HttpException(HttpStatus::INTERNAL_SERVER_ERROR, "Failed to start server");
+        }
+        
+        $this->running = true;
+        
+        // 主循环
+        while ($this->running) {
+            $conn := $this->tcpServer->accept();
+            
+            if ($conn != null) {
+                $this->handleConnection($conn);
+            }
+        }
+    }
+    
+    /**
+     * 优雅关闭服务器
+     */
+    public function shutdown(): void {
+        $this->running = false;
+        
+        if ($this->tcpServer != null) {
+            $this->tcpServer->stop();
+        }
+    }
+    
+    /**
+     * 立即关闭服务器
+     */
+    public function close(): void {
+        $this->running = false;
+        
+        if ($this->tcpServer != null) {
+            $this->tcpServer->stop();
+        }
+    }
+    
+    // ========================================================================
+    // 配置方法（链式调用）
+    // ========================================================================
+    
+    public function setReadTimeout(int $ms): HttpServer {
+        $this->readTimeout = $ms;
+        return $this;
+    }
+    
+    public function setWriteTimeout(int $ms): HttpServer {
+        $this->writeTimeout = $ms;
+        return $this;
+    }
+    
+    public function setIdleTimeout(int $ms): HttpServer {
+        $this->idleTimeout = $ms;
+        return $this;
+    }
+    
+    public function setMaxHeaderBytes(int $bytes): HttpServer {
+        $this->maxHeaderBytes = $bytes;
+        return $this;
+    }
+    
+    public function setMaxBodyBytes(int $bytes): HttpServer {
+        $this->maxBodyBytes = $bytes;
+        return $this;
+    }
+    
+    public function setMaxMultipartMemory(int $bytes): HttpServer {
+        $this->maxMultipartMemory = $bytes;
+        return $this;
+    }
+    
+    // ========================================================================
+    // Session 配置
+    // ========================================================================
+    
+    /**
+     * 设置 Session 存储
+     */
+    public function setSessionStore(SessionStore $store): HttpServer {
+        $this->sessionStore = $store;
+        return $this;
+    }
+    
+    /**
+     * 设置 Session Cookie 名称
+     */
+    public function setSessionCookieName(string $name): HttpServer {
+        $this->sessionCookieName = $name;
+        return $this;
+    }
+    
+    /**
+     * 设置 Session 生存时间
+     */
+    public function setSessionLifetime(int $seconds): HttpServer {
+        $this->sessionLifetime = $seconds;
+        return $this;
+    }
+    
+    // ========================================================================
+    // Session 操作
+    // ========================================================================
+    
+    /**
+     * 启动 Session
+     * 
+     * 在 handler 中手动调用以开启 Session。
+     */
+    public function startSession(Request $req, Response $res): Session {
+        // 确保有存储后端
+        if ($this->sessionStore == null) {
+            $this->sessionStore = new MemoryStore();
+        }
+        
+        // 获取或创建 Session ID
+        $sessionId := "";
+        $cookie := $req->cookie($this->sessionCookieName);
+        
+        if ($cookie != null && $cookie->value != "") {
+            $sessionId = $cookie->value;
+        }
+        
+        // 验证 Session 是否存在
+        if ($sessionId != "" && !$this->sessionStore->exists($sessionId)) {
+            $sessionId = "";
+        }
+        
+        // 创建新 Session
+        if ($sessionId == "") {
+            $sessionId = Session::generateId();
+            
+            // 设置 Cookie
+            $newCookie := new Cookie($this->sessionCookieName, $sessionId);
+            $newCookie->path = "/";
+            $newCookie->httpOnly = true;
+            
+            if ($this->sessionLifetime > 0) {
+                $newCookie->maxAge = $this->sessionLifetime;
+            }
+            
+            $res->setCookie($newCookie);
+        }
+        
+        // 创建 Session 对象
+        $session := new Session($sessionId, $this->sessionStore, $this->sessionLifetime);
+        $session->start();
+        
+        return $session;
+    }
+    
+    /**
+     * 销毁 Session
+     */
+    public function destroySession(Request $req, Response $res): bool {
+        $cookie := $req->cookie($this->sessionCookieName);
+        
+        if ($cookie == null || $cookie->value == "") {
+            return false;
+        }
+        
+        $sessionId := $cookie->value;
+        
+        // 删除 Cookie
+        $res->deleteCookie($this->sessionCookieName);
+        
+        // 删除存储
+        if ($this->sessionStore != null) {
+            return $this->sessionStore->destroy($sessionId);
+        }
+        
+        return true;
+    }
+    
+    // ========================================================================
+    // 状态查询
+    // ========================================================================
+    
+    public function isRunning(): bool {
+        return $this->running;
+    }
+    
+    public function getAddr(): string {
+        return $this->host + ":" + $this->port;
+    }
+    
+    public function getHost(): string {
+        return $this->host;
+    }
+    
+    public function getPort(): int {
+        return $this->port;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    /**
+     * 处理连接
+     */
+    private function handleConnection(TcpConnection $conn): void {
+        try {
+            // 设置超时
+            $conn->setReadTimeout($this->readTimeout);
+            $conn->setWriteTimeout($this->writeTimeout);
+            
+            // 解析请求
+            $req := $this->parseRequest($conn);
+            
+            if ($req == null) {
+                $conn->close();
+                return;
+            }
+            
+            // 创建响应
+            $res := new Response($conn);
+            $res->setProtocol($req->getProtocol());
+            
+            // 调用处理器
+            if ($this->handler != null) {
+                try {
+                    $this->handler($req, $res);
+                } catch (HttpException $e) {
+                    $this->sendError($res, $e->getStatusCode(), $e->getMessage());
+                } catch (Exception $e) {
+                    $this->sendError($res, HttpStatus::INTERNAL_SERVER_ERROR, $e->getMessage());
+                }
+            } else {
+                $this->sendError($res, HttpStatus::NOT_FOUND, "No handler configured");
+            }
+            
+            // 确保响应已发送
+            $res->flush();
+            
+        } finally {
+            $conn->close();
+        }
+    }
+    
+    /**
+     * 解析 HTTP 请求
+     */
+    private function parseRequest(TcpConnection $conn): Request {
+        $req := new Request();
+        
+        // 读取请求行
+        $requestLine := $conn->readLine();
+        if ($requestLine == "") {
+            return null;
+        }
+        
+        // 去除 \r\n
+        $requestLine = Str::trim($requestLine);
+        
+        // 解析请求行
+        $parts := Str::split($requestLine, " ");
+        if (len($parts) < 3) {
+            return null;
+        }
+        
+        $req->setMethod($parts[0]);
+        $req->setRequestURI($parts[1]);
+        $req->setProtocol($parts[2]);
+        
+        // 读取头部
+        $header := new Header();
+        $headerBytes := 0;
+        
+        while (true) {
+            $line := $conn->readLine();
+            $line = Str::trim($line);
+            
+            if ($line == "") {
+                break;
+            }
+            
+            $headerBytes = $headerBytes + Str::length($line);
+            if ($headerBytes > $this->maxHeaderBytes) {
+                return null;
+            }
+            
+            $colonPos := Str::indexOf($line, ":");
+            if ($colonPos > 0) {
+                $key := Str::trim(Str::substring($line, 0, $colonPos));
+                $value := Str::trim(Str::substring($line, $colonPos + 1, Str::length($line)));
+                $header->add($key, $value);
+            }
+        }
+        
+        $req->setHeader($header);
+        
+        // 读取 Body
+        $contentLength := $req->getContentLength();
+        
+        if ($contentLength > 0) {
+            if ($contentLength > $this->maxBodyBytes) {
+                return null;
+            }
+            
+            $body := $conn->readExact($contentLength);
+            $req->setBody($body);
+        }
+        
+        // 设置连接信息
+        $req->setRemoteAddr($conn->getRemoteAddress());
+        $req->setLocalAddr($conn->getLocalAddress());
+        
+        return $req;
+    }
+    
+    /**
+     * 发送错误响应
+     */
+    private function sendError(Response $res, int $code, string $message): void {
+        if ($res->isHeaderWritten()) {
+            return;
+        }
+        
+        $res->setStatus($code);
+        $res->setHeader("Content-Type", "text/plain; charset=utf-8");
+        
+        $body := "" + $code + " " + HttpStatus::text($code);
+        if ($message != "") {
+            $body = $body + "\n" + $message;
+        }
+        
+        $res->writeString($body);
+    }
+}
+

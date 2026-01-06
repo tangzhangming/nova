@@ -1,0 +1,634 @@
+// Sola 标准库 - 双向链表
+namespace sola.collections
+
+use sola.lang.IndexOutOfBoundsException;
+
+/**
+ * 双向链表
+ * 
+ * 基于双向链表实现的列表，同时实现了 Deque 接口。
+ * 
+ * 特点：
+ * - 头尾操作 O(1)
+ * - 随机访问 O(n)
+ * - 插入/删除 O(1)（已定位的情况下）
+ * - 查找 O(n)
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.LinkedList;
+ * 
+ * $list := new LinkedList<string>();
+ * $list->addFirst("A");
+ * $list->addLast("B");
+ * $list->add("C");
+ * 
+ * echo $list->getFirst();  // A
+ * echo $list->getLast();   // C
+ * ```
+ */
+public class LinkedList<T> implements IList<T>, IDeque<T> {
+    
+    /** 头节点 */
+    private LinkedListNode<T> $head;
+    
+    /** 尾节点 */
+    private LinkedListNode<T> $tail;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空链表
+     */
+    public function __construct() {
+        $this->head = null;
+        $this->tail = null;
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建链表
+     */
+    public static function fromArray<T>(array $array): LinkedList<T> {
+        $list := new LinkedList<T>();
+        foreach ($array as $item) {
+            $list->add($item);
+        }
+        return $list;
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        return $this->indexOf($element) >= 0;
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $this->addLast($element);
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            $this->add($item);
+            $modified = true;
+        }
+        return $modified;
+    }
+    
+    public function remove(mixed $element): bool {
+        $node := $this->head;
+        while ($node != null) {
+            if ($node->value == $element) {
+                $this->unlink($node);
+                return true;
+            }
+            $node = $node->next;
+        }
+        return false;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            while ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $node := $this->head;
+        while ($node != null) {
+            $next := $node->next;
+            if (!$collection->contains($node->value)) {
+                $this->unlink($node);
+                $modified = true;
+            }
+            $node = $next;
+        }
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->head = null;
+        $this->tail = null;
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        $node := $this->head;
+        $i := 0;
+        while ($node != null) {
+            $result[$i] = $node->value;
+            $node = $node->next;
+            $i++;
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // IList 实现
+    // ========================================================================
+    
+    public function get(int $index): mixed {
+        return $this->node($index)->value;
+    }
+    
+    public function set(int $index, mixed $element): mixed {
+        $node := $this->node($index);
+        $old := $node->value;
+        $node->value = $element;
+        return $old;
+    }
+    
+    public function insert(int $index, mixed $element): void {
+        if ($index == $this->count) {
+            $this->addLast($element);
+        } else {
+            $this->linkBefore($element, $this->node($index));
+        }
+    }
+    
+    public function insertAll(int $index, ICollection<T> $collection): bool {
+        $items := $collection->toArray();
+        if (len($items) == 0) {
+            return false;
+        }
+        
+        // 简单实现：逐个插入
+        $offset := 0;
+        foreach ($items as $item) {
+            $this->insert($index + $offset, $item);
+            $offset++;
+        }
+        return true;
+    }
+    
+    public function removeAt(int $index): mixed {
+        return $this->unlink($this->node($index));
+    }
+    
+    public function indexOf(mixed $element): int {
+        $index := 0;
+        $node := $this->head;
+        while ($node != null) {
+            if ($node->value == $element) {
+                return $index;
+            }
+            $node = $node->next;
+            $index++;
+        }
+        return -1;
+    }
+    
+    public function lastIndexOf(mixed $element): int {
+        $index := $this->count - 1;
+        $node := $this->tail;
+        while ($node != null) {
+            if ($node->value == $element) {
+                return $index;
+            }
+            $node = $node->prev;
+            $index--;
+        }
+        return -1;
+    }
+    
+    public function subList(int $fromIndex, int $toIndex): LinkedList<T> {
+        $this->checkRange($fromIndex, $toIndex);
+        
+        $sub := new LinkedList<T>();
+        $node := $this->node($fromIndex);
+        for ($i := $fromIndex; $i < $toIndex; $i++) {
+            $sub->add($node->value);
+            $node = $node->next;
+        }
+        return $sub;
+    }
+    
+    public function sort(IComparator<T> $comparator = null): void {
+        // 转为数组排序后重建
+        $arr := $this->toArray();
+        $this->sortArray($arr, $comparator);
+        
+        $this->clear();
+        foreach ($arr as $item) {
+            $this->add($item);
+        }
+    }
+    
+    public function reverse(): void {
+        $node := $this->head;
+        while ($node != null) {
+            $temp := $node->next;
+            $node->next = $node->prev;
+            $node->prev = $temp;
+            $node = $temp;
+        }
+        
+        $temp := $this->head;
+        $this->head = $this->tail;
+        $this->tail = $temp;
+        $this->modCount++;
+    }
+    
+    public function first(): mixed {
+        if ($this->head == null) {
+            throw new NoSuchElementException("List is empty");
+        }
+        return $this->head->value;
+    }
+    
+    public function last(): mixed {
+        if ($this->tail == null) {
+            throw new NoSuchElementException("List is empty");
+        }
+        return $this->tail->value;
+    }
+    
+    // ========================================================================
+    // IDeque 实现
+    // ========================================================================
+    
+    public function addFirst(mixed $element): void {
+        $newNode := new LinkedListNode<T>($element);
+        if ($this->head == null) {
+            $this->head = $newNode;
+            $this->tail = $newNode;
+        } else {
+            $newNode->next = $this->head;
+            $this->head->prev = $newNode;
+            $this->head = $newNode;
+        }
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    public function offerFirst(mixed $element): bool {
+        $this->addFirst($element);
+        return true;
+    }
+    
+    public function removeFirst(): mixed {
+        if ($this->head == null) {
+            throw new NoSuchElementException("List is empty");
+        }
+        return $this->unlinkFirst();
+    }
+    
+    public function pollFirst(): mixed {
+        if ($this->head == null) {
+            return null;
+        }
+        return $this->unlinkFirst();
+    }
+    
+    public function getFirst(): mixed {
+        return $this->first();
+    }
+    
+    public function peekFirst(): mixed {
+        if ($this->head == null) {
+            return null;
+        }
+        return $this->head->value;
+    }
+    
+    public function addLast(mixed $element): void {
+        $newNode := new LinkedListNode<T>($element);
+        if ($this->tail == null) {
+            $this->head = $newNode;
+            $this->tail = $newNode;
+        } else {
+            $newNode->prev = $this->tail;
+            $this->tail->next = $newNode;
+            $this->tail = $newNode;
+        }
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    public function offerLast(mixed $element): bool {
+        $this->addLast($element);
+        return true;
+    }
+    
+    public function removeLast(): mixed {
+        if ($this->tail == null) {
+            throw new NoSuchElementException("List is empty");
+        }
+        return $this->unlinkLast();
+    }
+    
+    public function pollLast(): mixed {
+        if ($this->tail == null) {
+            return null;
+        }
+        return $this->unlinkLast();
+    }
+    
+    public function getLast(): mixed {
+        return $this->last();
+    }
+    
+    public function peekLast(): mixed {
+        if ($this->tail == null) {
+            return null;
+        }
+        return $this->tail->value;
+    }
+    
+    // ========================================================================
+    // IQueue 实现
+    // ========================================================================
+    
+    public function enqueue(mixed $element): bool {
+        $this->addLast($element);
+        return true;
+    }
+    
+    public function offer(mixed $element): bool {
+        return $this->offerLast($element);
+    }
+    
+    public function dequeue(): mixed {
+        return $this->removeFirst();
+    }
+    
+    public function poll(): mixed {
+        return $this->pollFirst();
+    }
+    
+    public function front(): mixed {
+        return $this->getFirst();
+    }
+    
+    public function peek(): mixed {
+        return $this->peekFirst();
+    }
+    
+    // ========================================================================
+    // Stack 操作
+    // ========================================================================
+    
+    public function push(mixed $element): void {
+        $this->addFirst($element);
+    }
+    
+    public function pop(): mixed {
+        return $this->removeFirst();
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): LinkedListIterator<T> {
+        return new LinkedListIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆链表
+     */
+    public function clone(): LinkedList<T> {
+        $copy := new LinkedList<T>();
+        $copy->addAll($this);
+        return $copy;
+    }
+    
+    /**
+     * 获取头节点（供迭代器使用）
+     */
+    public function getHead(): LinkedListNode<T> {
+        return $this->head;
+    }
+    
+    /**
+     * 获取修改计数
+     */
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function node(int $index): LinkedListNode<T> {
+        if ($index < 0 || $index >= $this->count) {
+            throw new IndexOutOfBoundsException("Index: " + $index + ", Size: " + $this->count);
+        }
+        
+        // 从较近的一端开始遍历
+        if ($index < $this->count / 2) {
+            $node := $this->head;
+            for ($i := 0; $i < $index; $i++) {
+                $node = $node->next;
+            }
+            return $node;
+        } else {
+            $node := $this->tail;
+            for ($i := $this->count - 1; $i > $index; $i--) {
+                $node = $node->prev;
+            }
+            return $node;
+        }
+    }
+    
+    private function linkBefore(mixed $element, LinkedListNode<T> $succ): void {
+        $pred := $succ->prev;
+        $newNode := new LinkedListNode<T>($element);
+        $newNode->next = $succ;
+        $newNode->prev = $pred;
+        $succ->prev = $newNode;
+        
+        if ($pred == null) {
+            $this->head = $newNode;
+        } else {
+            $pred->next = $newNode;
+        }
+        
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    private function unlink(LinkedListNode<T> $node): mixed {
+        $value := $node->value;
+        $prev := $node->prev;
+        $next := $node->next;
+        
+        if ($prev == null) {
+            $this->head = $next;
+        } else {
+            $prev->next = $next;
+        }
+        
+        if ($next == null) {
+            $this->tail = $prev;
+        } else {
+            $next->prev = $prev;
+        }
+        
+        $this->count--;
+        $this->modCount++;
+        return $value;
+    }
+    
+    private function unlinkFirst(): mixed {
+        $value := $this->head->value;
+        $next := $this->head->next;
+        
+        $this->head = $next;
+        if ($next == null) {
+            $this->tail = null;
+        } else {
+            $next->prev = null;
+        }
+        
+        $this->count--;
+        $this->modCount++;
+        return $value;
+    }
+    
+    private function unlinkLast(): mixed {
+        $value := $this->tail->value;
+        $prev := $this->tail->prev;
+        
+        $this->tail = $prev;
+        if ($prev == null) {
+            $this->head = null;
+        } else {
+            $prev->next = null;
+        }
+        
+        $this->count--;
+        $this->modCount++;
+        return $value;
+    }
+    
+    private function checkRange(int $fromIndex, int $toIndex): void {
+        if ($fromIndex < 0 || $toIndex > $this->count || $fromIndex > $toIndex) {
+            throw new IndexOutOfBoundsException();
+        }
+    }
+    
+    private function sortArray(array $arr, IComparator<T> $comparator): void {
+        // 简单冒泡排序
+        $n := len($arr);
+        for ($i := 0; $i < $n - 1; $i++) {
+            for ($j := 0; $j < $n - 1 - $i; $j++) {
+                $shouldSwap := false;
+                if ($comparator != null) {
+                    $shouldSwap = $comparator->compare($arr[$j], $arr[$j + 1]) > 0;
+                } else {
+                    $shouldSwap = $arr[$j] > $arr[$j + 1];
+                }
+                if ($shouldSwap) {
+                    $temp := $arr[$j];
+                    $arr[$j] = $arr[$j + 1];
+                    $arr[$j + 1] = $temp;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 链表节点
+ */
+public class LinkedListNode<T> {
+    public mixed $value;
+    public LinkedListNode<T> $prev;
+    public LinkedListNode<T> $next;
+    
+    public function __construct(mixed $value) {
+        $this->value = $value;
+        $this->prev = null;
+        $this->next = null;
+    }
+}
+
+/**
+ * LinkedList 迭代器
+ */
+public class LinkedListIterator<T> implements IIterator<T> {
+    private LinkedList<T> $list;
+    private LinkedListNode<T> $current;
+    private LinkedListNode<T> $lastReturned;
+    private int $expectedModCount;
+    
+    public function __construct(LinkedList<T> $list) {
+        $this->list = $list;
+        $this->current = $list->getHead();
+        $this->lastReturned = null;
+        $this->expectedModCount = $list->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->current != null;
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        $this->lastReturned = $this->current;
+        $this->current = $this->current->next;
+        return $this->lastReturned->value;
+    }
+    
+    public function remove(): void {
+        if ($this->lastReturned == null) {
+            throw new InvalidOperationException("next() has not been called");
+        }
+        $this->checkForComodification();
+        
+        $this->list->remove($this->lastReturned->value);
+        $this->lastReturned = null;
+        $this->expectedModCount = $this->list->getModCount();
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->list->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

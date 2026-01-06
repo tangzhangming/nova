@@ -1,0 +1,285 @@
+// Sola 标准库 - 文件 Session 存储
+namespace sola.net.http.session
+
+use sola.lang.Str;
+use sola.io.{File, Dir};
+use sola.json.Json;
+
+/**
+ * 文件 Session 存储
+ * 
+ * 将 Session 数据存储在文件系统中。
+ * 
+ * 特点：
+ * - 进程重启后数据保留
+ * - 适用于生产环境
+ * - 支持多进程（通过文件锁）
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.http.session.FileStore;
+ * 
+ * $store := new FileStore("./sessions");
+ * $server->setSessionStore($store);
+ * ```
+ */
+public class FileStore implements SessionStore {
+    
+    /** 存储路径 */
+    private string $path;
+    
+    /** 文件前缀 */
+    private string $prefix;
+    
+    /** 文件扩展名 */
+    private string $extension;
+    
+    /**
+     * 构造文件存储
+     * 
+     * @param path 存储目录路径
+     */
+    public function __construct(string $path = "") {
+        if ($path == "") {
+            $path = native_temp_dir() + "/sola_sessions";
+        }
+        
+        $this->path = $path;
+        $this->prefix = "sess_";
+        $this->extension = ".json";
+        
+        // 确保目录存在
+        if (!Dir::exists($path)) {
+            Dir::create($path, true);
+        }
+    }
+    
+    /**
+     * 读取 Session 数据
+     */
+    public function read(string $id): SessionData {
+        $filePath := $this->getFilePath($id);
+        
+        if (!File::exists($filePath)) {
+            return null;
+        }
+        
+        $content := File::read($filePath);
+        if ($content == "") {
+            return null;
+        }
+        
+        // 解析 JSON
+        $json := Json::decode($content);
+        if ($json == null) {
+            return null;
+        }
+        
+        // 检查过期
+        $expireAt := 0;
+        if (isset($json["expire_at"])) {
+            $expireAt = $json["expire_at"];
+        }
+        
+        if ($expireAt > 0 && $expireAt < native_time()) {
+            File::delete($filePath);
+            return null;
+        }
+        
+        // 构建 SessionData
+        $data := new SessionData();
+        
+        if (isset($json["created_at"])) {
+            $data->createdAt = $json["created_at"];
+        }
+        
+        $data->lastAccessedAt = native_time();
+        
+        if (isset($json["data"])) {
+            $entries := $json["data"];
+            $entryCount := len($entries);
+            
+            for ($i := 0; $i < $entryCount; $i++) {
+                $entry := $entries[$i];
+                if (isset($entry["key"]) && isset($entry["value"])) {
+                    $data->set($entry["key"], $entry["value"]);
+                }
+            }
+        }
+        
+        return $data;
+    }
+    
+    /**
+     * 写入 Session 数据
+     */
+    public function write(string $id, SessionData $data, int $lifetime): bool {
+        $filePath := $this->getFilePath($id);
+        
+        $expireAt := 0;
+        if ($lifetime > 0) {
+            $expireAt = native_time() + $lifetime;
+        }
+        
+        // 构建数据数组
+        $entries := $data->all();
+        $entryData := [];
+        $entryCount := len($entries);
+        
+        for ($i := 0; $i < $entryCount; $i++) {
+            $entryData[$i] = [
+                "key" => $entries[$i]->key,
+                "value" => $entries[$i]->value
+            ];
+        }
+        
+        $json := [
+            "id" => $id,
+            "created_at" => $data->createdAt,
+            "last_accessed_at" => $data->lastAccessedAt,
+            "expire_at" => $expireAt,
+            "data" => $entryData
+        ];
+        
+        $content := Json::encodePretty($json);
+        
+        return File::write($filePath, $content);
+    }
+    
+    /**
+     * 销毁 Session
+     */
+    public function destroy(string $id): bool {
+        $filePath := $this->getFilePath($id);
+        
+        if (!File::exists($filePath)) {
+            return false;
+        }
+        
+        return File::delete($filePath);
+    }
+    
+    /**
+     * 垃圾回收
+     */
+    public function gc(int $maxLifetime): int {
+        $now := native_time();
+        $removed := 0;
+        
+        $files := Dir::list($this->path);
+        $fileCount := len($files);
+        
+        for ($i := 0; $i < $fileCount; $i++) {
+            $file := $files[$i];
+            
+            // 只处理 session 文件
+            if (!Str::startsWith($file, $this->prefix) || !Str::endsWith($file, $this->extension)) {
+                continue;
+            }
+            
+            $filePath := $this->path + "/" + $file;
+            $content := File::read($filePath);
+            
+            if ($content == "") {
+                File::delete($filePath);
+                $removed++;
+                continue;
+            }
+            
+            $json := Json::decode($content);
+            if ($json == null) {
+                File::delete($filePath);
+                $removed++;
+                continue;
+            }
+            
+            $expireAt := 0;
+            if (isset($json["expire_at"])) {
+                $expireAt = $json["expire_at"];
+            }
+            
+            if ($expireAt > 0 && $expireAt < $now) {
+                File::delete($filePath);
+                $removed++;
+            }
+        }
+        
+        return $removed;
+    }
+    
+    /**
+     * 检查 Session 是否存在
+     */
+    public function exists(string $id): bool {
+        $filePath := $this->getFilePath($id);
+        
+        if (!File::exists($filePath)) {
+            return false;
+        }
+        
+        // 检查是否过期
+        $content := File::read($filePath);
+        if ($content == "") {
+            return false;
+        }
+        
+        $json := Json::decode($content);
+        if ($json == null) {
+            return false;
+        }
+        
+        $expireAt := 0;
+        if (isset($json["expire_at"])) {
+            $expireAt = $json["expire_at"];
+        }
+        
+        if ($expireAt > 0 && $expireAt < native_time()) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // ========================================================================
+    // 配置方法
+    // ========================================================================
+    
+    /**
+     * 设置存储路径
+     */
+    public function setPath(string $path): void {
+        $this->path = $path;
+        
+        if (!Dir::exists($path)) {
+            Dir::create($path, true);
+        }
+    }
+    
+    /**
+     * 获取存储路径
+     */
+    public function getPath(): string {
+        return $this->path;
+    }
+    
+    /**
+     * 设置文件前缀
+     */
+    public function setPrefix(string $prefix): void {
+        $this->prefix = $prefix;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function getFilePath(string $id): string {
+        // 安全处理 ID，防止路径遍历
+        $safeId := Str::replace($id, "/", "_");
+        $safeId = Str::replace($safeId, "\\", "_");
+        $safeId = Str::replace($safeId, "..", "_");
+        
+        return $this->path + "/" + $this->prefix + $safeId + $this->extension;
+    }
+}
+

@@ -1,0 +1,97 @@
+// Sola 标准库 - HTTP 异常
+namespace sola.net.http
+
+use sola.lang.Exception;
+
+/**
+ * HTTP 异常
+ * 
+ * 表示 HTTP 相关的错误。
+ */
+public class HttpException extends Exception {
+    
+    /** HTTP 状态码 */
+    private int $statusCode;
+    
+    /**
+     * 构造 HTTP 异常
+     * 
+     * @param statusCode HTTP 状态码
+     * @param message 错误信息（可选，默认使用状态码文本）
+     */
+    public function __construct(int $statusCode, string $message = "") {
+        if ($message == "") {
+            $message = HttpStatus::text($statusCode);
+        }
+        parent::__construct($message);
+        $this->statusCode = $statusCode;
+    }
+    
+    /**
+     * 获取 HTTP 状态码
+     */
+    public function getStatusCode(): int {
+        return $this->statusCode;
+    }
+    
+    // ========================================================================
+    // 便捷工厂方法
+    // ========================================================================
+    
+    public static function badRequest(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::BAD_REQUEST, $message);
+    }
+    
+    public static function unauthorized(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::UNAUTHORIZED, $message);
+    }
+    
+    public static function forbidden(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::FORBIDDEN, $message);
+    }
+    
+    public static function notFound(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::NOT_FOUND, $message);
+    }
+    
+    public static function methodNotAllowed(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::METHOD_NOT_ALLOWED, $message);
+    }
+    
+    public static function conflict(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::CONFLICT, $message);
+    }
+    
+    public static function gone(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::GONE, $message);
+    }
+    
+    public static function unprocessableEntity(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::UNPROCESSABLE_ENTITY, $message);
+    }
+    
+    public static function tooManyRequests(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::TOO_MANY_REQUESTS, $message);
+    }
+    
+    public static function internalServerError(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::INTERNAL_SERVER_ERROR, $message);
+    }
+    
+    public static function notImplemented(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::NOT_IMPLEMENTED, $message);
+    }
+    
+    public static function badGateway(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::BAD_GATEWAY, $message);
+    }
+    
+    public static function serviceUnavailable(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::SERVICE_UNAVAILABLE, $message);
+    }
+    
+    public static function gatewayTimeout(string $message = ""): HttpException {
+        return new HttpException(HttpStatus::GATEWAY_TIMEOUT, $message);
+    }
+}
+

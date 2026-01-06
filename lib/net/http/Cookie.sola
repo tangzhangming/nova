@@ -1,0 +1,335 @@
+// Sola 标准库 - HTTP Cookie
+namespace sola.net.http
+
+use sola.lang.Str;
+
+/**
+ * HTTP Cookie
+ * 
+ * 表示一个 HTTP Cookie，支持解析和序列化。
+ */
+public class Cookie {
+    
+    /** Cookie 名称 */
+    public string $name;
+    
+    /** Cookie 值 */
+    public string $value;
+    
+    /** 路径 */
+    public string $path = "/";
+    
+    /** 域名 */
+    public string $domain = "";
+    
+    /** 过期时间（Unix 时间戳） */
+    public int $expires = 0;
+    
+    /** 最大存活时间（秒） */
+    public int $maxAge = 0;
+    
+    /** 是否仅 HTTPS */
+    public bool $secure = false;
+    
+    /** 是否禁止 JavaScript 访问 */
+    public bool $httpOnly = false;
+    
+    /** SameSite 属性：Strict, Lax, None */
+    public string $sameSite = "";
+    
+    /**
+     * 构造 Cookie
+     */
+    public function __construct(string $name, string $value = "") {
+        $this->name = $name;
+        $this->value = $value;
+    }
+    
+    // ========================================================================
+    // 链式设置方法
+    // ========================================================================
+    
+    public function withValue(string $value): Cookie {
+        $this->value = $value;
+        return $this;
+    }
+    
+    public function withPath(string $path): Cookie {
+        $this->path = $path;
+        return $this;
+    }
+    
+    public function withDomain(string $domain): Cookie {
+        $this->domain = $domain;
+        return $this;
+    }
+    
+    public function withExpires(int $timestamp): Cookie {
+        $this->expires = $timestamp;
+        return $this;
+    }
+    
+    public function withMaxAge(int $seconds): Cookie {
+        $this->maxAge = $seconds;
+        return $this;
+    }
+    
+    public function withSecure(bool $secure = true): Cookie {
+        $this->secure = $secure;
+        return $this;
+    }
+    
+    public function withHttpOnly(bool $httpOnly = true): Cookie {
+        $this->httpOnly = $httpOnly;
+        return $this;
+    }
+    
+    public function withSameSite(string $sameSite): Cookie {
+        $this->sameSite = $sameSite;
+        return $this;
+    }
+    
+    /**
+     * 设置过期（从现在起 N 秒后）
+     */
+    public function expiresIn(int $seconds): Cookie {
+        $this->maxAge = $seconds;
+        return $this;
+    }
+    
+    /**
+     * 设置为会话 Cookie（浏览器关闭时删除）
+     */
+    public function asSession(): Cookie {
+        $this->maxAge = 0;
+        $this->expires = 0;
+        return $this;
+    }
+    
+    /**
+     * 标记为删除（设置过期时间为过去）
+     */
+    public function delete(): Cookie {
+        $this->maxAge = -1;
+        $this->value = "";
+        return $this;
+    }
+    
+    // ========================================================================
+    // 序列化
+    // ========================================================================
+    
+    /**
+     * 序列化为 Set-Cookie 头部值
+     */
+    public function toString(): string {
+        $result := Cookie::encode($this->name) + "=" + Cookie::encode($this->value);
+        
+        if ($this->path != "") {
+            $result = $result + "; Path=" + $this->path;
+        }
+        
+        if ($this->domain != "") {
+            $result = $result + "; Domain=" + $this->domain;
+        }
+        
+        if ($this->maxAge != 0) {
+            $result = $result + "; Max-Age=" + $this->maxAge;
+        } else if ($this->expires > 0) {
+            $result = $result + "; Expires=" + Cookie::formatExpires($this->expires);
+        }
+        
+        if ($this->secure) {
+            $result = $result + "; Secure";
+        }
+        
+        if ($this->httpOnly) {
+            $result = $result + "; HttpOnly";
+        }
+        
+        if ($this->sameSite != "") {
+            $result = $result + "; SameSite=" + $this->sameSite;
+        }
+        
+        return $result;
+    }
+    
+    // ========================================================================
+    // 静态解析方法
+    // ========================================================================
+    
+    /**
+     * 从单个 Cookie 字符串解析（name=value）
+     */
+    public static function parse(string $cookieStr): Cookie {
+        $cookieStr = Str::trim($cookieStr);
+        
+        $eqPos := Str::indexOf($cookieStr, "=");
+        if ($eqPos < 0) {
+            return new Cookie($cookieStr, "");
+        }
+        
+        $name := Str::trim(Str::substring($cookieStr, 0, $eqPos));
+        $value := Str::trim(Str::substring($cookieStr, $eqPos + 1, Str::length($cookieStr)));
+        
+        // 解码 URL 编码
+        $name = Cookie::decode($name);
+        $value = Cookie::decode($value);
+        
+        return new Cookie($name, $value);
+    }
+    
+    /**
+     * 从 Cookie 请求头解析所有 Cookie
+     * Cookie 请求头格式: name1=value1; name2=value2
+     */
+    public static function parseAll(string $cookieHeader): Cookie[] {
+        $result := [];
+        $count := 0;
+        
+        if ($cookieHeader == "") {
+            return $result;
+        }
+        
+        $parts := Str::split($cookieHeader, ";");
+        $partsLen := len($parts);
+        
+        for ($i := 0; $i < $partsLen; $i++) {
+            $part := Str::trim($parts[$i]);
+            if ($part != "") {
+                $result[$count] = Cookie::parse($part);
+                $count++;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 从 Set-Cookie 响应头解析（包含属性）
+     */
+    public static function parseSetCookie(string $setCookieHeader): Cookie {
+        $parts := Str::split($setCookieHeader, ";");
+        $partsLen := len($parts);
+        
+        if ($partsLen == 0) {
+            return new Cookie("", "");
+        }
+        
+        // 第一部分是 name=value
+        $cookie := Cookie::parse($parts[0]);
+        
+        // 其余部分是属性
+        for ($i := 1; $i < $partsLen; $i++) {
+            $attr := Str::trim($parts[$i]);
+            $attrLower := Str::toLowerCase($attr);
+            
+            if ($attrLower == "secure") {
+                $cookie->secure = true;
+            } else if ($attrLower == "httponly") {
+                $cookie->httpOnly = true;
+            } else {
+                $eqPos := Str::indexOf($attr, "=");
+                if ($eqPos > 0) {
+                    $attrName := Str::toLowerCase(Str::trim(Str::substring($attr, 0, $eqPos)));
+                    $attrValue := Str::trim(Str::substring($attr, $eqPos + 1, Str::length($attr)));
+                    
+                    if ($attrName == "path") {
+                        $cookie->path = $attrValue;
+                    } else if ($attrName == "domain") {
+                        $cookie->domain = $attrValue;
+                    } else if ($attrName == "max-age") {
+                        $cookie->maxAge = Str::toInt($attrValue);
+                    } else if ($attrName == "samesite") {
+                        $cookie->sameSite = $attrValue;
+                    }
+                    // expires 需要解析日期格式，暂时跳过
+                }
+            }
+        }
+        
+        return $cookie;
+    }
+    
+    // ========================================================================
+    // 工具方法
+    // ========================================================================
+    
+    /**
+     * URL 编码 Cookie 值
+     */
+    public static function encode(string $value): string {
+        // 简单实现：编码特殊字符
+        $result := "";
+        $len := Str::length($value);
+        
+        for ($i := 0; $i < $len; $i++) {
+            $char := Str::charAt($value, $i);
+            
+            if ($char == " ") {
+                $result = $result + "%20";
+            } else if ($char == ";") {
+                $result = $result + "%3B";
+            } else if ($char == "=") {
+                $result = $result + "%3D";
+            } else if ($char == ",") {
+                $result = $result + "%2C";
+            } else if ($char == "%") {
+                $result = $result + "%25";
+            } else {
+                $result = $result + $char;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * URL 解码 Cookie 值
+     */
+    public static function decode(string $value): string {
+        $result := "";
+        $len := Str::length($value);
+        $i := 0;
+        
+        while ($i < $len) {
+            $char := Str::charAt($value, $i);
+            
+            if ($char == "%" && $i + 2 < $len) {
+                $hex := Str::substring($value, $i + 1, $i + 3);
+                
+                if ($hex == "20") {
+                    $result = $result + " ";
+                } else if ($hex == "3B" || $hex == "3b") {
+                    $result = $result + ";";
+                } else if ($hex == "3D" || $hex == "3d") {
+                    $result = $result + "=";
+                } else if ($hex == "2C" || $hex == "2c") {
+                    $result = $result + ",";
+                } else if ($hex == "25") {
+                    $result = $result + "%";
+                } else {
+                    $result = $result + $char;
+                    $i++;
+                    continue;
+                }
+                $i = $i + 3;
+            } else {
+                $result = $result + $char;
+                $i++;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 格式化过期时间为 HTTP 日期格式
+     */
+    private static function formatExpires(int $timestamp): string {
+        // 简化实现，返回 GMT 格式
+        // 完整实现需要日期格式化库
+        return "Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+}
+

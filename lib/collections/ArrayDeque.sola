@@ -1,0 +1,394 @@
+// Sola 标准库 - 双端队列
+namespace sola.collections
+
+/**
+ * 双端队列
+ * 
+ * 支持在两端高效添加和移除元素的队列。
+ * 
+ * 特点：
+ * - 两端操作 O(1) 均摊
+ * - 可用作栈或队列
+ * - 基于动态数组实现
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.ArrayDeque;
+ * 
+ * $deque := new ArrayDeque<int>();
+ * $deque->addFirst(1);
+ * $deque->addLast(2);
+ * $deque->addFirst(0);
+ * 
+ * echo $deque->removeFirst();  // 0
+ * echo $deque->removeLast();   // 2
+ * ```
+ */
+public class ArrayDeque<T> implements IDeque<T> {
+    
+    /** 内部存储 */
+    private array $data;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空双端队列
+     */
+    public function __construct() {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建双端队列
+     */
+    public static function fromArray<T>(array $array): ArrayDeque<T> {
+        $deque := new ArrayDeque<T>();
+        foreach ($array as $item) {
+            $deque->addLast($item);
+        }
+        return $deque;
+    }
+    
+    // ========================================================================
+    // IDeque 实现
+    // ========================================================================
+    
+    public function addFirst(mixed $element): void {
+        // 移动所有元素
+        for ($i := $this->count; $i > 0; $i--) {
+            $this->data[$i] = $this->data[$i - 1];
+        }
+        $this->data[0] = $element;
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    public function offerFirst(mixed $element): bool {
+        $this->addFirst($element);
+        return true;
+    }
+    
+    public function removeFirst(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Deque is empty");
+        }
+        
+        $element := $this->data[0];
+        for ($i := 0; $i < $this->count - 1; $i++) {
+            $this->data[$i] = $this->data[$i + 1];
+        }
+        $this->count--;
+        $this->modCount++;
+        return $element;
+    }
+    
+    public function pollFirst(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->removeFirst();
+    }
+    
+    public function getFirst(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Deque is empty");
+        }
+        return $this->data[0];
+    }
+    
+    public function peekFirst(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->data[0];
+    }
+    
+    public function addLast(mixed $element): void {
+        $this->data[$this->count] = $element;
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    public function offerLast(mixed $element): bool {
+        $this->addLast($element);
+        return true;
+    }
+    
+    public function removeLast(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Deque is empty");
+        }
+        
+        $this->count--;
+        $element := $this->data[$this->count];
+        $this->modCount++;
+        return $element;
+    }
+    
+    public function pollLast(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->removeLast();
+    }
+    
+    public function getLast(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Deque is empty");
+        }
+        return $this->data[$this->count - 1];
+    }
+    
+    public function peekLast(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->data[$this->count - 1];
+    }
+    
+    // ========================================================================
+    // Stack 操作
+    // ========================================================================
+    
+    public function push(mixed $element): void {
+        $this->addFirst($element);
+    }
+    
+    public function pop(): mixed {
+        return $this->removeFirst();
+    }
+    
+    // ========================================================================
+    // IQueue 实现
+    // ========================================================================
+    
+    public function enqueue(mixed $element): bool {
+        $this->addLast($element);
+        return true;
+    }
+    
+    public function offer(mixed $element): bool {
+        return $this->offerLast($element);
+    }
+    
+    public function dequeue(): mixed {
+        return $this->removeFirst();
+    }
+    
+    public function poll(): mixed {
+        return $this->pollFirst();
+    }
+    
+    public function front(): mixed {
+        return $this->getFirst();
+    }
+    
+    public function peek(): mixed {
+        return $this->peekFirst();
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        for ($i := 0; $i < $this->count; $i++) {
+            if ($this->data[$i] == $element) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $this->addLast($element);
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            $this->addLast($item);
+        }
+        return true;
+    }
+    
+    public function remove(mixed $element): bool {
+        for ($i := 0; $i < $this->count; $i++) {
+            if ($this->data[$i] == $element) {
+                for ($j := $i; $j < $this->count - 1; $j++) {
+                    $this->data[$j] = $this->data[$j + 1];
+                }
+                $this->count--;
+                $this->modCount++;
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            while ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $i := 0;
+        while ($i < $this->count) {
+            if (!$collection->contains($this->data[$i])) {
+                $this->remove($this->data[$i]);
+                $modified = true;
+            } else {
+                $i++;
+            }
+        }
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        for ($i := 0; $i < $this->count; $i++) {
+            $result[$i] = $this->data[$i];
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): ArrayDequeIterator<T> {
+        return new ArrayDequeIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆双端队列
+     */
+    public function clone(): ArrayDeque<T> {
+        $copy := new ArrayDeque<T>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $copy->addLast($this->data[$i]);
+        }
+        return $copy;
+    }
+    
+    /**
+     * 反转双端队列
+     */
+    public function reverse(): void {
+        $left := 0;
+        $right := $this->count - 1;
+        while ($left < $right) {
+            $temp := $this->data[$left];
+            $this->data[$left] = $this->data[$right];
+            $this->data[$right] = $temp;
+            $left++;
+            $right--;
+        }
+        $this->modCount++;
+    }
+    
+    /**
+     * 转换为列表
+     */
+    public function toList(): ArrayList<T> {
+        $list := new ArrayList<T>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $list->add($this->data[$i]);
+        }
+        return $list;
+    }
+    
+    /**
+     * 获取内部数据
+     */
+    public function getData(): array {
+        return $this->data;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+}
+
+/**
+ * ArrayDeque 迭代器
+ */
+public class ArrayDequeIterator<T> implements IIterator<T> {
+    private ArrayDeque<T> $deque;
+    private int $index;
+    private int $expectedModCount;
+    
+    public function __construct(ArrayDeque<T> $deque) {
+        $this->deque = $deque;
+        $this->index = 0;
+        $this->expectedModCount = $deque->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->index < $this->deque->size();
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $data := $this->deque->getData();
+        $element := $data[$this->index];
+        $this->index++;
+        return $element;
+    }
+    
+    public function remove(): void {
+        throw new UnsupportedOperationException("Remove not supported during iteration");
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->deque->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

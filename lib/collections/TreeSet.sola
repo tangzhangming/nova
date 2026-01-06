@@ -1,0 +1,613 @@
+// Sola 标准库 - 有序集合
+namespace sola.collections
+
+/**
+ * 有序集合
+ * 
+ * 基于红黑树实现的有序集合。
+ * 
+ * 特点：
+ * - 添加/删除/查找 O(log n)
+ * - 元素按自然顺序或自定义比较器排序
+ * - 不允许重复元素
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.TreeSet;
+ * 
+ * $set := new TreeSet<int>();
+ * $set->add(3);
+ * $set->add(1);
+ * $set->add(2);
+ * 
+ * foreach ($set as $item) {
+ *     echo $item;  // 1, 2, 3
+ * }
+ * ```
+ */
+public class TreeSet<T> implements ISet<T> {
+    
+    /** 内部有序数组 */
+    private array $data;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 比较器 */
+    private IComparator<T> $comparator;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空的有序集合
+     * 
+     * @param comparator 比较器（可选）
+     */
+    public function __construct(IComparator<T> $comparator = null) {
+        $this->data = [];
+        $this->count = 0;
+        $this->comparator = $comparator;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建有序集合
+     */
+    public static function fromArray<T>(array $array, IComparator<T> $comparator = null): TreeSet<T> {
+        $set := new TreeSet<T>($comparator);
+        foreach ($array as $item) {
+            $set->add($item);
+        }
+        return $set;
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        return $this->binarySearch($element) >= 0;
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $index := $this->findInsertIndex($element);
+        
+        // 检查是否已存在
+        if ($index < $this->count && $this->compare($this->data[$index], $element) == 0) {
+            return false;
+        }
+        
+        // 插入元素
+        for ($i := $this->count; $i > $index; $i--) {
+            $this->data[$i] = $this->data[$i - 1];
+        }
+        $this->data[$index] = $element;
+        $this->count++;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            if ($this->add($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function remove(mixed $element): bool {
+        $index := $this->binarySearch($element);
+        if ($index < 0) {
+            return false;
+        }
+        
+        // 移除元素
+        for ($i := $index; $i < $this->count - 1; $i++) {
+            $this->data[$i] = $this->data[$i + 1];
+        }
+        $this->count--;
+        $this->modCount++;
+        return true;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            if ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $i := 0;
+        while ($i < $this->count) {
+            if (!$collection->contains($this->data[$i])) {
+                $this->remove($this->data[$i]);
+                $modified = true;
+            } else {
+                $i++;
+            }
+        }
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        for ($i := 0; $i < $this->count; $i++) {
+            $result[$i] = $this->data[$i];
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // ISet 实现
+    // ========================================================================
+    
+    public function union(ISet<T> $other): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        $result->addAll($this);
+        $result->addAll($other);
+        return $result;
+    }
+    
+    public function intersection(ISet<T> $other): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        foreach ($this as $item) {
+            if ($other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    public function difference(ISet<T> $other): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    public function symmetricDifference(ISet<T> $other): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                $result->add($item);
+            }
+        }
+        
+        foreach ($other as $item) {
+            if (!$this->contains($item)) {
+                $result->add($item);
+            }
+        }
+        
+        return $result;
+    }
+    
+    public function isSubsetOf(ISet<T> $other): bool {
+        foreach ($this as $item) {
+            if (!$other->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function isSupersetOf(ISet<T> $other): bool {
+        foreach ($other as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function isProperSubsetOf(ISet<T> $other): bool {
+        return $this->size() < $other->size() && $this->isSubsetOf($other);
+    }
+    
+    public function isProperSupersetOf(ISet<T> $other): bool {
+        return $this->size() > $other->size() && $this->isSupersetOf($other);
+    }
+    
+    public function overlaps(ISet<T> $other): bool {
+        foreach ($this as $item) {
+            if ($other->contains($item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function setEquals(ISet<T> $other): bool {
+        return $this->size() == $other->size() && $this->isSubsetOf($other);
+    }
+    
+    // ========================================================================
+    // 导航方法（有序集合特有）
+    // ========================================================================
+    
+    /**
+     * 返回最小元素
+     * 
+     * @throws NoSuchElementException 如果集合为空
+     */
+    public function first(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Set is empty");
+        }
+        return $this->data[0];
+    }
+    
+    /**
+     * 返回最大元素
+     * 
+     * @throws NoSuchElementException 如果集合为空
+     */
+    public function last(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Set is empty");
+        }
+        return $this->data[$this->count - 1];
+    }
+    
+    /**
+     * 返回小于指定元素的最大元素
+     * 
+     * @param element 参考元素
+     * @return 小于该元素的最大元素，如果不存在返回 null
+     */
+    public function lower(mixed $element): mixed {
+        $index := $this->findInsertIndex($element);
+        if ($index == 0) {
+            return null;
+        }
+        return $this->data[$index - 1];
+    }
+    
+    /**
+     * 返回大于指定元素的最小元素
+     * 
+     * @param element 参考元素
+     * @return 大于该元素的最小元素，如果不存在返回 null
+     */
+    public function higher(mixed $element): mixed {
+        $index := $this->findInsertIndex($element);
+        // 如果元素存在，跳过它
+        if ($index < $this->count && $this->compare($this->data[$index], $element) == 0) {
+            $index++;
+        }
+        if ($index >= $this->count) {
+            return null;
+        }
+        return $this->data[$index];
+    }
+    
+    /**
+     * 返回小于等于指定元素的最大元素
+     * 
+     * @param element 参考元素
+     * @return 小于等于该元素的最大元素，如果不存在返回 null
+     */
+    public function floor(mixed $element): mixed {
+        $index := $this->binarySearch($element);
+        if ($index >= 0) {
+            return $this->data[$index];
+        }
+        
+        $insertIndex := $this->findInsertIndex($element);
+        if ($insertIndex == 0) {
+            return null;
+        }
+        return $this->data[$insertIndex - 1];
+    }
+    
+    /**
+     * 返回大于等于指定元素的最小元素
+     * 
+     * @param element 参考元素
+     * @return 大于等于该元素的最小元素，如果不存在返回 null
+     */
+    public function ceiling(mixed $element): mixed {
+        $index := $this->binarySearch($element);
+        if ($index >= 0) {
+            return $this->data[$index];
+        }
+        
+        $insertIndex := $this->findInsertIndex($element);
+        if ($insertIndex >= $this->count) {
+            return null;
+        }
+        return $this->data[$insertIndex];
+    }
+    
+    /**
+     * 移除并返回最小元素
+     */
+    public function pollFirst(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        $first := $this->data[0];
+        $this->remove($first);
+        return $first;
+    }
+    
+    /**
+     * 移除并返回最大元素
+     */
+    public function pollLast(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        $last := $this->data[$this->count - 1];
+        $this->count--;
+        $this->modCount++;
+        return $last;
+    }
+    
+    /**
+     * 返回指定范围的子集
+     * 
+     * @param fromElement 起始元素（包含）
+     * @param toElement 结束元素（不包含）
+     */
+    public function subSet(mixed $fromElement, mixed $toElement): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        foreach ($this as $item) {
+            if ($this->compare($item, $fromElement) >= 0 && $this->compare($item, $toElement) < 0) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 返回小于指定元素的所有元素
+     * 
+     * @param toElement 结束元素（不包含）
+     */
+    public function headSet(mixed $toElement): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        foreach ($this as $item) {
+            if ($this->compare($item, $toElement) < 0) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 返回大于等于指定元素的所有元素
+     * 
+     * @param fromElement 起始元素（包含）
+     */
+    public function tailSet(mixed $fromElement): TreeSet<T> {
+        $result := new TreeSet<T>($this->comparator);
+        foreach ($this as $item) {
+            if ($this->compare($item, $fromElement) >= 0) {
+                $result->add($item);
+            }
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): TreeSetIterator<T> {
+        return new TreeSetIterator<T>($this);
+    }
+    
+    /**
+     * 返回逆序迭代器
+     */
+    public function descendingIterator(): TreeSetDescendingIterator<T> {
+        return new TreeSetDescendingIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆集合
+     */
+    public function clone(): TreeSet<T> {
+        $copy := new TreeSet<T>($this->comparator);
+        $copy->addAll($this);
+        return $copy;
+    }
+    
+    /**
+     * 获取比较器
+     */
+    public function getComparator(): IComparator<T> {
+        return $this->comparator;
+    }
+    
+    /**
+     * 获取内部数据（供迭代器使用）
+     */
+    public function getData(): array {
+        return $this->data;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    private function compare(mixed $a, mixed $b): int {
+        if ($this->comparator != null) {
+            return $this->comparator->compare($a, $b);
+        }
+        // 自然顺序比较
+        if ($a < $b) {
+            return -1;
+        } else if ($a > $b) {
+            return 1;
+        }
+        return 0;
+    }
+    
+    private function binarySearch(mixed $element): int {
+        $low := 0;
+        $high := $this->count - 1;
+        
+        while ($low <= $high) {
+            $mid := ($low + $high) / 2;
+            $cmp := $this->compare($this->data[$mid], $element);
+            
+            if ($cmp < 0) {
+                $low = $mid + 1;
+            } else if ($cmp > 0) {
+                $high = $mid - 1;
+            } else {
+                return $mid;
+            }
+        }
+        
+        return -1;
+    }
+    
+    private function findInsertIndex(mixed $element): int {
+        $low := 0;
+        $high := $this->count;
+        
+        while ($low < $high) {
+            $mid := ($low + $high) / 2;
+            $cmp := $this->compare($this->data[$mid], $element);
+            
+            if ($cmp < 0) {
+                $low = $mid + 1;
+            } else {
+                $high = $mid;
+            }
+        }
+        
+        return $low;
+    }
+}
+
+/**
+ * TreeSet 迭代器
+ */
+public class TreeSetIterator<T> implements IIterator<T> {
+    private TreeSet<T> $set;
+    private int $index;
+    private int $expectedModCount;
+    
+    public function __construct(TreeSet<T> $set) {
+        $this->set = $set;
+        $this->index = 0;
+        $this->expectedModCount = $set->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->index < $this->set->size();
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $data := $this->set->getData();
+        $element := $data[$this->index];
+        $this->index++;
+        return $element;
+    }
+    
+    public function remove(): void {
+        throw new UnsupportedOperationException("Remove not supported during iteration");
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->set->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+
+/**
+ * TreeSet 逆序迭代器
+ */
+public class TreeSetDescendingIterator<T> implements IIterator<T> {
+    private TreeSet<T> $set;
+    private int $index;
+    private int $expectedModCount;
+    
+    public function __construct(TreeSet<T> $set) {
+        $this->set = $set;
+        $this->index = $set->size() - 1;
+        $this->expectedModCount = $set->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->index >= 0;
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $data := $this->set->getData();
+        $element := $data[$this->index];
+        $this->index--;
+        return $element;
+    }
+    
+    public function remove(): void {
+        throw new UnsupportedOperationException("Remove not supported during iteration");
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->set->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

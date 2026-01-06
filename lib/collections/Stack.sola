@@ -1,0 +1,307 @@
+// Sola 标准库 - 栈
+namespace sola.collections
+
+/**
+ * 栈
+ * 
+ * 后进先出（LIFO）的集合。
+ * 
+ * 特点：
+ * - push/pop/peek O(1)
+ * - 基于动态数组实现
+ * 
+ * @template T 元素类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.collections.Stack;
+ * 
+ * $stack := new Stack<int>();
+ * $stack->push(1);
+ * $stack->push(2);
+ * $stack->push(3);
+ * 
+ * echo $stack->pop();  // 3
+ * echo $stack->peek(); // 2
+ * ```
+ */
+public class Stack<T> implements IStack<T> {
+    
+    /** 内部存储 */
+    private array $data;
+    
+    /** 元素数量 */
+    private int $count;
+    
+    /** 修改计数 */
+    private int $modCount;
+    
+    /**
+     * 创建空栈
+     */
+    public function __construct() {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount = 0;
+    }
+    
+    /**
+     * 从数组创建栈
+     */
+    public static function fromArray<T>(array $array): Stack<T> {
+        $stack := new Stack<T>();
+        foreach ($array as $item) {
+            $stack->push($item);
+        }
+        return $stack;
+    }
+    
+    // ========================================================================
+    // IStack 实现
+    // ========================================================================
+    
+    public function push(mixed $element): void {
+        $this->data[$this->count] = $element;
+        $this->count++;
+        $this->modCount++;
+    }
+    
+    public function pop(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Stack is empty");
+        }
+        
+        $this->count--;
+        $element := $this->data[$this->count];
+        $this->modCount++;
+        return $element;
+    }
+    
+    public function peek(): mixed {
+        if ($this->count == 0) {
+            throw new NoSuchElementException("Stack is empty");
+        }
+        return $this->data[$this->count - 1];
+    }
+    
+    public function tryPop(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->pop();
+    }
+    
+    public function tryPeek(): mixed {
+        if ($this->count == 0) {
+            return null;
+        }
+        return $this->peek();
+    }
+    
+    public function search(mixed $element): int {
+        for ($i := $this->count - 1; $i >= 0; $i--) {
+            if ($this->data[$i] == $element) {
+                return $this->count - $i;  // 1-based position from top
+            }
+        }
+        return -1;
+    }
+    
+    // ========================================================================
+    // ICollection 实现
+    // ========================================================================
+    
+    public function size(): int {
+        return $this->count;
+    }
+    
+    public function isEmpty(): bool {
+        return $this->count == 0;
+    }
+    
+    public function contains(mixed $element): bool {
+        for ($i := 0; $i < $this->count; $i++) {
+            if ($this->data[$i] == $element) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function containsAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            if (!$this->contains($item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    public function add(mixed $element): bool {
+        $this->push($element);
+        return true;
+    }
+    
+    public function addAll(ICollection<T> $collection): bool {
+        foreach ($collection as $item) {
+            $this->push($item);
+        }
+        return true;
+    }
+    
+    public function remove(mixed $element): bool {
+        for ($i := 0; $i < $this->count; $i++) {
+            if ($this->data[$i] == $element) {
+                // 移动元素
+                for ($j := $i; $j < $this->count - 1; $j++) {
+                    $this->data[$j] = $this->data[$j + 1];
+                }
+                $this->count--;
+                $this->modCount++;
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    public function removeAll(ICollection<T> $collection): bool {
+        $modified := false;
+        foreach ($collection as $item) {
+            while ($this->remove($item)) {
+                $modified = true;
+            }
+        }
+        return $modified;
+    }
+    
+    public function retainAll(ICollection<T> $collection): bool {
+        $modified := false;
+        $i := 0;
+        while ($i < $this->count) {
+            if (!$collection->contains($this->data[$i])) {
+                $this->remove($this->data[$i]);
+                $modified = true;
+            } else {
+                $i++;
+            }
+        }
+        return $modified;
+    }
+    
+    public function clear(): void {
+        $this->data = [];
+        $this->count = 0;
+        $this->modCount++;
+    }
+    
+    public function toArray(): array {
+        $result := [];
+        for ($i := 0; $i < $this->count; $i++) {
+            $result[$i] = $this->data[$i];
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // IIterable 实现
+    // ========================================================================
+    
+    public function iterator(): StackIterator<T> {
+        return new StackIterator<T>($this);
+    }
+    
+    // ========================================================================
+    // 扩展方法
+    // ========================================================================
+    
+    /**
+     * 克隆栈
+     */
+    public function clone(): Stack<T> {
+        $copy := new Stack<T>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $copy->push($this->data[$i]);
+        }
+        return $copy;
+    }
+    
+    /**
+     * 转换为列表（从栈底到栈顶）
+     */
+    public function toList(): ArrayList<T> {
+        $list := new ArrayList<T>();
+        for ($i := 0; $i < $this->count; $i++) {
+            $list->add($this->data[$i]);
+        }
+        return $list;
+    }
+    
+    /**
+     * 反转栈
+     */
+    public function reverse(): void {
+        $left := 0;
+        $right := $this->count - 1;
+        while ($left < $right) {
+            $temp := $this->data[$left];
+            $this->data[$left] = $this->data[$right];
+            $this->data[$right] = $temp;
+            $left++;
+            $right--;
+        }
+        $this->modCount++;
+    }
+    
+    /**
+     * 获取内部数据（供迭代器使用）
+     */
+    public function getData(): array {
+        return $this->data;
+    }
+    
+    public function getModCount(): int {
+        return $this->modCount;
+    }
+}
+
+/**
+ * Stack 迭代器（从栈顶到栈底遍历）
+ */
+public class StackIterator<T> implements IIterator<T> {
+    private Stack<T> $stack;
+    private int $index;
+    private int $expectedModCount;
+    
+    public function __construct(Stack<T> $stack) {
+        $this->stack = $stack;
+        $this->index = $stack->size() - 1;
+        $this->expectedModCount = $stack->getModCount();
+    }
+    
+    public function hasNext(): bool {
+        return $this->index >= 0;
+    }
+    
+    public function next(): mixed {
+        $this->checkForComodification();
+        if (!$this->hasNext()) {
+            throw new NoSuchElementException();
+        }
+        
+        $data := $this->stack->getData();
+        $element := $data[$this->index];
+        $this->index--;
+        return $element;
+    }
+    
+    public function remove(): void {
+        throw new UnsupportedOperationException("Remove not supported during iteration");
+    }
+    
+    private function checkForComodification(): void {
+        if ($this->stack->getModCount() != $this->expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+    }
+}
+

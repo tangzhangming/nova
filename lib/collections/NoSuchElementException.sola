@@ -1,0 +1,17 @@
+// Sola 标准库 - 无此元素异常
+namespace sola.collections
+
+use sola.lang.RuntimeException;
+
+/**
+ * 无此元素异常
+ * 
+ * 当请求的元素不存在时抛出。
+ */
+public class NoSuchElementException extends RuntimeException {
+    
+    public function __construct(string $message = "No such element") {
+        parent::__construct($message);
+    }
+}
+
