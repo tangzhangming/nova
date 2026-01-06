@@ -1484,7 +1484,7 @@ func (c *Compiler) compileAssignTarget(target ast.Expression) {
 func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 	// 特殊处理 unset() 函数
 	if ident, ok := e.Function.(*ast.Identifier); ok && ident.Name == "unset" {
-		if len(e.Arguments) != 1 {
+		if len(e.Arguments) != 1 && len(e.NamedArguments) != 0 {
 			c.error(e.Pos(), "unset() requires exactly 1 argument")
 			return
 		}
@@ -1507,11 +1507,106 @@ func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 	// 静态类型检查：检查参数类型
 	c.checkCallArgTypes(e)
 	
+	// 处理命名参数
+	args := c.resolveNamedArguments(e)
+	
 	c.compileExpr(e.Function)
-	for _, arg := range e.Arguments {
+	for _, arg := range args {
 		c.compileExpr(arg)
 	}
-	c.emitByte(bytecode.OpCall, byte(len(e.Arguments)))
+	c.emitByte(bytecode.OpCall, byte(len(args)))
+}
+
+// resolveNamedArguments 解析命名参数，返回按正确顺序排列的参数列表
+func (c *Compiler) resolveNamedArguments(e *ast.CallExpr) []ast.Expression {
+	// 如果没有命名参数，直接返回位置参数
+	if len(e.NamedArguments) == 0 {
+		return e.Arguments
+	}
+	
+	// 获取函数签名
+	var sig *FunctionSignature
+	switch fn := e.Function.(type) {
+	case *ast.Identifier:
+		sig = c.symbolTable.GetFunction(fn.Name)
+	case *ast.Variable:
+		// 变量作为函数调用时不支持命名参数
+		c.error(e.Pos(), "命名参数不能用于变量函数调用")
+		return e.Arguments
+	default:
+		c.error(e.Pos(), "命名参数不能用于此类型的函数调用")
+		return e.Arguments
+	}
+	
+	if sig == nil || len(sig.ParamNames) == 0 {
+		c.error(e.Pos(), "该函数不支持命名参数（未找到参数签名）")
+		return e.Arguments
+	}
+	
+	// 创建参数映射：参数名 -> 索引
+	paramIndex := make(map[string]int)
+	for i, name := range sig.ParamNames {
+		paramIndex[name] = i
+	}
+	
+	// 创建结果数组
+	totalParams := len(sig.ParamNames)
+	result := make([]ast.Expression, totalParams)
+	filled := make([]bool, totalParams)
+	
+	// 首先填充位置参数
+	for i, arg := range e.Arguments {
+		if i >= totalParams {
+			c.error(arg.Pos(), "参数数量超出限制")
+			return e.Arguments
+		}
+		result[i] = arg
+		filled[i] = true
+	}
+	
+	// 然后填充命名参数
+	for _, namedArg := range e.NamedArguments {
+		paramName := namedArg.Name.Name
+		idx, ok := paramIndex[paramName]
+		if !ok {
+			c.error(namedArg.Pos(), "未知的参数名: "+paramName)
+			continue
+		}
+		if filled[idx] {
+			c.error(namedArg.Pos(), "参数 "+paramName+" 已被赋值")
+			continue
+		}
+		result[idx] = namedArg.Value
+		filled[idx] = true
+	}
+	
+	// 检查必需的参数是否都已提供
+	for i := 0; i < sig.MinArity; i++ {
+		if !filled[i] {
+			c.error(e.Pos(), "缺少必需的参数: "+sig.ParamNames[i])
+		}
+	}
+	
+	// 对于可选参数，如果没有提供，编译时使用 null
+	// 注意：真正的默认值在运行时由函数定义处理
+	for i := sig.MinArity; i < totalParams; i++ {
+		if !filled[i] {
+			// 创建一个 null 字面量表达式
+			result[i] = &ast.NullLiteral{}
+		}
+	}
+	
+	// 计算实际需要的参数数量（去掉尾部的可选参数）
+	actualLen := totalParams
+	for i := totalParams - 1; i >= sig.MinArity; i-- {
+		if !filled[i] {
+			actualLen = i
+		} else {
+			break
+		}
+	}
+	
+	return result[:actualLen]
 }
 
 // checkCallArgTypes 检查函数调用参数类型
@@ -1630,13 +1725,100 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 	// 静态类型检查：检查方法参数类型
 	c.checkMethodCallArgTypes(e)
 
+	// 处理命名参数
+	args := c.resolveMethodCallNamedArguments(e)
+
 	c.compileExpr(e.Object)
-	for _, arg := range e.Arguments {
+	for _, arg := range args {
 		c.compileExpr(arg)
 	}
 	idx := c.makeConstant(bytecode.NewString(e.Method.Name))
 	c.emitU16(bytecode.OpCallMethod, idx)
-	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine) // 参数数量
+	c.currentChunk().WriteU8(byte(len(args)), c.currentLine) // 参数数量
+}
+
+// resolveMethodCallNamedArguments 解析方法调用的命名参数
+func (c *Compiler) resolveMethodCallNamedArguments(e *ast.MethodCall) []ast.Expression {
+	// 如果没有命名参数，直接返回位置参数
+	if len(e.NamedArguments) == 0 {
+		return e.Arguments
+	}
+	
+	// 获取对象类型
+	objType := c.inferExprType(e.Object)
+	if objType == "error" || objType == "" {
+		return e.Arguments
+	}
+	
+	// 获取方法签名
+	sig := c.symbolTable.GetMethod(objType, e.Method.Name, len(e.Arguments)+len(e.NamedArguments))
+	if sig == nil || len(sig.ParamNames) == 0 {
+		c.error(e.Pos(), "该方法不支持命名参数（未找到参数签名）")
+		return e.Arguments
+	}
+	
+	// 创建参数映射：参数名 -> 索引
+	paramIndex := make(map[string]int)
+	for i, name := range sig.ParamNames {
+		paramIndex[name] = i
+	}
+	
+	// 创建结果数组
+	totalParams := len(sig.ParamNames)
+	result := make([]ast.Expression, totalParams)
+	filled := make([]bool, totalParams)
+	
+	// 首先填充位置参数
+	for i, arg := range e.Arguments {
+		if i >= totalParams {
+			c.error(arg.Pos(), "参数数量超出限制")
+			return e.Arguments
+		}
+		result[i] = arg
+		filled[i] = true
+	}
+	
+	// 然后填充命名参数
+	for _, namedArg := range e.NamedArguments {
+		paramName := namedArg.Name.Name
+		idx, ok := paramIndex[paramName]
+		if !ok {
+			c.error(namedArg.Pos(), "未知的参数名: "+paramName)
+			continue
+		}
+		if filled[idx] {
+			c.error(namedArg.Pos(), "参数 "+paramName+" 已被赋值")
+			continue
+		}
+		result[idx] = namedArg.Value
+		filled[idx] = true
+	}
+	
+	// 检查必需的参数是否都已提供
+	for i := 0; i < sig.MinArity; i++ {
+		if !filled[i] {
+			c.error(e.Pos(), "缺少必需的参数: "+sig.ParamNames[i])
+		}
+	}
+	
+	// 对于可选参数，如果没有提供，编译时使用 null
+	for i := sig.MinArity; i < totalParams; i++ {
+		if !filled[i] {
+			result[i] = &ast.NullLiteral{}
+		}
+	}
+	
+	// 计算实际需要的参数数量
+	actualLen := totalParams
+	for i := totalParams - 1; i >= sig.MinArity; i-- {
+		if !filled[i] {
+			actualLen = i
+		} else {
+			break
+		}
+	}
+	
+	return result[:actualLen]
 }
 
 // checkMethodCallArgTypes 检查方法调用参数类型
@@ -1737,21 +1919,102 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.CallExpr:
 		// 静态方法调用: Class::method()
 		if fn, ok := member.Function.(*ast.Identifier); ok {
+			// 处理命名参数
+			args := c.resolveStaticCallNamedArguments(className, fn.Name, member)
+			
 			// 静态类型检查：检查静态方法参数类型
-			c.checkStaticMethodArgTypes(className, fn.Name, member.Arguments)
+			c.checkStaticMethodArgTypes(className, fn.Name, args)
 			
 			nameIdx := c.makeConstant(bytecode.NewString(fn.Name))
 			// 编译参数
-			for _, arg := range member.Arguments {
+			for _, arg := range args {
 				c.compileExpr(arg)
 			}
 			c.emitU16(bytecode.OpCallStatic, classIdx)
 			c.currentChunk().WriteU16(nameIdx, c.currentLine)
-			c.currentChunk().WriteU8(byte(len(member.Arguments)), c.currentLine)
+			c.currentChunk().WriteU8(byte(len(args)), c.currentLine)
 		}
 	default:
 		c.error(e.Pos(), i18n.T(i18n.ErrInvalidStaticMember))
 	}
+}
+
+// resolveStaticCallNamedArguments 解析静态方法调用的命名参数
+func (c *Compiler) resolveStaticCallNamedArguments(className, methodName string, e *ast.CallExpr) []ast.Expression {
+	// 如果没有命名参数，直接返回位置参数
+	if len(e.NamedArguments) == 0 {
+		return e.Arguments
+	}
+	
+	// 获取方法签名
+	sig := c.symbolTable.GetMethod(className, methodName, len(e.Arguments)+len(e.NamedArguments))
+	if sig == nil || len(sig.ParamNames) == 0 {
+		c.error(e.Pos(), "该静态方法不支持命名参数（未找到参数签名）")
+		return e.Arguments
+	}
+	
+	// 创建参数映射：参数名 -> 索引
+	paramIndex := make(map[string]int)
+	for i, name := range sig.ParamNames {
+		paramIndex[name] = i
+	}
+	
+	// 创建结果数组
+	totalParams := len(sig.ParamNames)
+	result := make([]ast.Expression, totalParams)
+	filled := make([]bool, totalParams)
+	
+	// 首先填充位置参数
+	for i, arg := range e.Arguments {
+		if i >= totalParams {
+			c.error(arg.Pos(), "参数数量超出限制")
+			return e.Arguments
+		}
+		result[i] = arg
+		filled[i] = true
+	}
+	
+	// 然后填充命名参数
+	for _, namedArg := range e.NamedArguments {
+		paramName := namedArg.Name.Name
+		idx, ok := paramIndex[paramName]
+		if !ok {
+			c.error(namedArg.Pos(), "未知的参数名: "+paramName)
+			continue
+		}
+		if filled[idx] {
+			c.error(namedArg.Pos(), "参数 "+paramName+" 已被赋值")
+			continue
+		}
+		result[idx] = namedArg.Value
+		filled[idx] = true
+	}
+	
+	// 检查必需的参数是否都已提供
+	for i := 0; i < sig.MinArity; i++ {
+		if !filled[i] {
+			c.error(e.Pos(), "缺少必需的参数: "+sig.ParamNames[i])
+		}
+	}
+	
+	// 对于可选参数，如果没有提供，编译时使用 null
+	for i := sig.MinArity; i < totalParams; i++ {
+		if !filled[i] {
+			result[i] = &ast.NullLiteral{}
+		}
+	}
+	
+	// 计算实际需要的参数数量
+	actualLen := totalParams
+	for i := totalParams - 1; i >= sig.MinArity; i-- {
+		if !filled[i] {
+			actualLen = i
+		} else {
+			break
+		}
+	}
+	
+	return result[:actualLen]
 }
 
 // checkStaticMethodArgTypes 检查静态方法参数类型
@@ -1793,13 +2056,96 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 	idx := c.makeConstant(bytecode.NewString(e.ClassName.Name))
 	c.emitU16(bytecode.OpNewObject, idx)
 
+	// 处理命名参数
+	args := c.resolveNewExprNamedArguments(e)
+
 	// 调用构造函数
-	for _, arg := range e.Arguments {
+	for _, arg := range args {
 		c.compileExpr(arg)
 	}
 	constructorIdx := c.makeConstant(bytecode.NewString("__construct"))
 	c.emitU16(bytecode.OpCallMethod, constructorIdx)
-	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine) // 参数数量
+	c.currentChunk().WriteU8(byte(len(args)), c.currentLine) // 参数数量
+}
+
+// resolveNewExprNamedArguments 解析NewExpr的命名参数
+func (c *Compiler) resolveNewExprNamedArguments(e *ast.NewExpr) []ast.Expression {
+	// 如果没有命名参数，直接返回位置参数
+	if len(e.NamedArguments) == 0 {
+		return e.Arguments
+	}
+	
+	className := e.ClassName.Name
+	
+	// 获取构造函数签名
+	sig := c.symbolTable.GetMethod(className, "__construct", len(e.Arguments)+len(e.NamedArguments))
+	if sig == nil || len(sig.ParamNames) == 0 {
+		c.error(e.Pos(), "该构造函数不支持命名参数（未找到参数签名）")
+		return e.Arguments
+	}
+	
+	// 创建参数映射：参数名 -> 索引
+	paramIndex := make(map[string]int)
+	for i, name := range sig.ParamNames {
+		paramIndex[name] = i
+	}
+	
+	// 创建结果数组
+	totalParams := len(sig.ParamNames)
+	result := make([]ast.Expression, totalParams)
+	filled := make([]bool, totalParams)
+	
+	// 首先填充位置参数
+	for i, arg := range e.Arguments {
+		if i >= totalParams {
+			c.error(arg.Pos(), "参数数量超出限制")
+			return e.Arguments
+		}
+		result[i] = arg
+		filled[i] = true
+	}
+	
+	// 然后填充命名参数
+	for _, namedArg := range e.NamedArguments {
+		paramName := namedArg.Name.Name
+		idx, ok := paramIndex[paramName]
+		if !ok {
+			c.error(namedArg.Pos(), "未知的参数名: "+paramName)
+			continue
+		}
+		if filled[idx] {
+			c.error(namedArg.Pos(), "参数 "+paramName+" 已被赋值")
+			continue
+		}
+		result[idx] = namedArg.Value
+		filled[idx] = true
+	}
+	
+	// 检查必需的参数是否都已提供
+	for i := 0; i < sig.MinArity; i++ {
+		if !filled[i] {
+			c.error(e.Pos(), "缺少必需的参数: "+sig.ParamNames[i])
+		}
+	}
+	
+	// 对于可选参数，如果没有提供，编译时使用 null
+	for i := sig.MinArity; i < totalParams; i++ {
+		if !filled[i] {
+			result[i] = &ast.NullLiteral{}
+		}
+	}
+	
+	// 计算实际需要的参数数量
+	actualLen := totalParams
+	for i := totalParams - 1; i >= sig.MinArity; i-- {
+		if !filled[i] {
+			actualLen = i
+		} else {
+			break
+		}
+	}
+	
+	return result[:actualLen]
 }
 
 // checkConstructorArgTypes 检查构造函数参数类型

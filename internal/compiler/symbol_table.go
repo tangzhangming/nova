@@ -10,6 +10,7 @@ import (
 type FunctionSignature struct {
 	Name       string   // 函数名
 	TypeParams []string // 泛型类型参数 <T, K>
+	ParamNames []string // 参数名称列表（用于命名参数）
 	ParamTypes []string // 参数类型列表
 	ReturnType string   // 返回类型 (可以是 "int", "string", "(int, string)" 等)
 	MinArity   int      // 最小参数数量（考虑默认参数）
@@ -21,6 +22,7 @@ type MethodSignature struct {
 	ClassName  string   // 类名
 	MethodName string   // 方法名
 	TypeParams []string // 泛型类型参数 <T, K>
+	ParamNames []string // 参数名称列表（用于命名参数）
 	ParamTypes []string // 参数类型列表
 	ReturnType string   // 返回类型
 	MinArity   int      // 最小参数数量
@@ -388,10 +390,13 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 			methodTypeParams = append(methodTypeParams, tp.Name.Name)
 		}
 		
+		paramNames := make([]string, len(method.Parameters))
 		paramTypes := make([]string, len(method.Parameters))
 		minArity := len(method.Parameters)
 		
 		for i, param := range method.Parameters {
+			// 收集参数名称（去掉$前缀）
+			paramNames[i] = param.Name.Name
 			if param.Type != nil {
 				paramTypes[i] = typeNodeToString(param.Type)
 			} else {
@@ -411,6 +416,7 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 			ClassName:  className,
 			MethodName: method.Name.Name,
 			TypeParams: methodTypeParams,
+			ParamNames: paramNames,
 			ParamTypes: paramTypes,
 			ReturnType: returnType,
 			MinArity:   minArity,
@@ -450,8 +456,10 @@ func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl) {
 			methodTypeParams = append(methodTypeParams, tp.Name.Name)
 		}
 		
+		paramNames := make([]string, len(method.Parameters))
 		paramTypes := make([]string, len(method.Parameters))
 		for i, param := range method.Parameters {
+			paramNames[i] = param.Name.Name
 			if param.Type != nil {
 				paramTypes[i] = typeNodeToString(param.Type)
 			} else {
@@ -468,6 +476,7 @@ func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl) {
 			ClassName:  interfaceName,
 			MethodName: method.Name.Name,
 			TypeParams: methodTypeParams,
+			ParamNames: paramNames,
 			ParamTypes: paramTypes,
 			ReturnType: returnType,
 			IsStatic:   method.Static,

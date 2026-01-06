@@ -100,6 +100,13 @@ func (p *Parser) peek() token.Token {
 	return p.tokens[p.current]
 }
 
+func (p *Parser) peekNext() token.Token {
+	if p.current+1 >= len(p.tokens) {
+		return p.tokens[len(p.tokens)-1] // 返回EOF
+	}
+	return p.tokens[p.current+1]
+}
+
 func (p *Parser) previous() token.Token {
 	return p.tokens[p.current-1]
 }
@@ -1115,20 +1122,23 @@ func (p *Parser) parsePropertyOrMethodAccess(left ast.Expression) ast.Expression
 		// 方法调用
 		lparen := p.advance()
 		var args []ast.Expression
+		var namedArgs []*ast.NamedArgument
+		hasNamedArg := false
 		if !p.check(token.RPAREN) {
-			args = append(args, p.parseExpression())
+			args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 			for p.match(token.COMMA) {
-				args = append(args, p.parseExpression())
+				args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 			}
 		}
 		rparen := p.consume(token.RPAREN, "expected ')'")
 		return &ast.MethodCall{
-			Object:    left,
-			Arrow:     arrow,
-			Method:    &ast.Identifier{Token: property, Name: property.Literal},
-			LParen:    lparen,
-			Arguments: args,
-			RParen:    rparen,
+			Object:         left,
+			Arrow:          arrow,
+			Method:         &ast.Identifier{Token: property, Name: property.Literal},
+			LParen:         lparen,
+			Arguments:      args,
+			NamedArguments: namedArgs,
+			RParen:         rparen,
 		}
 	}
 
@@ -1149,20 +1159,23 @@ func (p *Parser) parseDotAccess(left ast.Expression) ast.Expression {
 		// 方法调用
 		lparen := p.advance()
 		var args []ast.Expression
+		var namedArgs []*ast.NamedArgument
+		hasNamedArg := false
 		if !p.check(token.RPAREN) {
-			args = append(args, p.parseExpression())
+			args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 			for p.match(token.COMMA) {
-				args = append(args, p.parseExpression())
+				args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 			}
 		}
 		rparen := p.consume(token.RPAREN, "expected ')'")
 		return &ast.MethodCall{
-			Object:    left,
-			Arrow:     token.Token{Type: token.DOT},
-			Method:    &ast.Identifier{Token: property, Name: property.Literal},
-			LParen:    lparen,
-			Arguments: args,
-			RParen:    rparen,
+			Object:         left,
+			Arrow:          token.Token{Type: token.DOT},
+			Method:         &ast.Identifier{Token: property, Name: property.Literal},
+			LParen:         lparen,
+			Arguments:      args,
+			NamedArguments: namedArgs,
+			RParen:         rparen,
 		}
 	}
 
@@ -1197,21 +1210,7 @@ func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 
 		// 检查是否是方法调用
 		if p.check(token.LPAREN) {
-			lparen := p.advance()
-			var args []ast.Expression
-			if !p.check(token.RPAREN) {
-				args = append(args, p.parseExpression())
-				for p.match(token.COMMA) {
-					args = append(args, p.parseExpression())
-				}
-			}
-			rparen := p.consume(token.RPAREN, "expected ')'")
-			member = &ast.CallExpr{
-				Function:  member,
-				LParen:    lparen,
-				Arguments: args,
-				RParen:    rparen,
-			}
+			member = p.parseCallExpr(member)
 		}
 	} else {
 		p.error(i18n.T(i18n.ErrInvalidStaticMember))
@@ -1228,19 +1227,52 @@ func (p *Parser) parseStaticAccess(left ast.Expression) ast.Expression {
 func (p *Parser) parseCallExpr(left ast.Expression) ast.Expression {
 	lparen := p.advance()
 	var args []ast.Expression
+	var namedArgs []*ast.NamedArgument
+	hasNamedArg := false
+
 	if !p.check(token.RPAREN) {
-		args = append(args, p.parseExpression())
+		// 解析第一个参数
+		args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
+
+		// 解析剩余参数
 		for p.match(token.COMMA) {
-			args = append(args, p.parseExpression())
+			args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 		}
 	}
+
 	rparen := p.consume(token.RPAREN, "expected ')'")
 	return &ast.CallExpr{
-		Function:  left,
-		LParen:    lparen,
-		Arguments: args,
-		RParen:    rparen,
+		Function:       left,
+		LParen:         lparen,
+		Arguments:      args,
+		NamedArguments: namedArgs,
+		RParen:         rparen,
 	}
+}
+
+// parseCallArgument 解析单个调用参数（位置参数或命名参数）
+func (p *Parser) parseCallArgument(args []ast.Expression, namedArgs []*ast.NamedArgument, hasNamedArg bool) ([]ast.Expression, []*ast.NamedArgument, bool) {
+	// 检查是否是命名参数：IDENT + COLON
+	if p.check(token.IDENT) && p.peekNext().Type == token.COLON {
+		// 命名参数
+		nameToken := p.advance()
+		colon := p.advance() // 消费 :
+		value := p.parseExpression()
+
+		namedArgs = append(namedArgs, &ast.NamedArgument{
+			Name:  &ast.Identifier{Token: nameToken, Name: nameToken.Literal},
+			Colon: colon,
+			Value: value,
+		})
+		hasNamedArg = true
+	} else {
+		// 位置参数
+		if hasNamedArg {
+			p.error("位置参数不能出现在命名参数之后")
+		}
+		args = append(args, p.parseExpression())
+	}
+	return args, namedArgs, hasNamedArg
 }
 
 func (p *Parser) parseNewExpr() ast.Expression {
@@ -1268,21 +1300,25 @@ func (p *Parser) parseNewExpr() ast.Expression {
 
 	lparen := p.consume(token.LPAREN, "expected '(' after class name")
 	var args []ast.Expression
+	var namedArgs []*ast.NamedArgument
+	hasNamedArg := false
+
 	if !p.check(token.RPAREN) {
-		args = append(args, p.parseExpression())
+		args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 		for p.match(token.COMMA) {
-			args = append(args, p.parseExpression())
+			args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
 		}
 	}
 	rparen := p.consume(token.RPAREN, "expected ')'")
 
 	return &ast.NewExpr{
-		NewToken:  newToken,
-		ClassName: &ast.Identifier{Token: className, Name: className.Literal},
-		TypeArgs:  typeArgs,
-		LParen:    lparen,
-		Arguments: args,
-		RParen:    rparen,
+		NewToken:       newToken,
+		ClassName:      &ast.Identifier{Token: className, Name: className.Literal},
+		TypeArgs:       typeArgs,
+		LParen:         lparen,
+		Arguments:      args,
+		NamedArguments: namedArgs,
+		RParen:         rparen,
 	}
 }
 

@@ -486,12 +486,26 @@ func (e *AssignExpr) String() string {
 }
 func (e *AssignExpr) exprNode() {}
 
+// NamedArgument 命名参数 (name: value)
+type NamedArgument struct {
+	Name  *Identifier
+	Colon token.Token
+	Value Expression
+}
+
+func (n *NamedArgument) Pos() token.Position { return n.Name.Pos() }
+func (n *NamedArgument) End() token.Position { return n.Value.End() }
+func (n *NamedArgument) String() string {
+	return n.Name.String() + ": " + n.Value.String()
+}
+
 // CallExpr 函数/方法调用
 type CallExpr struct {
-	Function  Expression // 被调用的函数
-	LParen    token.Token
-	Arguments []Expression
-	RParen    token.Token
+	Function       Expression       // 被调用的函数
+	LParen         token.Token
+	Arguments      []Expression     // 位置参数
+	NamedArguments []*NamedArgument // 命名参数
+	RParen         token.Token
 }
 
 func (e *CallExpr) Pos() token.Position { return e.Function.Pos() }
@@ -500,6 +514,9 @@ func (e *CallExpr) String() string {
 	var args []string
 	for _, arg := range e.Arguments {
 		args = append(args, arg.String())
+	}
+	for _, na := range e.NamedArguments {
+		args = append(args, na.String())
 	}
 	return e.Function.String() + "(" + strings.Join(args, ", ") + ")"
 }
@@ -536,12 +553,13 @@ func (e *PropertyAccess) exprNode() {}
 
 // MethodCall 方法调用 ($obj->method())
 type MethodCall struct {
-	Object    Expression
-	Arrow     token.Token
-	Method    *Identifier
-	LParen    token.Token
-	Arguments []Expression
-	RParen    token.Token
+	Object         Expression
+	Arrow          token.Token
+	Method         *Identifier
+	LParen         token.Token
+	Arguments      []Expression     // 位置参数
+	NamedArguments []*NamedArgument // 命名参数
+	RParen         token.Token
 }
 
 func (e *MethodCall) Pos() token.Position { return e.Object.Pos() }
@@ -550,6 +568,9 @@ func (e *MethodCall) String() string {
 	var args []string
 	for _, arg := range e.Arguments {
 		args = append(args, arg.String())
+	}
+	for _, na := range e.NamedArguments {
+		args = append(args, na.String())
 	}
 	return e.Object.String() + "->" + e.Method.String() + "(" + strings.Join(args, ", ") + ")"
 }
@@ -591,12 +612,13 @@ func (e *ParentExpr) exprNode()           {}
 
 // NewExpr new 表达式 (new User() 或 new Box<int>())
 type NewExpr struct {
-	NewToken  token.Token
-	ClassName *Identifier
-	TypeArgs  []TypeNode // 泛型类型参数 <int, string>
-	LParen    token.Token
-	Arguments []Expression
-	RParen    token.Token
+	NewToken       token.Token
+	ClassName      *Identifier
+	TypeArgs       []TypeNode       // 泛型类型参数 <int, string>
+	LParen         token.Token
+	Arguments      []Expression     // 位置参数
+	NamedArguments []*NamedArgument // 命名参数
+	RParen         token.Token
 }
 
 func (e *NewExpr) Pos() token.Position { return e.NewToken.Pos }
@@ -605,6 +627,9 @@ func (e *NewExpr) String() string {
 	var args []string
 	for _, arg := range e.Arguments {
 		args = append(args, arg.String())
+	}
+	for _, na := range e.NamedArguments {
+		args = append(args, na.String())
 	}
 	typeArgsStr := ""
 	if len(e.TypeArgs) > 0 {
