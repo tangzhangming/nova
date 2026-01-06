@@ -1,0 +1,146 @@
+/**
+ * Sola Crypto Library - PBKDF2
+ * 密码派生密钥函数（Password-Based Key Derivation Function 2）
+ */
+namespace sola.crypto;
+
+/**
+ * PBKDF2密钥派生工具类
+ * 用于从密码派生加密密钥或安全存储密码
+ */
+class Pbkdf2 {
+    
+    /**
+     * 默认迭代次数
+     */
+    public const int DEFAULT_ITERATIONS = 100000;
+    
+    /**
+     * 默认盐长度
+     */
+    public const int DEFAULT_SALT_LENGTH = 16;
+    
+    /**
+     * 默认密钥长度
+     */
+    public const int DEFAULT_KEY_LENGTH = 32;
+    
+    // ==================== 密钥派生 ====================
+    
+    /**
+     * 从密码派生密钥
+     * @param mixed $password 密码（string或byte[]）
+     * @param byte[] $salt 盐值
+     * @param int $iterations 迭代次数（推荐100000以上）
+     * @param int $keyLength 输出密钥长度
+     * @param string $hashAlgo 哈希算法（sha1, sha256, sha384, sha512）
+     * @return byte[] 派生的密钥
+     * 
+     * @example
+     * byte[] $salt = Random::bytes(16);
+     * byte[] $key = Pbkdf2::derive("password", $salt, 100000, 32, "sha256");
+     */
+    public static function derive(
+        mixed $password, 
+        byte[] $salt, 
+        int $iterations = 100000, 
+        int $keyLength = 32, 
+        string $hashAlgo = "sha256"
+    ): byte[] {
+        if ($iterations < 1000) {
+            throw new CryptoException("PBKDF2 iterations too low, minimum 1000", CryptoException::INVALID_DATA);
+        }
+        
+        byte[] $result = native_crypto_pbkdf2($password, $salt, $iterations, $keyLength, $hashAlgo);
+        if (count($result) == 0) {
+            throw new CryptoException("PBKDF2 key derivation failed", CryptoException::HASH_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== 密码哈希 ====================
+    
+    /**
+     * 对密码进行安全哈希（用于存储）
+     * 返回格式: $pbkdf2$算法$迭代次数$盐(base64)$哈希(base64)
+     * 
+     * @param string $password 密码
+     * @param int $iterations 迭代次数
+     * @param string $hashAlgo 哈希算法
+     * @return string 可存储的密码哈希
+     * 
+     * @example
+     * string $hash = Pbkdf2::hash("password123");
+     * // 存储到数据库...
+     */
+    public static function hash(
+        string $password, 
+        int $iterations = 100000, 
+        string $hashAlgo = "sha256"
+    ): string {
+        byte[] $salt = Random::bytes(self::DEFAULT_SALT_LENGTH);
+        byte[] $key = self::derive($password, $salt, $iterations, 32, $hashAlgo);
+        
+        string $saltB64 = Base64::encodeBytes($salt);
+        string $keyB64 = Base64::encodeBytes($key);
+        
+        return "$pbkdf2$" + $hashAlgo + "$" + $iterations + "$" + $saltB64 + "$" + $keyB64;
+    }
+    
+    /**
+     * 验证密码
+     * @param string $password 待验证密码
+     * @param string $hash 存储的密码哈希
+     * @return bool 密码是否正确
+     * 
+     * @example
+     * if (Pbkdf2::verify("password123", $storedHash)) {
+     *     echo "Password correct!";
+     * }
+     */
+    public static function verify(string $password, string $hash): bool {
+        // 解析哈希格式
+        string[] $parts = Str::split($hash, "$");
+        if (count($parts) < 6 || $parts[1] != "pbkdf2") {
+            return false;
+        }
+        
+        string $hashAlgo = $parts[2];
+        int $iterations = Str::toInt($parts[3]);
+        byte[] $salt = Base64::decodeToBytes($parts[4]);
+        byte[] $expectedKey = Base64::decodeToBytes($parts[5]);
+        
+        if ($iterations < 1000) {
+            return false;
+        }
+        
+        byte[] $derivedKey = self::derive($password, $salt, $iterations, count($expectedKey), $hashAlgo);
+        
+        // 时间恒定比较
+        return Bytes::equal($derivedKey, $expectedKey);
+    }
+    
+    // ==================== 便捷方法 ====================
+    
+    /**
+     * 使用SHA256派生密钥
+     */
+    public static function deriveSha256(mixed $password, byte[] $salt, int $iterations = 100000, int $keyLength = 32): byte[] {
+        return self::derive($password, $salt, $iterations, $keyLength, "sha256");
+    }
+    
+    /**
+     * 使用SHA512派生密钥
+     */
+    public static function deriveSha512(mixed $password, byte[] $salt, int $iterations = 100000, int $keyLength = 64): byte[] {
+        return self::derive($password, $salt, $iterations, $keyLength, "sha512");
+    }
+    
+    /**
+     * 生成随机盐
+     */
+    public static function generateSalt(int $length = 16): byte[] {
+        return Random::bytes($length);
+    }
+}
+

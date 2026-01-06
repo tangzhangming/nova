@@ -1,0 +1,140 @@
+/**
+ * Sola Crypto Library - Scrypt
+ * 内存困难密码派生函数
+ */
+namespace sola.crypto;
+
+/**
+ * Scrypt密钥派生工具类
+ * 
+ * Scrypt是一种内存困难型密钥派生函数，
+ * 相比PBKDF2更能抵抗GPU和ASIC硬件攻击
+ */
+class Scrypt {
+    
+    /**
+     * 默认参数
+     */
+    public const int DEFAULT_N = 32768;  // CPU/内存成本参数 (2^15)
+    public const int DEFAULT_R = 8;       // 块大小参数
+    public const int DEFAULT_P = 1;       // 并行化参数
+    public const int DEFAULT_KEY_LENGTH = 32;
+    public const int DEFAULT_SALT_LENGTH = 16;
+    
+    // ==================== 密钥派生 ====================
+    
+    /**
+     * Scrypt密钥派生
+     * @param mixed $password 密码
+     * @param byte[] $salt 盐值
+     * @param int $n CPU/内存成本参数（必须是2的幂，推荐2^15-2^20）
+     * @param int $r 块大小参数（推荐8）
+     * @param int $p 并行化参数（推荐1）
+     * @param int $keyLength 输出密钥长度
+     * @return byte[] 派生的密钥
+     * 
+     * @example
+     * byte[] $salt = Random::bytes(16);
+     * byte[] $key = Scrypt::derive("password", $salt, 32768, 8, 1, 32);
+     */
+    public static function derive(
+        mixed $password,
+        byte[] $salt,
+        int $n = 32768,
+        int $r = 8,
+        int $p = 1,
+        int $keyLength = 32
+    ): byte[] {
+        // 验证n是2的幂
+        if ($n < 2 || ($n & ($n - 1)) != 0) {
+            throw new CryptoException("Scrypt N must be a power of 2", CryptoException::INVALID_DATA);
+        }
+        
+        byte[] $result = native_crypto_scrypt($password, $salt, $n, $r, $p, $keyLength);
+        if (count($result) == 0 && $keyLength > 0) {
+            throw new CryptoException("Scrypt key derivation failed", CryptoException::HASH_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== 密码哈希 ====================
+    
+    /**
+     * 对密码进行安全哈希（用于存储）
+     * 返回格式: $scrypt$N$r$p$盐(base64)$哈希(base64)
+     * 
+     * @param string $password 密码
+     * @param int $n CPU/内存成本参数
+     * @param int $r 块大小参数
+     * @param int $p 并行化参数
+     * @return string 可存储的密码哈希
+     */
+    public static function hash(
+        string $password,
+        int $n = 32768,
+        int $r = 8,
+        int $p = 1
+    ): string {
+        byte[] $salt = Random::bytes(self::DEFAULT_SALT_LENGTH);
+        byte[] $key = self::derive($password, $salt, $n, $r, $p, 32);
+        
+        string $saltB64 = Base64::encodeBytes($salt);
+        string $keyB64 = Base64::encodeBytes($key);
+        
+        return "$scrypt$" + $n + "$" + $r + "$" + $p + "$" + $saltB64 + "$" + $keyB64;
+    }
+    
+    /**
+     * 验证密码
+     * @param string $password 待验证密码
+     * @param string $hash 存储的密码哈希
+     * @return bool 密码是否正确
+     */
+    public static function verify(string $password, string $hash): bool {
+        string[] $parts = Str::split($hash, "$");
+        if (count($parts) < 7 || $parts[1] != "scrypt") {
+            return false;
+        }
+        
+        int $n = Str::toInt($parts[2]);
+        int $r = Str::toInt($parts[3]);
+        int $p = Str::toInt($parts[4]);
+        byte[] $salt = Base64::decodeToBytes($parts[5]);
+        byte[] $expectedKey = Base64::decodeToBytes($parts[6]);
+        
+        byte[] $derivedKey = self::derive($password, $salt, $n, $r, $p, count($expectedKey));
+        
+        return Bytes::equal($derivedKey, $expectedKey);
+    }
+    
+    // ==================== 便捷方法 ====================
+    
+    /**
+     * 低成本派生（适用于低性能设备）
+     */
+    public static function deriveLow(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+        return self::derive($password, $salt, 16384, 8, 1, $keyLength);  // N = 2^14
+    }
+    
+    /**
+     * 标准成本派生
+     */
+    public static function deriveStandard(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+        return self::derive($password, $salt, 32768, 8, 1, $keyLength);  // N = 2^15
+    }
+    
+    /**
+     * 高成本派生（高安全性场景）
+     */
+    public static function deriveHigh(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+        return self::derive($password, $salt, 65536, 8, 1, $keyLength);  // N = 2^16
+    }
+    
+    /**
+     * 生成随机盐
+     */
+    public static function generateSalt(int $length = 16): byte[] {
+        return Random::bytes($length);
+    }
+}
+

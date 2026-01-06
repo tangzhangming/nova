@@ -1,0 +1,328 @@
+/**
+ * Sola Crypto Library - RSA
+ * RSA非对称加密库
+ */
+namespace sola.crypto;
+
+/**
+ * RSA公钥
+ */
+class RsaPublicKey {
+    private int $handle = -1;
+    
+    /**
+     * @internal
+     */
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    /**
+     * 获取内部句柄
+     * @internal
+     */
+    public function getHandle(): int {
+        return this->handle;
+    }
+    
+    /**
+     * 导出为PEM格式
+     * @return string PEM格式公钥
+     */
+    public function toPem(): string {
+        return native_crypto_rsa_get_public_key_pem(this->handle);
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        if (this->handle >= 0) {
+            native_crypto_rsa_free(this->handle);
+            this->handle = -1;
+        }
+    }
+}
+
+/**
+ * RSA私钥
+ */
+class RsaPrivateKey {
+    private int $handle = -1;
+    
+    /**
+     * @internal
+     */
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    /**
+     * 获取内部句柄
+     * @internal
+     */
+    public function getHandle(): int {
+        return this->handle;
+    }
+    
+    /**
+     * 导出为PEM格式
+     * @return string PEM格式私钥
+     */
+    public function toPem(): string {
+        return native_crypto_rsa_get_private_key_pem(this->handle);
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        if (this->handle >= 0) {
+            native_crypto_rsa_free(this->handle);
+            this->handle = -1;
+        }
+    }
+}
+
+/**
+ * RSA密钥对
+ */
+class RsaKeyPair {
+    private RsaPrivateKey $privateKey;
+    private RsaPublicKey $publicKey;
+    
+    public function __construct(RsaPrivateKey $privateKey, RsaPublicKey $publicKey) {
+        this->privateKey = $privateKey;
+        this->publicKey = $publicKey;
+    }
+    
+    /**
+     * 获取公钥
+     */
+    public function getPublicKey(): RsaPublicKey {
+        return this->publicKey;
+    }
+    
+    /**
+     * 获取私钥
+     */
+    public function getPrivateKey(): RsaPrivateKey {
+        return this->privateKey;
+    }
+    
+    /**
+     * 获取公钥PEM
+     */
+    public function getPublicKeyPem(): string {
+        return this->publicKey->toPem();
+    }
+    
+    /**
+     * 获取私钥PEM
+     */
+    public function getPrivateKeyPem(): string {
+        return this->privateKey->toPem();
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        this->privateKey->free();
+        this->publicKey->free();
+    }
+}
+
+/**
+ * RSA非对称加密工具类
+ */
+class Rsa {
+    
+    /**
+     * 常用密钥大小
+     */
+    public const int KEY_2048 = 2048;
+    public const int KEY_3072 = 3072;
+    public const int KEY_4096 = 4096;
+    
+    // ==================== 密钥生成 ====================
+    
+    /**
+     * 生成RSA密钥对
+     * @param int $bits 密钥位数（推荐2048或4096）
+     * @return RsaKeyPair 密钥对
+     * 
+     * @example
+     * RsaKeyPair $keys = Rsa::generateKeyPair(2048);
+     * string $publicPem = $keys->getPublicKeyPem();
+     * string $privatePem = $keys->getPrivateKeyPem();
+     */
+    public static function generateKeyPair(int $bits = 2048): RsaKeyPair {
+        if ($bits < 1024) {
+            throw new CryptoException("RSA key size too small, minimum 1024", CryptoException::INVALID_KEY);
+        }
+        
+        array $handles = native_crypto_rsa_generate($bits);
+        if ($handles == null || count($handles) < 2) {
+            throw new CryptoException("Failed to generate RSA key pair", CryptoException::KEY_GENERATION_FAILED);
+        }
+        
+        RsaPrivateKey $privateKey = new RsaPrivateKey($handles[0]);
+        RsaPublicKey $publicKey = new RsaPublicKey($handles[1]);
+        
+        return new RsaKeyPair($privateKey, $publicKey);
+    }
+    
+    // ==================== 密钥加载 ====================
+    
+    /**
+     * 从PEM加载公钥
+     * @param string $pem PEM格式公钥
+     * @return RsaPublicKey 公钥对象
+     */
+    public static function loadPublicKey(string $pem): RsaPublicKey {
+        int $handle = native_crypto_rsa_load_public_key($pem);
+        if ($handle < 0) {
+            throw new CryptoException("Failed to load RSA public key", CryptoException::INVALID_PEM);
+        }
+        return new RsaPublicKey($handle);
+    }
+    
+    /**
+     * 从PEM加载私钥
+     * @param string $pem PEM格式私钥
+     * @return RsaPrivateKey 私钥对象
+     */
+    public static function loadPrivateKey(string $pem): RsaPrivateKey {
+        int $handle = native_crypto_rsa_load_private_key($pem);
+        if ($handle < 0) {
+            throw new CryptoException("Failed to load RSA private key", CryptoException::INVALID_PEM);
+        }
+        return new RsaPrivateKey($handle);
+    }
+    
+    // ==================== OAEP加密/解密 ====================
+    
+    /**
+     * RSA-OAEP加密
+     * @param mixed $plaintext 明文
+     * @param RsaPublicKey $publicKey 公钥
+     * @return byte[] 密文
+     * 
+     * @example
+     * byte[] $encrypted = Rsa::encrypt("secret message", $publicKey);
+     */
+    public static function encrypt(mixed $plaintext, RsaPublicKey $publicKey): byte[] {
+        byte[] $result = native_crypto_rsa_encrypt($plaintext, $publicKey->getHandle());
+        if (count($result) == 0) {
+            throw new CryptoException("RSA encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * RSA-OAEP解密
+     * @param byte[] $ciphertext 密文
+     * @param RsaPrivateKey $privateKey 私钥
+     * @return byte[] 明文
+     */
+    public static function decrypt(byte[] $ciphertext, RsaPrivateKey $privateKey): byte[] {
+        byte[] $result = native_crypto_rsa_decrypt($ciphertext, $privateKey->getHandle());
+        if (count($result) == 0 && count($ciphertext) > 0) {
+            throw new CryptoException("RSA decryption failed", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== PKCS1v15加密/解密 ====================
+    
+    /**
+     * RSA-PKCS1v15加密
+     * @param mixed $plaintext 明文
+     * @param RsaPublicKey $publicKey 公钥
+     * @return byte[] 密文
+     */
+    public static function encryptPkcs1(mixed $plaintext, RsaPublicKey $publicKey): byte[] {
+        byte[] $result = native_crypto_rsa_encrypt_pkcs1($plaintext, $publicKey->getHandle());
+        if (count($result) == 0) {
+            throw new CryptoException("RSA PKCS1 encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * RSA-PKCS1v15解密
+     * @param byte[] $ciphertext 密文
+     * @param RsaPrivateKey $privateKey 私钥
+     * @return byte[] 明文
+     */
+    public static function decryptPkcs1(byte[] $ciphertext, RsaPrivateKey $privateKey): byte[] {
+        byte[] $result = native_crypto_rsa_decrypt_pkcs1($ciphertext, $privateKey->getHandle());
+        if (count($result) == 0 && count($ciphertext) > 0) {
+            throw new CryptoException("RSA PKCS1 decryption failed", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== PSS签名/验签 ====================
+    
+    /**
+     * RSA-PSS签名
+     * @param mixed $message 消息
+     * @param RsaPrivateKey $privateKey 私钥
+     * @param string $hashAlgo 哈希算法（sha256, sha384, sha512）
+     * @return byte[] 签名
+     * 
+     * @example
+     * byte[] $signature = Rsa::sign("message", $privateKey, "sha256");
+     */
+    public static function sign(mixed $message, RsaPrivateKey $privateKey, string $hashAlgo = "sha256"): byte[] {
+        byte[] $result = native_crypto_rsa_sign($message, $privateKey->getHandle(), $hashAlgo);
+        if (count($result) == 0) {
+            throw new CryptoException("RSA signing failed", CryptoException::SIGNATURE_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * RSA-PSS验签
+     * @param mixed $message 消息
+     * @param byte[] $signature 签名
+     * @param RsaPublicKey $publicKey 公钥
+     * @param string $hashAlgo 哈希算法
+     * @return bool 验证是否通过
+     */
+    public static function verify(mixed $message, byte[] $signature, RsaPublicKey $publicKey, string $hashAlgo = "sha256"): bool {
+        return native_crypto_rsa_verify($message, $signature, $publicKey->getHandle(), $hashAlgo);
+    }
+    
+    // ==================== PKCS1v15签名/验签 ====================
+    
+    /**
+     * RSA-PKCS1v15签名
+     * @param mixed $message 消息
+     * @param RsaPrivateKey $privateKey 私钥
+     * @param string $hashAlgo 哈希算法
+     * @return byte[] 签名
+     */
+    public static function signPkcs1(mixed $message, RsaPrivateKey $privateKey, string $hashAlgo = "sha256"): byte[] {
+        byte[] $result = native_crypto_rsa_sign_pkcs1($message, $privateKey->getHandle(), $hashAlgo);
+        if (count($result) == 0) {
+            throw new CryptoException("RSA PKCS1 signing failed", CryptoException::SIGNATURE_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * RSA-PKCS1v15验签
+     * @param mixed $message 消息
+     * @param byte[] $signature 签名
+     * @param RsaPublicKey $publicKey 公钥
+     * @param string $hashAlgo 哈希算法
+     * @return bool 验证是否通过
+     */
+    public static function verifyPkcs1(mixed $message, byte[] $signature, RsaPublicKey $publicKey, string $hashAlgo = "sha256"): bool {
+        return native_crypto_rsa_verify_pkcs1($message, $signature, $publicKey->getHandle(), $hashAlgo);
+    }
+}
+

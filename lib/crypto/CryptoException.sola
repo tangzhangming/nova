@@ -1,0 +1,82 @@
+/**
+ * Sola Crypto Library - CryptoException
+ * 加密操作异常类
+ */
+namespace sola.crypto;
+
+/**
+ * 加密操作异常
+ * 当加密、解密、签名、验签等操作失败时抛出
+ */
+class CryptoException extends Exception {
+    
+    /**
+     * 错误类型常量
+     */
+    public const int INVALID_KEY = 1;           // 无效密钥
+    public const int INVALID_IV = 2;            // 无效IV/Nonce
+    public const int INVALID_DATA = 3;          // 无效数据
+    public const int ENCRYPTION_FAILED = 4;     // 加密失败
+    public const int DECRYPTION_FAILED = 5;     // 解密失败
+    public const int SIGNATURE_FAILED = 6;      // 签名失败
+    public const int VERIFICATION_FAILED = 7;   // 验签失败
+    public const int KEY_GENERATION_FAILED = 8; // 密钥生成失败
+    public const int INVALID_ALGORITHM = 9;     // 无效算法
+    public const int PADDING_ERROR = 10;        // 填充错误
+    public const int INVALID_PEM = 11;          // 无效PEM格式
+    public const int HASH_FAILED = 12;          // 哈希计算失败
+    
+    /**
+     * 错误类型
+     */
+    protected int $errorType = 0;
+    
+    /**
+     * 构造函数
+     * @param string $message 错误消息
+     * @param int $errorType 错误类型
+     * @param int $code 错误代码
+     */
+    public function __construct(string $message, int $errorType = 0, int $code = 0) {
+        parent::__construct($message, $code);
+        this->errorType = $errorType;
+    }
+    
+    /**
+     * 获取错误类型
+     * @return int 错误类型
+     */
+    public function getErrorType(): int {
+        return this->errorType;
+    }
+    
+    /**
+     * 是否是密钥相关错误
+     * @return bool
+     */
+    public function isKeyError(): bool {
+        return this->errorType == self::INVALID_KEY || 
+               this->errorType == self::KEY_GENERATION_FAILED ||
+               this->errorType == self::INVALID_PEM;
+    }
+    
+    /**
+     * 是否是加密解密错误
+     * @return bool
+     */
+    public function isCryptoError(): bool {
+        return this->errorType == self::ENCRYPTION_FAILED || 
+               this->errorType == self::DECRYPTION_FAILED ||
+               this->errorType == self::PADDING_ERROR;
+    }
+    
+    /**
+     * 是否是签名验签错误
+     * @return bool
+     */
+    public function isSignatureError(): bool {
+        return this->errorType == self::SIGNATURE_FAILED || 
+               this->errorType == self::VERIFICATION_FAILED;
+    }
+}
+

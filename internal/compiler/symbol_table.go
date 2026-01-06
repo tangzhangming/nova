@@ -168,6 +168,100 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_json_is_valid"] = &FunctionSignature{Name: "native_json_is_valid", ParamTypes: []string{"string"}, ReturnType: "bool"}
 	st.Functions["native_json_encode_object"] = &FunctionSignature{Name: "native_json_encode_object", ParamTypes: []string{"object", "any"}, ReturnType: "string", MinArity: 1}
 
+	// Crypto 哈希函数 (native_crypto_*)
+	st.Functions["native_crypto_md5"] = &FunctionSignature{Name: "native_crypto_md5", ParamTypes: []string{"any"}, ReturnType: "string"}
+	st.Functions["native_crypto_md5_bytes"] = &FunctionSignature{Name: "native_crypto_md5_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha1"] = &FunctionSignature{Name: "native_crypto_sha1", ParamTypes: []string{"any"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha1_bytes"] = &FunctionSignature{Name: "native_crypto_sha1_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha256"] = &FunctionSignature{Name: "native_crypto_sha256", ParamTypes: []string{"any"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha256_bytes"] = &FunctionSignature{Name: "native_crypto_sha256_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha384"] = &FunctionSignature{Name: "native_crypto_sha384", ParamTypes: []string{"any"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha384_bytes"] = &FunctionSignature{Name: "native_crypto_sha384_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha512"] = &FunctionSignature{Name: "native_crypto_sha512", ParamTypes: []string{"any"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha512_bytes"] = &FunctionSignature{Name: "native_crypto_sha512_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
+
+	// Crypto 流式哈希函数
+	st.Functions["native_crypto_hash_create"] = &FunctionSignature{Name: "native_crypto_hash_create", ParamTypes: []string{"string"}, ReturnType: "int"}
+	st.Functions["native_crypto_hash_update"] = &FunctionSignature{Name: "native_crypto_hash_update", ParamTypes: []string{"int", "any"}, ReturnType: "bool"}
+	st.Functions["native_crypto_hash_finalize"] = &FunctionSignature{Name: "native_crypto_hash_finalize", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_crypto_hash_finalize_bytes"] = &FunctionSignature{Name: "native_crypto_hash_finalize_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
+
+	// Crypto HMAC函数
+	st.Functions["native_crypto_hmac"] = &FunctionSignature{Name: "native_crypto_hmac", ParamTypes: []string{"string", "any", "any"}, ReturnType: "string"}
+	st.Functions["native_crypto_hmac_bytes"] = &FunctionSignature{Name: "native_crypto_hmac_bytes", ParamTypes: []string{"string", "any", "any"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_hmac_verify"] = &FunctionSignature{Name: "native_crypto_hmac_verify", ParamTypes: []string{"string", "any", "any", "string"}, ReturnType: "bool"}
+	st.Functions["native_crypto_hmac_create"] = &FunctionSignature{Name: "native_crypto_hmac_create", ParamTypes: []string{"string", "any"}, ReturnType: "int"}
+	st.Functions["native_crypto_hmac_update"] = &FunctionSignature{Name: "native_crypto_hmac_update", ParamTypes: []string{"int", "any"}, ReturnType: "bool"}
+	st.Functions["native_crypto_hmac_finalize"] = &FunctionSignature{Name: "native_crypto_hmac_finalize", ParamTypes: []string{"int"}, ReturnType: "string"}
+
+	// Crypto AES函数
+	st.Functions["native_crypto_aes_encrypt_cbc"] = &FunctionSignature{Name: "native_crypto_aes_encrypt_cbc", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_aes_decrypt_cbc"] = &FunctionSignature{Name: "native_crypto_aes_decrypt_cbc", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_aes_encrypt_gcm"] = &FunctionSignature{Name: "native_crypto_aes_encrypt_gcm", ParamTypes: []string{"byte[]", "byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]", MinArity: 3}
+	st.Functions["native_crypto_aes_decrypt_gcm"] = &FunctionSignature{Name: "native_crypto_aes_decrypt_gcm", ParamTypes: []string{"byte[]", "byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]", MinArity: 3}
+	st.Functions["native_crypto_aes_encrypt_ctr"] = &FunctionSignature{Name: "native_crypto_aes_encrypt_ctr", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_aes_decrypt_ctr"] = &FunctionSignature{Name: "native_crypto_aes_decrypt_ctr", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+
+	// Crypto DES/3DES函数
+	st.Functions["native_crypto_des_encrypt"] = &FunctionSignature{Name: "native_crypto_des_encrypt", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_des_decrypt"] = &FunctionSignature{Name: "native_crypto_des_decrypt", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_triple_des_encrypt"] = &FunctionSignature{Name: "native_crypto_triple_des_encrypt", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_triple_des_decrypt"] = &FunctionSignature{Name: "native_crypto_triple_des_decrypt", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
+
+	// Crypto RSA函数
+	st.Functions["native_crypto_rsa_generate"] = &FunctionSignature{Name: "native_crypto_rsa_generate", ParamTypes: []string{"int"}, ReturnType: "any", MinArity: 0}
+	st.Functions["native_crypto_rsa_get_public_key_pem"] = &FunctionSignature{Name: "native_crypto_rsa_get_public_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_crypto_rsa_get_private_key_pem"] = &FunctionSignature{Name: "native_crypto_rsa_get_private_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_crypto_rsa_load_public_key"] = &FunctionSignature{Name: "native_crypto_rsa_load_public_key", ParamTypes: []string{"string"}, ReturnType: "int"}
+	st.Functions["native_crypto_rsa_load_private_key"] = &FunctionSignature{Name: "native_crypto_rsa_load_private_key", ParamTypes: []string{"string"}, ReturnType: "int"}
+	st.Functions["native_crypto_rsa_encrypt"] = &FunctionSignature{Name: "native_crypto_rsa_encrypt", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_decrypt"] = &FunctionSignature{Name: "native_crypto_rsa_decrypt", ParamTypes: []string{"byte[]", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_sign"] = &FunctionSignature{Name: "native_crypto_rsa_sign", ParamTypes: []string{"any", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_verify"] = &FunctionSignature{Name: "native_crypto_rsa_verify", ParamTypes: []string{"any", "byte[]", "int", "string"}, ReturnType: "bool"}
+	st.Functions["native_crypto_rsa_sign_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_sign_pkcs1", ParamTypes: []string{"any", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_verify_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_verify_pkcs1", ParamTypes: []string{"any", "byte[]", "int", "string"}, ReturnType: "bool"}
+	st.Functions["native_crypto_rsa_encrypt_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_encrypt_pkcs1", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_decrypt_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_decrypt_pkcs1", ParamTypes: []string{"byte[]", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_free"] = &FunctionSignature{Name: "native_crypto_rsa_free", ParamTypes: []string{"int"}, ReturnType: "bool"}
+
+	// Crypto ECDSA函数
+	st.Functions["native_crypto_ecdsa_generate"] = &FunctionSignature{Name: "native_crypto_ecdsa_generate", ParamTypes: []string{"string"}, ReturnType: "any", MinArity: 0}
+	st.Functions["native_crypto_ecdsa_sign"] = &FunctionSignature{Name: "native_crypto_ecdsa_sign", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_ecdsa_verify"] = &FunctionSignature{Name: "native_crypto_ecdsa_verify", ParamTypes: []string{"any", "byte[]", "int"}, ReturnType: "bool"}
+	st.Functions["native_crypto_ecdsa_get_public_key_pem"] = &FunctionSignature{Name: "native_crypto_ecdsa_get_public_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_crypto_ecdsa_get_private_key_pem"] = &FunctionSignature{Name: "native_crypto_ecdsa_get_private_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_crypto_ecdsa_load_public_key"] = &FunctionSignature{Name: "native_crypto_ecdsa_load_public_key", ParamTypes: []string{"string"}, ReturnType: "int"}
+	st.Functions["native_crypto_ecdsa_load_private_key"] = &FunctionSignature{Name: "native_crypto_ecdsa_load_private_key", ParamTypes: []string{"string"}, ReturnType: "int"}
+	st.Functions["native_crypto_ecdsa_free"] = &FunctionSignature{Name: "native_crypto_ecdsa_free", ParamTypes: []string{"int"}, ReturnType: "bool"}
+
+	// Crypto Ed25519函数
+	st.Functions["native_crypto_ed25519_generate"] = &FunctionSignature{Name: "native_crypto_ed25519_generate", ParamTypes: []string{}, ReturnType: "any"}
+	st.Functions["native_crypto_ed25519_sign"] = &FunctionSignature{Name: "native_crypto_ed25519_sign", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_ed25519_verify"] = &FunctionSignature{Name: "native_crypto_ed25519_verify", ParamTypes: []string{"any", "byte[]", "int"}, ReturnType: "bool"}
+	st.Functions["native_crypto_ed25519_get_public_key_bytes"] = &FunctionSignature{Name: "native_crypto_ed25519_get_public_key_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_ed25519_get_private_key_bytes"] = &FunctionSignature{Name: "native_crypto_ed25519_get_private_key_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_ed25519_load_public_key"] = &FunctionSignature{Name: "native_crypto_ed25519_load_public_key", ParamTypes: []string{"byte[]"}, ReturnType: "int"}
+	st.Functions["native_crypto_ed25519_load_private_key"] = &FunctionSignature{Name: "native_crypto_ed25519_load_private_key", ParamTypes: []string{"byte[]"}, ReturnType: "int"}
+	st.Functions["native_crypto_ed25519_free"] = &FunctionSignature{Name: "native_crypto_ed25519_free", ParamTypes: []string{"int"}, ReturnType: "bool"}
+
+	// Crypto 密钥派生函数
+	st.Functions["native_crypto_pbkdf2"] = &FunctionSignature{Name: "native_crypto_pbkdf2", ParamTypes: []string{"any", "byte[]", "int", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_hkdf"] = &FunctionSignature{Name: "native_crypto_hkdf", ParamTypes: []string{"byte[]", "byte[]", "byte[]", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_scrypt"] = &FunctionSignature{Name: "native_crypto_scrypt", ParamTypes: []string{"any", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_argon2id"] = &FunctionSignature{Name: "native_crypto_argon2id", ParamTypes: []string{"any", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_argon2i"] = &FunctionSignature{Name: "native_crypto_argon2i", ParamTypes: []string{"any", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
+
+	// Crypto 随机数函数
+	st.Functions["native_crypto_random_bytes"] = &FunctionSignature{Name: "native_crypto_random_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_random_int"] = &FunctionSignature{Name: "native_crypto_random_int", ParamTypes: []string{"int", "int"}, ReturnType: "int"}
+	st.Functions["native_crypto_random_hex"] = &FunctionSignature{Name: "native_crypto_random_hex", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_crypto_random_uuid"] = &FunctionSignature{Name: "native_crypto_random_uuid", ParamTypes: []string{}, ReturnType: "string"}
+
+	// Crypto Hex函数
+	st.Functions["native_crypto_hex_encode"] = &FunctionSignature{Name: "native_crypto_hex_encode", ParamTypes: []string{"byte[]"}, ReturnType: "string"}
+	st.Functions["native_crypto_hex_decode"] = &FunctionSignature{Name: "native_crypto_hex_decode", ParamTypes: []string{"string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_hex_is_valid"] = &FunctionSignature{Name: "native_crypto_hex_is_valid", ParamTypes: []string{"string"}, ReturnType: "bool"}
+
 	// Base64 函数 (native_base64_*)
 	st.Functions["native_base64_encode"] = &FunctionSignature{Name: "native_base64_encode", ParamTypes: []string{"string"}, ReturnType: "string"}
 	st.Functions["native_base64_decode"] = &FunctionSignature{Name: "native_base64_decode", ParamTypes: []string{"string"}, ReturnType: "string"}

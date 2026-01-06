@@ -1,0 +1,177 @@
+/**
+ * Sola Crypto Library - DES/3DES
+ * DES和Triple DES对称加密库
+ * 
+ * 注意：DES已被认为不安全，仅用于遗留系统兼容
+ * 建议使用AES代替
+ */
+namespace sola.crypto;
+
+/**
+ * DES/3DES对称加密工具类
+ * 
+ * @deprecated DES已不安全，建议使用AES
+ */
+class Des {
+    
+    /**
+     * 密钥长度常量
+     */
+    public const int DES_KEY_SIZE = 8;     // DES密钥大小（56位有效）
+    public const int TRIPLE_DES_KEY_SIZE = 24;  // 3DES密钥大小（168位有效）
+    
+    /**
+     * IV大小
+     */
+    public const int IV_SIZE = 8;  // DES块大小
+    
+    // ==================== DES-CBC ====================
+    
+    /**
+     * DES-CBC加密
+     * @param byte[] $plaintext 明文
+     * @param byte[] $key 密钥（8字节）
+     * @param byte[] $iv 初始化向量（8字节）
+     * @return byte[] 密文
+     * 
+     * @deprecated DES已不安全
+     */
+    public static function encrypt(byte[] $plaintext, byte[] $key, byte[] $iv): byte[] {
+        self::validateDesKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_des_encrypt($plaintext, $key, $iv);
+        if (count($result) == 0 && count($plaintext) > 0) {
+            throw new CryptoException("DES encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * DES-CBC解密
+     * @param byte[] $ciphertext 密文
+     * @param byte[] $key 密钥
+     * @param byte[] $iv 初始化向量
+     * @return byte[] 明文
+     * 
+     * @deprecated DES已不安全
+     */
+    public static function decrypt(byte[] $ciphertext, byte[] $key, byte[] $iv): byte[] {
+        self::validateDesKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_des_decrypt($ciphertext, $key, $iv);
+        if (count($result) == 0 && count($ciphertext) > 0) {
+            throw new CryptoException("DES decryption failed", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== Triple DES (3DES) ====================
+    
+    /**
+     * 3DES-CBC加密
+     * @param byte[] $plaintext 明文
+     * @param byte[] $key 密钥（24字节）
+     * @param byte[] $iv 初始化向量（8字节）
+     * @return byte[] 密文
+     * 
+     * @example
+     * byte[] $key = Random::bytes(24);  // 3DES密钥
+     * byte[] $iv = Random::bytes(8);
+     * byte[] $encrypted = Des::encrypt3des($plaintext, $key, $iv);
+     */
+    public static function encrypt3des(byte[] $plaintext, byte[] $key, byte[] $iv): byte[] {
+        self::validate3DesKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_triple_des_encrypt($plaintext, $key, $iv);
+        if (count($result) == 0 && count($plaintext) > 0) {
+            throw new CryptoException("3DES encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * 3DES-CBC解密
+     * @param byte[] $ciphertext 密文
+     * @param byte[] $key 密钥
+     * @param byte[] $iv 初始化向量
+     * @return byte[] 明文
+     */
+    public static function decrypt3des(byte[] $ciphertext, byte[] $key, byte[] $iv): byte[] {
+        self::validate3DesKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_triple_des_decrypt($ciphertext, $key, $iv);
+        if (count($result) == 0 && count($ciphertext) > 0) {
+            throw new CryptoException("3DES decryption failed", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== 别名方法 ====================
+    
+    /**
+     * Triple DES加密别名
+     */
+    public static function encryptTripleDes(byte[] $plaintext, byte[] $key, byte[] $iv): byte[] {
+        return self::encrypt3des($plaintext, $key, $iv);
+    }
+    
+    /**
+     * Triple DES解密别名
+     */
+    public static function decryptTripleDes(byte[] $ciphertext, byte[] $key, byte[] $iv): byte[] {
+        return self::decrypt3des($ciphertext, $key, $iv);
+    }
+    
+    // ==================== 密钥生成 ====================
+    
+    /**
+     * 生成随机DES密钥
+     * @return byte[] 8字节密钥
+     * 
+     * @deprecated DES已不安全
+     */
+    public static function generateKey(): byte[] {
+        return Random::bytes(8);
+    }
+    
+    /**
+     * 生成随机3DES密钥
+     * @return byte[] 24字节密钥
+     */
+    public static function generate3DesKey(): byte[] {
+        return Random::bytes(24);
+    }
+    
+    /**
+     * 生成随机IV
+     * @return byte[] 8字节IV
+     */
+    public static function generateIv(): byte[] {
+        return Random::bytes(8);
+    }
+    
+    // ==================== 验证方法 ====================
+    
+    private static function validateDesKey(byte[] $key): void {
+        if (count($key) != 8) {
+            throw new CryptoException("DES key must be 8 bytes", CryptoException::INVALID_KEY);
+        }
+    }
+    
+    private static function validate3DesKey(byte[] $key): void {
+        if (count($key) != 24) {
+            throw new CryptoException("3DES key must be 24 bytes", CryptoException::INVALID_KEY);
+        }
+    }
+    
+    private static function validateIv(byte[] $iv): void {
+        if (count($iv) != 8) {
+            throw new CryptoException("DES IV must be 8 bytes", CryptoException::INVALID_IV);
+        }
+    }
+}
+

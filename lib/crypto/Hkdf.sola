@@ -1,0 +1,108 @@
+/**
+ * Sola Crypto Library - HKDF
+ * HMAC-based Key Derivation Function
+ */
+namespace sola.crypto;
+
+/**
+ * HKDF密钥派生工具类
+ * 用于从密钥材料派生多个密钥
+ * 适用场景：从主密钥派生加密密钥和MAC密钥
+ */
+class Hkdf {
+    
+    // ==================== 密钥派生 ====================
+    
+    /**
+     * HKDF密钥派生
+     * @param byte[] $secret 输入密钥材料
+     * @param byte[] $salt 盐值（可选，为空则使用零值盐）
+     * @param byte[] $info 上下文信息（可选）
+     * @param int $keyLength 输出密钥长度
+     * @param string $hashAlgo 哈希算法
+     * @return byte[] 派生的密钥
+     * 
+     * @example
+     * byte[] $masterKey = Random::bytes(32);
+     * byte[] $encKey = Hkdf::derive($masterKey, [], Bytes::fromString("encryption"), 32, "sha256");
+     * byte[] $macKey = Hkdf::derive($masterKey, [], Bytes::fromString("authentication"), 32, "sha256");
+     */
+    public static function derive(
+        byte[] $secret,
+        byte[] $salt = [],
+        byte[] $info = [],
+        int $keyLength = 32,
+        string $hashAlgo = "sha256"
+    ): byte[] {
+        byte[] $result = native_crypto_hkdf($secret, $salt, $info, $keyLength, $hashAlgo);
+        if (count($result) == 0 && $keyLength > 0) {
+            throw new CryptoException("HKDF key derivation failed", CryptoException::HASH_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== 便捷方法 ====================
+    
+    /**
+     * 使用SHA256派生密钥
+     */
+    public static function deriveSha256(
+        byte[] $secret,
+        byte[] $salt = [],
+        byte[] $info = [],
+        int $keyLength = 32
+    ): byte[] {
+        return self::derive($secret, $salt, $info, $keyLength, "sha256");
+    }
+    
+    /**
+     * 使用SHA512派生密钥
+     */
+    public static function deriveSha512(
+        byte[] $secret,
+        byte[] $salt = [],
+        byte[] $info = [],
+        int $keyLength = 64
+    ): byte[] {
+        return self::derive($secret, $salt, $info, $keyLength, "sha512");
+    }
+    
+    /**
+     * 从密码派生多个密钥
+     * @param string $password 密码
+     * @param byte[] $salt 盐值
+     * @param int $keyCount 密钥数量
+     * @param int $keyLength 每个密钥长度
+     * @return byte[][] 密钥数组
+     */
+    public static function deriveMultiple(
+        string $password,
+        byte[] $salt,
+        int $keyCount,
+        int $keyLength = 32
+    ): array {
+        // 先使用PBKDF2派生主密钥
+        byte[] $masterKey = Pbkdf2::derive($password, $salt, 100000, 32, "sha256");
+        
+        array $keys = [];
+        for (int $i = 0; $i < $keyCount; $i++) {
+            byte[] $info = Bytes::fromString("key-" + $i);
+            byte[] $key = self::derive($masterKey, [], $info, $keyLength, "sha256");
+            $keys[] = $key;
+        }
+        
+        return $keys;
+    }
+    
+    /**
+     * 派生加密密钥和MAC密钥
+     * @param byte[] $masterKey 主密钥
+     * @return array [encryptionKey, macKey]
+     */
+    public static function deriveEncryptAndMac(byte[] $masterKey): array {
+        byte[] $encKey = self::derive($masterKey, [], Bytes::fromString("encryption"), 32, "sha256");
+        byte[] $macKey = self::derive($masterKey, [], Bytes::fromString("mac"), 32, "sha256");
+        return [$encKey, $macKey];
+    }
+}
+

@@ -1,0 +1,248 @@
+/**
+ * Sola Crypto Library - Ed25519
+ * Ed25519数字签名算法库
+ * 
+ * Ed25519是一种高性能的数字签名算法，基于Edwards曲线
+ * 特点：签名速度快、密钥小（32字节公钥、64字节私钥）
+ */
+namespace sola.crypto;
+
+/**
+ * Ed25519公钥
+ */
+class Ed25519PublicKey {
+    private int $handle = -1;
+    
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    public function getHandle(): int {
+        return this->handle;
+    }
+    
+    /**
+     * 导出为字节数组
+     * @return byte[] 32字节公钥
+     */
+    public function toBytes(): byte[] {
+        return native_crypto_ed25519_get_public_key_bytes(this->handle);
+    }
+    
+    /**
+     * 导出为十六进制字符串
+     */
+    public function toHex(): string {
+        return Hex::encode(this->toBytes());
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        if (this->handle >= 0) {
+            native_crypto_ed25519_free(this->handle);
+            this->handle = -1;
+        }
+    }
+}
+
+/**
+ * Ed25519私钥
+ */
+class Ed25519PrivateKey {
+    private int $handle = -1;
+    
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    public function getHandle(): int {
+        return this->handle;
+    }
+    
+    /**
+     * 导出为字节数组
+     * @return byte[] 64字节私钥
+     */
+    public function toBytes(): byte[] {
+        return native_crypto_ed25519_get_private_key_bytes(this->handle);
+    }
+    
+    /**
+     * 导出为十六进制字符串
+     */
+    public function toHex(): string {
+        return Hex::encode(this->toBytes());
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        if (this->handle >= 0) {
+            native_crypto_ed25519_free(this->handle);
+            this->handle = -1;
+        }
+    }
+}
+
+/**
+ * Ed25519密钥对
+ */
+class Ed25519KeyPair {
+    private Ed25519PrivateKey $privateKey;
+    private Ed25519PublicKey $publicKey;
+    
+    public function __construct(Ed25519PrivateKey $privateKey, Ed25519PublicKey $publicKey) {
+        this->privateKey = $privateKey;
+        this->publicKey = $publicKey;
+    }
+    
+    public function getPublicKey(): Ed25519PublicKey {
+        return this->publicKey;
+    }
+    
+    public function getPrivateKey(): Ed25519PrivateKey {
+        return this->privateKey;
+    }
+    
+    public function free(): void {
+        this->privateKey->free();
+        this->publicKey->free();
+    }
+}
+
+/**
+ * Ed25519数字签名工具类
+ */
+class Ed25519 {
+    
+    /**
+     * 密钥大小常量
+     */
+    public const int PUBLIC_KEY_SIZE = 32;   // 公钥大小
+    public const int PRIVATE_KEY_SIZE = 64;  // 私钥大小
+    public const int SIGNATURE_SIZE = 64;    // 签名大小
+    
+    // ==================== 密钥生成 ====================
+    
+    /**
+     * 生成Ed25519密钥对
+     * @return Ed25519KeyPair 密钥对
+     * 
+     * @example
+     * Ed25519KeyPair $keys = Ed25519::generateKeyPair();
+     * byte[] $pubBytes = $keys->getPublicKey()->toBytes();
+     */
+    public static function generateKeyPair(): Ed25519KeyPair {
+        array $handles = native_crypto_ed25519_generate();
+        if ($handles == null || count($handles) < 2) {
+            throw new CryptoException("Failed to generate Ed25519 key pair", CryptoException::KEY_GENERATION_FAILED);
+        }
+        
+        Ed25519PrivateKey $privateKey = new Ed25519PrivateKey($handles[0]);
+        Ed25519PublicKey $publicKey = new Ed25519PublicKey($handles[1]);
+        
+        return new Ed25519KeyPair($privateKey, $publicKey);
+    }
+    
+    // ==================== 密钥加载 ====================
+    
+    /**
+     * 从字节数组加载公钥
+     * @param byte[] $bytes 32字节公钥
+     * @return Ed25519PublicKey 公钥对象
+     */
+    public static function loadPublicKey(byte[] $bytes): Ed25519PublicKey {
+        if (count($bytes) != self::PUBLIC_KEY_SIZE) {
+            throw new CryptoException("Ed25519 public key must be 32 bytes", CryptoException::INVALID_KEY);
+        }
+        
+        int $handle = native_crypto_ed25519_load_public_key($bytes);
+        if ($handle < 0) {
+            throw new CryptoException("Failed to load Ed25519 public key", CryptoException::INVALID_KEY);
+        }
+        return new Ed25519PublicKey($handle);
+    }
+    
+    /**
+     * 从字节数组加载私钥
+     * @param byte[] $bytes 64字节私钥
+     * @return Ed25519PrivateKey 私钥对象
+     */
+    public static function loadPrivateKey(byte[] $bytes): Ed25519PrivateKey {
+        if (count($bytes) != self::PRIVATE_KEY_SIZE) {
+            throw new CryptoException("Ed25519 private key must be 64 bytes", CryptoException::INVALID_KEY);
+        }
+        
+        int $handle = native_crypto_ed25519_load_private_key($bytes);
+        if ($handle < 0) {
+            throw new CryptoException("Failed to load Ed25519 private key", CryptoException::INVALID_KEY);
+        }
+        return new Ed25519PrivateKey($handle);
+    }
+    
+    /**
+     * 从十六进制字符串加载公钥
+     */
+    public static function loadPublicKeyFromHex(string $hex): Ed25519PublicKey {
+        byte[] $bytes = Hex::decode($hex);
+        return self::loadPublicKey($bytes);
+    }
+    
+    /**
+     * 从十六进制字符串加载私钥
+     */
+    public static function loadPrivateKeyFromHex(string $hex): Ed25519PrivateKey {
+        byte[] $bytes = Hex::decode($hex);
+        return self::loadPrivateKey($bytes);
+    }
+    
+    // ==================== 签名/验签 ====================
+    
+    /**
+     * Ed25519签名
+     * @param mixed $message 消息
+     * @param Ed25519PrivateKey $privateKey 私钥
+     * @return byte[] 64字节签名
+     * 
+     * @example
+     * byte[] $signature = Ed25519::sign("message", $keys->getPrivateKey());
+     */
+    public static function sign(mixed $message, Ed25519PrivateKey $privateKey): byte[] {
+        byte[] $result = native_crypto_ed25519_sign($message, $privateKey->getHandle());
+        if (count($result) == 0) {
+            throw new CryptoException("Ed25519 signing failed", CryptoException::SIGNATURE_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * Ed25519验签
+     * @param mixed $message 消息
+     * @param byte[] $signature 签名
+     * @param Ed25519PublicKey $publicKey 公钥
+     * @return bool 验证是否通过
+     */
+    public static function verify(mixed $message, byte[] $signature, Ed25519PublicKey $publicKey): bool {
+        return native_crypto_ed25519_verify($message, $signature, $publicKey->getHandle());
+    }
+    
+    /**
+     * 签名并返回十六进制
+     */
+    public static function signHex(mixed $message, Ed25519PrivateKey $privateKey): string {
+        byte[] $sig = self::sign($message, $privateKey);
+        return Hex::encode($sig);
+    }
+    
+    /**
+     * 使用十六进制签名验签
+     */
+    public static function verifyHex(mixed $message, string $signatureHex, Ed25519PublicKey $publicKey): bool {
+        byte[] $sig = Hex::decode($signatureHex);
+        return self::verify($message, $sig, $publicKey);
+    }
+}
+

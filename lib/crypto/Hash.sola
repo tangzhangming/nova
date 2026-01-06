@@ -1,0 +1,311 @@
+/**
+ * Sola Crypto Library - Hash
+ * 哈希算法库
+ */
+namespace sola.crypto;
+
+/**
+ * 流式哈希器接口
+ */
+interface IHasher {
+    /**
+     * 更新哈希数据
+     * @param mixed $data 数据（string或byte[]）
+     * @return IHasher 返回自身以支持链式调用
+     */
+    public function update(mixed $data): IHasher;
+    
+    /**
+     * 完成哈希并返回十六进制结果
+     * @return string 哈希结果（十六进制）
+     */
+    public function finalize(): string;
+    
+    /**
+     * 完成哈希并返回字节结果
+     * @return byte[] 哈希结果（字节数组）
+     */
+    public function finalizeBytes(): byte[];
+}
+
+/**
+ * 流式哈希器实现
+ */
+class Hasher implements IHasher {
+    private int $handle = -1;
+    private bool $finalized = false;
+    
+    /**
+     * @internal
+     */
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    public function update(mixed $data): IHasher {
+        if (this->finalized) {
+            throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
+        }
+        native_crypto_hash_update(this->handle, $data);
+        return this;
+    }
+    
+    public function finalize(): string {
+        if (this->finalized) {
+            throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
+        }
+        this->finalized = true;
+        return native_crypto_hash_finalize(this->handle);
+    }
+    
+    public function finalizeBytes(): byte[] {
+        if (this->finalized) {
+            throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
+        }
+        this->finalized = true;
+        return native_crypto_hash_finalize_bytes(this->handle);
+    }
+}
+
+/**
+ * 哈希算法工具类
+ * 支持 MD5, SHA1, SHA256, SHA384, SHA512
+ */
+class Hash {
+    
+    // ==================== MD5 ====================
+    
+    /**
+     * 计算MD5哈希
+     * @param mixed $data 数据（string或byte[]）
+     * @return string 哈希结果（十六进制，32字符）
+     * 
+     * @example
+     * string $hash = Hash::md5("hello");  // "5d41402abc4b2a76b9719d911017c592"
+     */
+    public static function md5(mixed $data): string {
+        return native_crypto_md5($data);
+    }
+    
+    /**
+     * 计算MD5哈希（返回字节）
+     * @param mixed $data 数据
+     * @return byte[] 哈希结果（16字节）
+     */
+    public static function md5Bytes(mixed $data): byte[] {
+        return native_crypto_md5_bytes($data);
+    }
+    
+    /**
+     * 创建MD5流式哈希器
+     * @return IHasher 哈希器实例
+     * 
+     * @example
+     * $hasher = Hash::createMd5();
+     * $hasher->update("hello ")->update("world");
+     * string $hash = $hasher->finalize();
+     */
+    public static function createMd5(): IHasher {
+        int $handle = native_crypto_hash_create("md5");
+        if ($handle < 0) {
+            throw new CryptoException("Failed to create MD5 hasher", CryptoException::HASH_FAILED);
+        }
+        return new Hasher($handle);
+    }
+    
+    // ==================== SHA1 ====================
+    
+    /**
+     * 计算SHA1哈希
+     * @param mixed $data 数据
+     * @return string 哈希结果（十六进制，40字符）
+     * 
+     * @example
+     * string $hash = Hash::sha1("hello");  // "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+     */
+    public static function sha1(mixed $data): string {
+        return native_crypto_sha1($data);
+    }
+    
+    /**
+     * 计算SHA1哈希（返回字节）
+     * @param mixed $data 数据
+     * @return byte[] 哈希结果（20字节）
+     */
+    public static function sha1Bytes(mixed $data): byte[] {
+        return native_crypto_sha1_bytes($data);
+    }
+    
+    /**
+     * 创建SHA1流式哈希器
+     * @return IHasher 哈希器实例
+     */
+    public static function createSha1(): IHasher {
+        int $handle = native_crypto_hash_create("sha1");
+        if ($handle < 0) {
+            throw new CryptoException("Failed to create SHA1 hasher", CryptoException::HASH_FAILED);
+        }
+        return new Hasher($handle);
+    }
+    
+    // ==================== SHA256 ====================
+    
+    /**
+     * 计算SHA256哈希
+     * @param mixed $data 数据
+     * @return string 哈希结果（十六进制，64字符）
+     * 
+     * @example
+     * string $hash = Hash::sha256("hello");
+     */
+    public static function sha256(mixed $data): string {
+        return native_crypto_sha256($data);
+    }
+    
+    /**
+     * 计算SHA256哈希（返回字节）
+     * @param mixed $data 数据
+     * @return byte[] 哈希结果（32字节）
+     */
+    public static function sha256Bytes(mixed $data): byte[] {
+        return native_crypto_sha256_bytes($data);
+    }
+    
+    /**
+     * 创建SHA256流式哈希器
+     * @return IHasher 哈希器实例
+     */
+    public static function createSha256(): IHasher {
+        int $handle = native_crypto_hash_create("sha256");
+        if ($handle < 0) {
+            throw new CryptoException("Failed to create SHA256 hasher", CryptoException::HASH_FAILED);
+        }
+        return new Hasher($handle);
+    }
+    
+    // ==================== SHA384 ====================
+    
+    /**
+     * 计算SHA384哈希
+     * @param mixed $data 数据
+     * @return string 哈希结果（十六进制，96字符）
+     */
+    public static function sha384(mixed $data): string {
+        return native_crypto_sha384($data);
+    }
+    
+    /**
+     * 计算SHA384哈希（返回字节）
+     * @param mixed $data 数据
+     * @return byte[] 哈希结果（48字节）
+     */
+    public static function sha384Bytes(mixed $data): byte[] {
+        return native_crypto_sha384_bytes($data);
+    }
+    
+    /**
+     * 创建SHA384流式哈希器
+     * @return IHasher 哈希器实例
+     */
+    public static function createSha384(): IHasher {
+        int $handle = native_crypto_hash_create("sha384");
+        if ($handle < 0) {
+            throw new CryptoException("Failed to create SHA384 hasher", CryptoException::HASH_FAILED);
+        }
+        return new Hasher($handle);
+    }
+    
+    // ==================== SHA512 ====================
+    
+    /**
+     * 计算SHA512哈希
+     * @param mixed $data 数据
+     * @return string 哈希结果（十六进制，128字符）
+     */
+    public static function sha512(mixed $data): string {
+        return native_crypto_sha512($data);
+    }
+    
+    /**
+     * 计算SHA512哈希（返回字节）
+     * @param mixed $data 数据
+     * @return byte[] 哈希结果（64字节）
+     */
+    public static function sha512Bytes(mixed $data): byte[] {
+        return native_crypto_sha512_bytes($data);
+    }
+    
+    /**
+     * 创建SHA512流式哈希器
+     * @return IHasher 哈希器实例
+     */
+    public static function createSha512(): IHasher {
+        int $handle = native_crypto_hash_create("sha512");
+        if ($handle < 0) {
+            throw new CryptoException("Failed to create SHA512 hasher", CryptoException::HASH_FAILED);
+        }
+        return new Hasher($handle);
+    }
+    
+    // ==================== 通用方法 ====================
+    
+    /**
+     * 使用指定算法计算哈希
+     * @param string $algorithm 算法名称: "md5", "sha1", "sha256", "sha384", "sha512"
+     * @param mixed $data 数据
+     * @return string 哈希结果（十六进制）
+     */
+    public static function hash(string $algorithm, mixed $data): string {
+        switch ($algorithm) {
+            case "md5":
+                return self::md5($data);
+            case "sha1":
+                return self::sha1($data);
+            case "sha256":
+                return self::sha256($data);
+            case "sha384":
+                return self::sha384($data);
+            case "sha512":
+                return self::sha512($data);
+            default:
+                throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM);
+        }
+    }
+    
+    /**
+     * 使用指定算法创建流式哈希器
+     * @param string $algorithm 算法名称
+     * @return IHasher 哈希器实例
+     */
+    public static function create(string $algorithm): IHasher {
+        int $handle = native_crypto_hash_create($algorithm);
+        if ($handle < 0) {
+            throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM);
+        }
+        return new Hasher($handle);
+    }
+    
+    /**
+     * 计算文件哈希
+     * @param string $algorithm 算法名称
+     * @param string $filePath 文件路径
+     * @return string 哈希结果（十六进制）
+     */
+    public static function file(string $algorithm, string $filePath): string {
+        string $content = File::read($filePath);
+        return self::hash($algorithm, $content);
+    }
+    
+    /**
+     * 验证数据哈希
+     * @param string $algorithm 算法名称
+     * @param mixed $data 数据
+     * @param string $expectedHash 预期哈希值
+     * @return bool 是否匹配
+     */
+    public static function verify(string $algorithm, mixed $data, string $expectedHash): bool {
+        string $actualHash = self::hash($algorithm, $data);
+        return Str::toLower($actualHash) == Str::toLower($expectedHash);
+    }
+}
+

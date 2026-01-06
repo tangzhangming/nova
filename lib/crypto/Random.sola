@@ -1,0 +1,185 @@
+/**
+ * Sola Crypto Library - Random
+ * 加密安全随机数生成器
+ */
+namespace sola.crypto;
+
+/**
+ * 加密安全随机数生成器
+ * 使用操作系统的加密随机数生成器
+ */
+class Random {
+    
+    /**
+     * 生成随机字节数组
+     * @param int $length 字节长度
+     * @return byte[] 随机字节数组
+     * 
+     * @example
+     * byte[] $key = Random::bytes(32);  // 生成32字节密钥
+     * byte[] $iv = Random::bytes(16);   // 生成16字节IV
+     */
+    public static function bytes(int $length): byte[] {
+        if ($length <= 0) {
+            return [];
+        }
+        return native_crypto_random_bytes($length);
+    }
+    
+    /**
+     * 生成随机整数 [min, max)
+     * @param int $min 最小值（包含）
+     * @param int $max 最大值（不包含）
+     * @return int 随机整数
+     * 
+     * @example
+     * int $num = Random::int(1, 100);  // [1, 100) 范围的随机数
+     */
+    public static function int(int $min, int $max): int {
+        if ($max <= $min) {
+            return $min;
+        }
+        return native_crypto_random_int($min, $max);
+    }
+    
+    /**
+     * 生成随机十六进制字符串
+     * @param int $byteLength 字节长度（结果字符串长度为 byteLength * 2）
+     * @return string 随机十六进制字符串
+     * 
+     * @example
+     * string $token = Random::hex(16);  // 32字符十六进制字符串
+     */
+    public static function hex(int $byteLength): string {
+        if ($byteLength <= 0) {
+            return "";
+        }
+        return native_crypto_random_hex($byteLength);
+    }
+    
+    /**
+     * 生成UUID v4
+     * @return string UUID字符串 (格式: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx)
+     * 
+     * @example
+     * string $uuid = Random::uuid();  // "550e8400-e29b-41d4-a716-446655440000"
+     */
+    public static function uuid(): string {
+        return native_crypto_random_uuid();
+    }
+    
+    /**
+     * 生成随机字符串
+     * @param int $length 字符串长度
+     * @param string $charset 字符集（默认为字母数字）
+     * @return string 随机字符串
+     * 
+     * @example
+     * string $password = Random::string(16);  // 16字符随机字符串
+     * string $code = Random::string(6, "0123456789"); // 6位数字验证码
+     */
+    public static function string(int $length, string $charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"): string {
+        if ($length <= 0) {
+            return "";
+        }
+        
+        int $charsetLen = Str::length($charset);
+        if ($charsetLen == 0) {
+            return "";
+        }
+        
+        string $result = "";
+        for (int $i = 0; $i < $length; $i++) {
+            int $idx = native_crypto_random_int(0, $charsetLen);
+            $result = $result + Str::charAt($charset, $idx);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 生成随机Base64字符串
+     * @param int $byteLength 底层字节长度
+     * @return string Base64编码的随机字符串
+     */
+    public static function base64(int $byteLength): string {
+        byte[] $bytes = native_crypto_random_bytes($byteLength);
+        return Base64::encode(Bytes::toString($bytes));
+    }
+    
+    /**
+     * 生成随机URL安全的Base64字符串
+     * @param int $byteLength 底层字节长度
+     * @return string URL安全的Base64编码随机字符串
+     */
+    public static function base64UrlSafe(int $byteLength): string {
+        byte[] $bytes = native_crypto_random_bytes($byteLength);
+        return Base64::encodeUrlSafe(Bytes::toString($bytes));
+    }
+    
+    /**
+     * 生成随机布尔值
+     * @return bool 随机true或false
+     */
+    public static function bool(): bool {
+        return native_crypto_random_int(0, 2) == 1;
+    }
+    
+    /**
+     * 随机洗牌数组
+     * @param array $arr 要洗牌的数组
+     * @return array 洗牌后的新数组
+     */
+    public static function shuffle(array $arr): array {
+        int $len = count($arr);
+        array $result = $arr;
+        
+        for (int $i = $len - 1; $i > 0; $i--) {
+            int $j = native_crypto_random_int(0, $i + 1);
+            // 交换
+            mixed $temp = $result[$i];
+            $result[$i] = $result[$j];
+            $result[$j] = $temp;
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 从数组中随机选择一个元素
+     * @param array $arr 数组
+     * @return mixed 随机选择的元素
+     */
+    public static function choice(array $arr): mixed {
+        int $len = count($arr);
+        if ($len == 0) {
+            return null;
+        }
+        int $idx = native_crypto_random_int(0, $len);
+        return $arr[$idx];
+    }
+    
+    /**
+     * 从数组中随机选择多个元素
+     * @param array $arr 数组
+     * @param int $count 选择数量
+     * @return array 随机选择的元素数组
+     */
+    public static function sample(array $arr, int $count): array {
+        int $len = count($arr);
+        if ($len == 0 || $count <= 0) {
+            return [];
+        }
+        if ($count >= $len) {
+            return self::shuffle($arr);
+        }
+        
+        array $shuffled = self::shuffle($arr);
+        array $result = [];
+        for (int $i = 0; $i < $count; $i++) {
+            $result[] = $shuffled[$i];
+        }
+        return $result;
+    }
+}
+

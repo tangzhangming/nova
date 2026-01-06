@@ -1,0 +1,192 @@
+/**
+ * Sola Crypto Library - Argon2
+ * 现代密码哈希和密钥派生函数
+ */
+namespace sola.crypto;
+
+/**
+ * Argon2密钥派生工具类
+ * 
+ * Argon2是2015年密码哈希竞赛的获胜者
+ * - Argon2i: 抗侧信道攻击，适用于密码哈希
+ * - Argon2d: 抗GPU攻击，适用于加密货币
+ * - Argon2id: 混合模式，推荐用于密码哈希（本库主要支持）
+ */
+class Argon2 {
+    
+    /**
+     * 默认参数
+     */
+    public const int DEFAULT_TIME = 3;        // 迭代次数
+    public const int DEFAULT_MEMORY = 65536;  // 内存使用 (64MB)
+    public const int DEFAULT_THREADS = 4;     // 并行线程数
+    public const int DEFAULT_KEY_LENGTH = 32;
+    public const int DEFAULT_SALT_LENGTH = 16;
+    
+    // ==================== Argon2id ====================
+    
+    /**
+     * Argon2id密钥派生（推荐）
+     * @param mixed $password 密码
+     * @param byte[] $salt 盐值（至少16字节）
+     * @param int $time 迭代次数
+     * @param int $memory 内存使用（KB）
+     * @param int $threads 并行线程数
+     * @param int $keyLength 输出密钥长度
+     * @return byte[] 派生的密钥
+     * 
+     * @example
+     * byte[] $salt = Random::bytes(16);
+     * byte[] $key = Argon2::deriveId("password", $salt, 3, 65536, 4, 32);
+     */
+    public static function deriveId(
+        mixed $password,
+        byte[] $salt,
+        int $time = 3,
+        int $memory = 65536,
+        int $threads = 4,
+        int $keyLength = 32
+    ): byte[] {
+        if (count($salt) < 8) {
+            throw new CryptoException("Argon2 salt must be at least 8 bytes", CryptoException::INVALID_DATA);
+        }
+        
+        byte[] $result = native_crypto_argon2id($password, $salt, $time, $memory, $threads, $keyLength);
+        if (count($result) == 0 && $keyLength > 0) {
+            throw new CryptoException("Argon2id key derivation failed", CryptoException::HASH_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== Argon2i ====================
+    
+    /**
+     * Argon2i密钥派生（抗侧信道攻击）
+     */
+    public static function deriveI(
+        mixed $password,
+        byte[] $salt,
+        int $time = 3,
+        int $memory = 65536,
+        int $threads = 4,
+        int $keyLength = 32
+    ): byte[] {
+        if (count($salt) < 8) {
+            throw new CryptoException("Argon2 salt must be at least 8 bytes", CryptoException::INVALID_DATA);
+        }
+        
+        byte[] $result = native_crypto_argon2i($password, $salt, $time, $memory, $threads, $keyLength);
+        if (count($result) == 0 && $keyLength > 0) {
+            throw new CryptoException("Argon2i key derivation failed", CryptoException::HASH_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== 密码哈希 ====================
+    
+    /**
+     * 对密码进行安全哈希（用于存储）
+     * 返回格式: $argon2id$t=时间$m=内存$p=线程$盐(base64)$哈希(base64)
+     * 
+     * @param string $password 密码
+     * @param int $time 迭代次数
+     * @param int $memory 内存使用（KB）
+     * @param int $threads 并行线程数
+     * @return string 可存储的密码哈希
+     * 
+     * @example
+     * string $hash = Argon2::hash("password123");
+     * // 存储到数据库...
+     */
+    public static function hash(
+        string $password,
+        int $time = 3,
+        int $memory = 65536,
+        int $threads = 4
+    ): string {
+        byte[] $salt = Random::bytes(self::DEFAULT_SALT_LENGTH);
+        byte[] $key = self::deriveId($password, $salt, $time, $memory, $threads, 32);
+        
+        string $saltB64 = Base64::encodeBytes($salt);
+        string $keyB64 = Base64::encodeBytes($key);
+        
+        return "$argon2id$t=" + $time + "$m=" + $memory + "$p=" + $threads + "$" + $saltB64 + "$" + $keyB64;
+    }
+    
+    /**
+     * 验证密码
+     * @param string $password 待验证密码
+     * @param string $hash 存储的密码哈希
+     * @return bool 密码是否正确
+     */
+    public static function verify(string $password, string $hash): bool {
+        // 解析哈希格式
+        if (!Str::startsWith($hash, "$argon2id$")) {
+            return false;
+        }
+        
+        string $rest = Str::substring($hash, 10);  // 去掉 "$argon2id$"
+        string[] $parts = Str::split($rest, "$");
+        
+        if (count($parts) < 5) {
+            return false;
+        }
+        
+        // 解析参数
+        int $time = 3;
+        int $memory = 65536;
+        int $threads = 4;
+        
+        for (int $i = 0; $i < 3; $i++) {
+            string $param = $parts[$i];
+            if (Str::startsWith($param, "t=")) {
+                $time = Str::toInt(Str::substring($param, 2));
+            } else if (Str::startsWith($param, "m=")) {
+                $memory = Str::toInt(Str::substring($param, 2));
+            } else if (Str::startsWith($param, "p=")) {
+                $threads = Str::toInt(Str::substring($param, 2));
+            }
+        }
+        
+        byte[] $salt = Base64::decodeToBytes($parts[3]);
+        byte[] $expectedKey = Base64::decodeToBytes($parts[4]);
+        
+        byte[] $derivedKey = self::deriveId($password, $salt, $time, $memory, $threads, count($expectedKey));
+        
+        return Bytes::equal($derivedKey, $expectedKey);
+    }
+    
+    // ==================== 便捷方法 ====================
+    
+    /**
+     * 低成本派生（适用于低性能设备）
+     * 时间：1次迭代，内存：16MB
+     */
+    public static function deriveLow(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+        return self::deriveId($password, $salt, 1, 16384, 2, $keyLength);
+    }
+    
+    /**
+     * 标准成本派生
+     * 时间：3次迭代，内存：64MB
+     */
+    public static function deriveStandard(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+        return self::deriveId($password, $salt, 3, 65536, 4, $keyLength);
+    }
+    
+    /**
+     * 高成本派生（高安全性场景）
+     * 时间：4次迭代，内存：128MB
+     */
+    public static function deriveHigh(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+        return self::deriveId($password, $salt, 4, 131072, 4, $keyLength);
+    }
+    
+    /**
+     * 生成随机盐
+     */
+    public static function generateSalt(int $length = 16): byte[] {
+        return Random::bytes($length);
+    }
+}
+

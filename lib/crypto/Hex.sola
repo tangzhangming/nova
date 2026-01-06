@@ -1,0 +1,80 @@
+/**
+ * Sola Crypto Library - Hex
+ * 十六进制编码/解码工具
+ */
+namespace sola.crypto;
+
+/**
+ * 十六进制编码工具类
+ * 提供字节数组与十六进制字符串之间的转换
+ */
+class Hex {
+    
+    /**
+     * 将字节数组编码为十六进制字符串
+     * @param byte[] $data 要编码的字节数组
+     * @return string 十六进制字符串（小写）
+     * 
+     * @example
+     * string $hex = Hex::encode(bytes); // "48656c6c6f"
+     */
+    public static function encode(byte[] $data): string {
+        return native_crypto_hex_encode($data);
+    }
+    
+    /**
+     * 将十六进制字符串解码为字节数组
+     * @param string $hex 十六进制字符串
+     * @return byte[] 解码后的字节数组，失败返回空数组
+     * 
+     * @example
+     * byte[] $bytes = Hex::decode("48656c6c6f"); // [72, 101, 108, 108, 111]
+     */
+    public static function decode(string $hex): byte[] {
+        return native_crypto_hex_decode($hex);
+    }
+    
+    /**
+     * 检查字符串是否为有效的十六进制
+     * @param string $hex 要检查的字符串
+     * @return bool 是否有效
+     * 
+     * @example
+     * bool $valid = Hex::isValid("48656c6c6f"); // true
+     * bool $invalid = Hex::isValid("hello");    // false
+     */
+    public static function isValid(string $hex): bool {
+        return native_crypto_hex_is_valid($hex);
+    }
+    
+    /**
+     * 将字节数组编码为大写十六进制字符串
+     * @param byte[] $data 要编码的字节数组
+     * @return string 大写十六进制字符串
+     */
+    public static function encodeUpper(byte[] $data): string {
+        string $hex = native_crypto_hex_encode($data);
+        return Str::toUpper($hex);
+    }
+    
+    /**
+     * 将字符串编码为十六进制
+     * @param string $str 要编码的字符串
+     * @return string 十六进制字符串
+     */
+    public static function encodeString(string $str): string {
+        byte[] $bytes = Bytes::fromString($str);
+        return native_crypto_hex_encode($bytes);
+    }
+    
+    /**
+     * 将十六进制解码为字符串
+     * @param string $hex 十六进制字符串
+     * @return string 解码后的字符串
+     */
+    public static function decodeToString(string $hex): string {
+        byte[] $bytes = native_crypto_hex_decode($hex);
+        return Bytes::toString($bytes);
+    }
+}
+

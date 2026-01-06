@@ -1,0 +1,197 @@
+/**
+ * Sola Crypto Library - ECDSA
+ * 椭圆曲线数字签名算法库
+ */
+namespace sola.crypto;
+
+/**
+ * ECDSA公钥
+ */
+class EcdsaPublicKey {
+    private int $handle = -1;
+    
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    public function getHandle(): int {
+        return this->handle;
+    }
+    
+    /**
+     * 导出为PEM格式
+     */
+    public function toPem(): string {
+        return native_crypto_ecdsa_get_public_key_pem(this->handle);
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        if (this->handle >= 0) {
+            native_crypto_ecdsa_free(this->handle);
+            this->handle = -1;
+        }
+    }
+}
+
+/**
+ * ECDSA私钥
+ */
+class EcdsaPrivateKey {
+    private int $handle = -1;
+    
+    public function __construct(int $handle) {
+        this->handle = $handle;
+    }
+    
+    public function getHandle(): int {
+        return this->handle;
+    }
+    
+    /**
+     * 导出为PEM格式
+     */
+    public function toPem(): string {
+        return native_crypto_ecdsa_get_private_key_pem(this->handle);
+    }
+    
+    /**
+     * 释放资源
+     */
+    public function free(): void {
+        if (this->handle >= 0) {
+            native_crypto_ecdsa_free(this->handle);
+            this->handle = -1;
+        }
+    }
+}
+
+/**
+ * ECDSA密钥对
+ */
+class EcdsaKeyPair {
+    private EcdsaPrivateKey $privateKey;
+    private EcdsaPublicKey $publicKey;
+    
+    public function __construct(EcdsaPrivateKey $privateKey, EcdsaPublicKey $publicKey) {
+        this->privateKey = $privateKey;
+        this->publicKey = $publicKey;
+    }
+    
+    public function getPublicKey(): EcdsaPublicKey {
+        return this->publicKey;
+    }
+    
+    public function getPrivateKey(): EcdsaPrivateKey {
+        return this->privateKey;
+    }
+    
+    public function getPublicKeyPem(): string {
+        return this->publicKey->toPem();
+    }
+    
+    public function getPrivateKeyPem(): string {
+        return this->privateKey->toPem();
+    }
+    
+    public function free(): void {
+        this->privateKey->free();
+        this->publicKey->free();
+    }
+}
+
+/**
+ * ECDSA椭圆曲线数字签名工具类
+ */
+class Ecdsa {
+    
+    /**
+     * 曲线名称常量
+     */
+    public const string P256 = "P-256";  // NIST P-256 (secp256r1)
+    public const string P384 = "P-384";  // NIST P-384 (secp384r1)
+    public const string P521 = "P-521";  // NIST P-521 (secp521r1)
+    
+    // ==================== 密钥生成 ====================
+    
+    /**
+     * 生成ECDSA密钥对
+     * @param string $curve 曲线名称（P-256, P-384, P-521）
+     * @return EcdsaKeyPair 密钥对
+     * 
+     * @example
+     * EcdsaKeyPair $keys = Ecdsa::generateKeyPair("P-256");
+     */
+    public static function generateKeyPair(string $curve = "P-256"): EcdsaKeyPair {
+        array $handles = native_crypto_ecdsa_generate($curve);
+        if ($handles == null || count($handles) < 2) {
+            throw new CryptoException("Failed to generate ECDSA key pair", CryptoException::KEY_GENERATION_FAILED);
+        }
+        
+        EcdsaPrivateKey $privateKey = new EcdsaPrivateKey($handles[0]);
+        EcdsaPublicKey $publicKey = new EcdsaPublicKey($handles[1]);
+        
+        return new EcdsaKeyPair($privateKey, $publicKey);
+    }
+    
+    // ==================== 密钥加载 ====================
+    
+    /**
+     * 从PEM加载公钥
+     * @param string $pem PEM格式公钥
+     * @return EcdsaPublicKey 公钥对象
+     */
+    public static function loadPublicKey(string $pem): EcdsaPublicKey {
+        int $handle = native_crypto_ecdsa_load_public_key($pem);
+        if ($handle < 0) {
+            throw new CryptoException("Failed to load ECDSA public key", CryptoException::INVALID_PEM);
+        }
+        return new EcdsaPublicKey($handle);
+    }
+    
+    /**
+     * 从PEM加载私钥
+     * @param string $pem PEM格式私钥
+     * @return EcdsaPrivateKey 私钥对象
+     */
+    public static function loadPrivateKey(string $pem): EcdsaPrivateKey {
+        int $handle = native_crypto_ecdsa_load_private_key($pem);
+        if ($handle < 0) {
+            throw new CryptoException("Failed to load ECDSA private key", CryptoException::INVALID_PEM);
+        }
+        return new EcdsaPrivateKey($handle);
+    }
+    
+    // ==================== 签名/验签 ====================
+    
+    /**
+     * ECDSA签名
+     * @param mixed $message 消息
+     * @param EcdsaPrivateKey $privateKey 私钥
+     * @return byte[] 签名
+     * 
+     * @example
+     * byte[] $signature = Ecdsa::sign("message", $keys->getPrivateKey());
+     */
+    public static function sign(mixed $message, EcdsaPrivateKey $privateKey): byte[] {
+        byte[] $result = native_crypto_ecdsa_sign($message, $privateKey->getHandle());
+        if (count($result) == 0) {
+            throw new CryptoException("ECDSA signing failed", CryptoException::SIGNATURE_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * ECDSA验签
+     * @param mixed $message 消息
+     * @param byte[] $signature 签名
+     * @param EcdsaPublicKey $publicKey 公钥
+     * @return bool 验证是否通过
+     */
+    public static function verify(mixed $message, byte[] $signature, EcdsaPublicKey $publicKey): bool {
+        return native_crypto_ecdsa_verify($message, $signature, $publicKey->getHandle());
+    }
+}
+

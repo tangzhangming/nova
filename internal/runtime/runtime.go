@@ -564,6 +564,100 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_json_is_valid"] = nativeJsonIsValid
 	r.builtins["native_json_encode_object"] = nativeJsonEncodeObject
 
+	// Native Crypto 哈希函数 (仅供标准库使用)
+	r.builtins["native_crypto_md5"] = nativeCryptoMd5
+	r.builtins["native_crypto_md5_bytes"] = nativeCryptoMd5Bytes
+	r.builtins["native_crypto_sha1"] = nativeCryptoSha1
+	r.builtins["native_crypto_sha1_bytes"] = nativeCryptoSha1Bytes
+	r.builtins["native_crypto_sha256"] = nativeCryptoSha256
+	r.builtins["native_crypto_sha256_bytes"] = nativeCryptoSha256Bytes
+	r.builtins["native_crypto_sha384"] = nativeCryptoSha384
+	r.builtins["native_crypto_sha384_bytes"] = nativeCryptoSha384Bytes
+	r.builtins["native_crypto_sha512"] = nativeCryptoSha512
+	r.builtins["native_crypto_sha512_bytes"] = nativeCryptoSha512Bytes
+
+	// Native Crypto 流式哈希函数
+	r.builtins["native_crypto_hash_create"] = nativeCryptoHashCreate
+	r.builtins["native_crypto_hash_update"] = nativeCryptoHashUpdate
+	r.builtins["native_crypto_hash_finalize"] = nativeCryptoHashFinalize
+	r.builtins["native_crypto_hash_finalize_bytes"] = nativeCryptoHashFinalizeBytes
+
+	// Native Crypto HMAC函数
+	r.builtins["native_crypto_hmac"] = nativeCryptoHmac
+	r.builtins["native_crypto_hmac_bytes"] = nativeCryptoHmacBytes
+	r.builtins["native_crypto_hmac_verify"] = nativeCryptoHmacVerify
+	r.builtins["native_crypto_hmac_create"] = nativeCryptoHmacCreate
+	r.builtins["native_crypto_hmac_update"] = nativeCryptoHmacUpdate
+	r.builtins["native_crypto_hmac_finalize"] = nativeCryptoHmacFinalize
+
+	// Native Crypto AES函数
+	r.builtins["native_crypto_aes_encrypt_cbc"] = nativeCryptoAesEncryptCbc
+	r.builtins["native_crypto_aes_decrypt_cbc"] = nativeCryptoAesDecryptCbc
+	r.builtins["native_crypto_aes_encrypt_gcm"] = nativeCryptoAesEncryptGcm
+	r.builtins["native_crypto_aes_decrypt_gcm"] = nativeCryptoAesDecryptGcm
+	r.builtins["native_crypto_aes_encrypt_ctr"] = nativeCryptoAesEncryptCtr
+	r.builtins["native_crypto_aes_decrypt_ctr"] = nativeCryptoAesDecryptCtr
+
+	// Native Crypto DES/3DES函数
+	r.builtins["native_crypto_des_encrypt"] = nativeCryptoDesEncrypt
+	r.builtins["native_crypto_des_decrypt"] = nativeCryptoDesDecrypt
+	r.builtins["native_crypto_triple_des_encrypt"] = nativeCryptoTripleDesEncrypt
+	r.builtins["native_crypto_triple_des_decrypt"] = nativeCryptoTripleDesDecrypt
+
+	// Native Crypto RSA函数
+	r.builtins["native_crypto_rsa_generate"] = nativeCryptoRsaGenerate
+	r.builtins["native_crypto_rsa_get_public_key_pem"] = nativeCryptoRsaGetPublicKeyPem
+	r.builtins["native_crypto_rsa_get_private_key_pem"] = nativeCryptoRsaGetPrivateKeyPem
+	r.builtins["native_crypto_rsa_load_public_key"] = nativeCryptoRsaLoadPublicKey
+	r.builtins["native_crypto_rsa_load_private_key"] = nativeCryptoRsaLoadPrivateKey
+	r.builtins["native_crypto_rsa_encrypt"] = nativeCryptoRsaEncrypt
+	r.builtins["native_crypto_rsa_decrypt"] = nativeCryptoRsaDecrypt
+	r.builtins["native_crypto_rsa_sign"] = nativeCryptoRsaSign
+	r.builtins["native_crypto_rsa_verify"] = nativeCryptoRsaVerify
+	r.builtins["native_crypto_rsa_sign_pkcs1"] = nativeCryptoRsaSignPkcs1
+	r.builtins["native_crypto_rsa_verify_pkcs1"] = nativeCryptoRsaVerifyPkcs1
+	r.builtins["native_crypto_rsa_encrypt_pkcs1"] = nativeCryptoRsaEncryptPkcs1
+	r.builtins["native_crypto_rsa_decrypt_pkcs1"] = nativeCryptoRsaDecryptPkcs1
+	r.builtins["native_crypto_rsa_free"] = nativeCryptoRsaFree
+
+	// Native Crypto ECDSA函数
+	r.builtins["native_crypto_ecdsa_generate"] = nativeCryptoEcdsaGenerate
+	r.builtins["native_crypto_ecdsa_sign"] = nativeCryptoEcdsaSign
+	r.builtins["native_crypto_ecdsa_verify"] = nativeCryptoEcdsaVerify
+	r.builtins["native_crypto_ecdsa_get_public_key_pem"] = nativeCryptoEcdsaGetPublicKeyPem
+	r.builtins["native_crypto_ecdsa_get_private_key_pem"] = nativeCryptoEcdsaGetPrivateKeyPem
+	r.builtins["native_crypto_ecdsa_load_public_key"] = nativeCryptoEcdsaLoadPublicKey
+	r.builtins["native_crypto_ecdsa_load_private_key"] = nativeCryptoEcdsaLoadPrivateKey
+	r.builtins["native_crypto_ecdsa_free"] = nativeCryptoEcdsaFree
+
+	// Native Crypto Ed25519函数
+	r.builtins["native_crypto_ed25519_generate"] = nativeCryptoEd25519Generate
+	r.builtins["native_crypto_ed25519_sign"] = nativeCryptoEd25519Sign
+	r.builtins["native_crypto_ed25519_verify"] = nativeCryptoEd25519Verify
+	r.builtins["native_crypto_ed25519_get_public_key_bytes"] = nativeCryptoEd25519GetPublicKeyBytes
+	r.builtins["native_crypto_ed25519_get_private_key_bytes"] = nativeCryptoEd25519GetPrivateKeyBytes
+	r.builtins["native_crypto_ed25519_load_public_key"] = nativeCryptoEd25519LoadPublicKey
+	r.builtins["native_crypto_ed25519_load_private_key"] = nativeCryptoEd25519LoadPrivateKey
+	r.builtins["native_crypto_ed25519_free"] = nativeCryptoEd25519Free
+
+	// Native Crypto 密钥派生函数
+	r.builtins["native_crypto_pbkdf2"] = nativeCryptoPbkdf2
+	r.builtins["native_crypto_hkdf"] = nativeCryptoHkdf
+	r.builtins["native_crypto_scrypt"] = nativeCryptoScrypt
+	r.builtins["native_crypto_argon2id"] = nativeCryptoArgon2id
+	r.builtins["native_crypto_argon2i"] = nativeCryptoArgon2i
+
+	// Native Crypto 随机数函数
+	r.builtins["native_crypto_random_bytes"] = nativeCryptoRandomBytes
+	r.builtins["native_crypto_random_int"] = nativeCryptoRandomInt
+	r.builtins["native_crypto_random_hex"] = nativeCryptoRandomHex
+	r.builtins["native_crypto_random_uuid"] = nativeCryptoRandomUuid
+
+	// Native Crypto Hex函数
+	r.builtins["native_crypto_hex_encode"] = nativeCryptoHexEncode
+	r.builtins["native_crypto_hex_decode"] = nativeCryptoHexDecode
+	r.builtins["native_crypto_hex_is_valid"] = nativeCryptoHexIsValid
+
 	// Native Base64 函数 (仅供标准库使用)
 	r.builtins["native_base64_encode"] = nativeBase64Encode
 	r.builtins["native_base64_decode"] = nativeBase64Decode

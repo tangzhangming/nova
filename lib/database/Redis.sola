@@ -1,6 +1,6 @@
 // sola 标准库 - Redis 客户端
 // 实现 RESP (Redis Serialization Protocol) 协议
-namespace sola.data
+namespace sola.database
 
 use sola.lang.Str;
 

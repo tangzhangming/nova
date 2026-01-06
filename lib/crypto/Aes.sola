@@ -1,0 +1,311 @@
+/**
+ * Sola Crypto Library - AES
+ * AES对称加密库
+ */
+namespace sola.crypto;
+
+/**
+ * AES-GCM加密结果
+ */
+class AesGcmResult {
+    /**
+     * 密文
+     */
+    public byte[] $ciphertext;
+    
+    /**
+     * 认证标签（包含在ciphertext末尾）
+     */
+    public byte[] $tag;
+    
+    public function __construct(byte[] $ciphertext) {
+        this->ciphertext = $ciphertext;
+        // GCM模式下，tag包含在ciphertext末尾（16字节）
+        int $len = count($ciphertext);
+        if ($len >= 16) {
+            this->tag = Bytes::slice($ciphertext, $len - 16, $len);
+        } else {
+            this->tag = [];
+        }
+    }
+}
+
+/**
+ * AES对称加密工具类
+ * 支持 AES-128, AES-192, AES-256
+ * 支持 CBC, GCM, CTR 模式
+ */
+class Aes {
+    
+    /**
+     * 密钥长度常量
+     */
+    public const int KEY_128 = 16;  // 128位密钥
+    public const int KEY_192 = 24;  // 192位密钥
+    public const int KEY_256 = 32;  // 256位密钥
+    
+    /**
+     * IV/Nonce长度常量
+     */
+    public const int IV_SIZE = 16;     // CBC/CTR IV大小
+    public const int GCM_NONCE = 12;   // GCM Nonce大小
+    
+    // ==================== AES-CBC ====================
+    
+    /**
+     * AES-CBC加密
+     * @param byte[] $plaintext 明文
+     * @param byte[] $key 密钥（16/24/32字节）
+     * @param byte[] $iv 初始化向量（16字节）
+     * @return byte[] 密文
+     * 
+     * @example
+     * byte[] $key = Random::bytes(32);  // AES-256
+     * byte[] $iv = Random::bytes(16);
+     * byte[] $encrypted = Aes::encryptCbc($plaintext, $key, $iv);
+     */
+    public static function encryptCbc(byte[] $plaintext, byte[] $key, byte[] $iv): byte[] {
+        self::validateKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_aes_encrypt_cbc($plaintext, $key, $iv);
+        if (count($result) == 0 && count($plaintext) > 0) {
+            throw new CryptoException("AES-CBC encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * AES-CBC解密
+     * @param byte[] $ciphertext 密文
+     * @param byte[] $key 密钥
+     * @param byte[] $iv 初始化向量
+     * @return byte[] 明文
+     */
+    public static function decryptCbc(byte[] $ciphertext, byte[] $key, byte[] $iv): byte[] {
+        self::validateKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_aes_decrypt_cbc($ciphertext, $key, $iv);
+        if (count($result) == 0 && count($ciphertext) > 0) {
+            throw new CryptoException("AES-CBC decryption failed", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== AES-GCM ====================
+    
+    /**
+     * AES-GCM加密（带认证）
+     * @param byte[] $plaintext 明文
+     * @param byte[] $key 密钥
+     * @param byte[] $nonce 随机数（12字节）
+     * @param byte[] $aad 附加认证数据（可选）
+     * @return AesGcmResult 加密结果（包含密文和认证标签）
+     * 
+     * @example
+     * byte[] $key = Random::bytes(32);
+     * byte[] $nonce = Random::bytes(12);
+     * AesGcmResult $result = Aes::encryptGcm($plaintext, $key, $nonce);
+     * byte[] $ciphertext = $result->ciphertext;
+     */
+    public static function encryptGcm(byte[] $plaintext, byte[] $key, byte[] $nonce, byte[] $aad = []): AesGcmResult {
+        self::validateKey($key);
+        if (count($nonce) != self::GCM_NONCE) {
+            throw new CryptoException("GCM nonce must be 12 bytes", CryptoException::INVALID_IV);
+        }
+        
+        byte[] $result = native_crypto_aes_encrypt_gcm($plaintext, $key, $nonce, $aad);
+        if (count($result) == 0 && count($plaintext) > 0) {
+            throw new CryptoException("AES-GCM encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return new AesGcmResult($result);
+    }
+    
+    /**
+     * AES-GCM解密（带认证）
+     * @param byte[] $ciphertext 密文（包含认证标签）
+     * @param byte[] $key 密钥
+     * @param byte[] $nonce 随机数
+     * @param byte[] $aad 附加认证数据（可选）
+     * @return byte[] 明文
+     */
+    public static function decryptGcm(byte[] $ciphertext, byte[] $key, byte[] $nonce, byte[] $aad = []): byte[] {
+        self::validateKey($key);
+        if (count($nonce) != self::GCM_NONCE) {
+            throw new CryptoException("GCM nonce must be 12 bytes", CryptoException::INVALID_IV);
+        }
+        
+        byte[] $result = native_crypto_aes_decrypt_gcm($ciphertext, $key, $nonce, $aad);
+        if (count($result) == 0 && count($ciphertext) > 16) {
+            throw new CryptoException("AES-GCM decryption failed (authentication failed)", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    // ==================== AES-CTR ====================
+    
+    /**
+     * AES-CTR加密
+     * @param byte[] $plaintext 明文
+     * @param byte[] $key 密钥
+     * @param byte[] $iv 初始化向量（16字节）
+     * @return byte[] 密文
+     */
+    public static function encryptCtr(byte[] $plaintext, byte[] $key, byte[] $iv): byte[] {
+        self::validateKey($key);
+        self::validateIv($iv);
+        
+        byte[] $result = native_crypto_aes_encrypt_ctr($plaintext, $key, $iv);
+        if (count($result) == 0 && count($plaintext) > 0) {
+            throw new CryptoException("AES-CTR encryption failed", CryptoException::ENCRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * AES-CTR解密
+     * @param byte[] $ciphertext 密文
+     * @param byte[] $key 密钥
+     * @param byte[] $iv 初始化向量
+     * @return byte[] 明文
+     */
+    public static function decryptCtr(byte[] $ciphertext, byte[] $key, byte[] $iv): byte[] {
+        // CTR模式加密解密相同
+        return self::encryptCtr($ciphertext, $key, $iv);
+    }
+    
+    // ==================== 便捷方法 ====================
+    
+    /**
+     * 简化的AES加密（使用密码，自动派生密钥）
+     * 使用 AES-256-GCM，PBKDF2 派生密钥
+     * 返回格式: salt(16) + nonce(12) + ciphertext
+     * 
+     * @param mixed $plaintext 明文（string或byte[]）
+     * @param string $password 密码
+     * @return byte[] 加密结果
+     * 
+     * @example
+     * byte[] $encrypted = Aes::encrypt("secret message", "password123");
+     * byte[] $decrypted = Aes::decrypt($encrypted, "password123");
+     */
+    public static function encrypt(mixed $plaintext, string $password): byte[] {
+        byte[] $data;
+        if ($plaintext is string) {
+            $data = Bytes::fromString($plaintext);
+        } else {
+            $data = $plaintext;
+        }
+        
+        // 生成盐和nonce
+        byte[] $salt = Random::bytes(16);
+        byte[] $nonce = Random::bytes(12);
+        
+        // 使用PBKDF2派生密钥
+        byte[] $key = Pbkdf2::derive($password, $salt, 100000, 32, "sha256");
+        
+        // 加密
+        byte[] $ciphertext = native_crypto_aes_encrypt_gcm($data, $key, $nonce, []);
+        
+        // 组合结果: salt + nonce + ciphertext
+        return Bytes::concat(Bytes::concat($salt, $nonce), $ciphertext);
+    }
+    
+    /**
+     * 简化的AES解密（使用密码）
+     * @param byte[] $encrypted 加密数据
+     * @param string $password 密码
+     * @return byte[] 解密后的数据
+     */
+    public static function decrypt(byte[] $encrypted, string $password): byte[] {
+        int $len = count($encrypted);
+        if ($len < 28) {  // 16(salt) + 12(nonce) = 28
+            throw new CryptoException("Invalid encrypted data", CryptoException::INVALID_DATA);
+        }
+        
+        // 提取各部分
+        byte[] $salt = Bytes::slice($encrypted, 0, 16);
+        byte[] $nonce = Bytes::slice($encrypted, 16, 28);
+        byte[] $ciphertext = Bytes::slice($encrypted, 28, $len);
+        
+        // 派生密钥
+        byte[] $key = Pbkdf2::derive($password, $salt, 100000, 32, "sha256");
+        
+        // 解密
+        byte[] $result = native_crypto_aes_decrypt_gcm($ciphertext, $key, $nonce, []);
+        if (count($result) == 0 && count($ciphertext) > 16) {
+            throw new CryptoException("Decryption failed (wrong password or corrupted data)", CryptoException::DECRYPTION_FAILED);
+        }
+        return $result;
+    }
+    
+    /**
+     * 简化的AES加密（返回字符串）
+     */
+    public static function encryptToString(mixed $plaintext, string $password): string {
+        byte[] $encrypted = self::encrypt($plaintext, $password);
+        return Base64::encodeBytes($encrypted);
+    }
+    
+    /**
+     * 简化的AES解密（从字符串）
+     */
+    public static function decryptFromString(string $encrypted, string $password): string {
+        byte[] $data = Base64::decodeToBytes($encrypted);
+        byte[] $decrypted = self::decrypt($data, $password);
+        return Bytes::toString($decrypted);
+    }
+    
+    // ==================== 密钥生成 ====================
+    
+    /**
+     * 生成随机AES密钥
+     * @param int $bits 密钥位数（128, 192, 256）
+     * @return byte[] 密钥
+     */
+    public static function generateKey(int $bits = 256): byte[] {
+        switch ($bits) {
+            case 128:
+                return Random::bytes(16);
+            case 192:
+                return Random::bytes(24);
+            case 256:
+                return Random::bytes(32);
+            default:
+                throw new CryptoException("Invalid key size: " + $bits, CryptoException::INVALID_KEY);
+        }
+    }
+    
+    /**
+     * 生成随机IV
+     * @return byte[] 16字节IV
+     */
+    public static function generateIv(): byte[] {
+        return Random::bytes(16);
+    }
+    
+    /**
+     * 生成随机GCM Nonce
+     * @return byte[] 12字节Nonce
+     */
+    public static function generateNonce(): byte[] {
+        return Random::bytes(12);
+    }
+    
+    // ==================== 验证方法 ====================
+    
+    private static function validateKey(byte[] $key): void {
+        int $len = count($key);
+        if ($len != 16 && $len != 24 && $len != 32) {
+            throw new CryptoException("AES key must be 16, 24, or 32 bytes", CryptoException::INVALID_KEY);
+        }
+    }
+    
+    private static function validateIv(byte[] $iv): void {
+        if (count($iv) != 16) {
+            throw new CryptoException("AES IV must be 16 bytes", CryptoException::INVALID_IV);
+        }
+    }
+}
+
