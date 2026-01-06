@@ -1,0 +1,158 @@
+// Sola 标准库 - JSON 选项类
+namespace sola.json
+
+/**
+ * JSON 编码/解码选项
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.json.{Json, JsonOptions, JsonNaming};
+ * 
+ * $options := new JsonOptions();
+ * $options->prettyPrint = true;
+ * $options->namingStrategy = JsonNaming::SNAKE_CASE;
+ * 
+ * // 或使用链式调用
+ * $options := (new JsonOptions())
+ *     ->withPretty()
+ *     ->withNaming(JsonNaming::SNAKE_CASE);
+ * 
+ * $json := Json::encodeWith($data, $options);
+ * ```
+ */
+public class JsonOptions {
+    
+    // ========================================================================
+    // 编码选项
+    // ========================================================================
+    
+    /** 是否美化输出 */
+    public bool $prettyPrint = false;
+    
+    /** 缩进字符串 */
+    public string $indent = "  ";
+    
+    /** 是否转义Unicode字符 */
+    public bool $escapeUnicode = false;
+    
+    /** 是否转义斜杠 */
+    public bool $escapeSlash = false;
+    
+    /** 最大递归深度 */
+    public int $maxDepth = 512;
+    
+    // ========================================================================
+    // 解码选项
+    // ========================================================================
+    
+    /** 是否允许注释（非标准JSON） */
+    public bool $allowComments = false;
+    
+    /** 是否允许尾部逗号 */
+    public bool $allowTrailingComma = false;
+    
+    /** 大数字是否使用字符串 */
+    public bool $useNumber = false;
+    
+    // ========================================================================
+    // 命名策略
+    // ========================================================================
+    
+    /** 命名策略，见 JsonNaming 常量 */
+    public int $namingStrategy = 0;
+    
+    // ========================================================================
+    // 链式设置方法
+    // ========================================================================
+    
+    /**
+     * 设置美化输出
+     */
+    public function withPretty(bool $value = true): JsonOptions {
+        $this->prettyPrint = $value;
+        return $this;
+    }
+    
+    /**
+     * 设置缩进字符串
+     */
+    public function withIndent(string $indent): JsonOptions {
+        $this->indent = $indent;
+        return $this;
+    }
+    
+    /**
+     * 设置命名策略
+     */
+    public function withNaming(int $strategy): JsonOptions {
+        $this->namingStrategy = $strategy;
+        return $this;
+    }
+    
+    /**
+     * 设置是否转义Unicode
+     */
+    public function withEscapeUnicode(bool $value = true): JsonOptions {
+        $this->escapeUnicode = $value;
+        return $this;
+    }
+    
+    /**
+     * 设置最大深度
+     */
+    public function withMaxDepth(int $depth): JsonOptions {
+        $this->maxDepth = $depth;
+        return $this;
+    }
+    
+    /**
+     * 设置是否允许注释
+     */
+    public function withComments(bool $value = true): JsonOptions {
+        $this->allowComments = $value;
+        return $this;
+    }
+    
+    /**
+     * 设置是否允许尾部逗号
+     */
+    public function withTrailingComma(bool $value = true): JsonOptions {
+        $this->allowTrailingComma = $value;
+        return $this;
+    }
+    
+    // ========================================================================
+    // 预设配置
+    // ========================================================================
+    
+    /**
+     * 创建用于输出到控制台/日志的配置
+     */
+    public static function forConsole(): JsonOptions {
+        $opts := new JsonOptions();
+        $opts->prettyPrint = true;
+        $opts->indent = "  ";
+        return $opts;
+    }
+    
+    /**
+     * 创建用于API响应的配置（紧凑）
+     */
+    public static function forApi(): JsonOptions {
+        $opts := new JsonOptions();
+        $opts->prettyPrint = false;
+        $opts->namingStrategy = JsonNaming::SNAKE_CASE;
+        return $opts;
+    }
+    
+    /**
+     * 创建用于存储的配置
+     */
+    public static function forStorage(): JsonOptions {
+        $opts := new JsonOptions();
+        $opts->prettyPrint = false;
+        $opts->escapeUnicode = true;
+        return $opts;
+    }
+}
+

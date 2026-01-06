@@ -648,13 +648,14 @@ func (vm *VM) execute() InterpretResult {
 			// 创建方法的闭包并调用
 			closure := &bytecode.Closure{
 				Function: &bytecode.Function{
-					Name:       method.Name,
-					ClassName:  method.ClassName, // 设置类名用于堆栈跟踪
-					SourceFile: method.SourceFile,
-					Arity:      method.Arity,
-					MinArity:   method.Arity, // 静态方法暂不支持默认参数
-					Chunk:      method.Chunk,
-					LocalCount: method.LocalCount,
+					Name:          method.Name,
+					ClassName:    method.ClassName, // 设置类名用于堆栈跟踪
+					SourceFile:   method.SourceFile,
+					Arity:        method.Arity,
+					MinArity:     method.MinArity, // 支持默认参数
+					Chunk:        method.Chunk,
+					LocalCount:   method.LocalCount,
+					DefaultValues: method.DefaultValues, // 包含默认参数值
 				},
 			}
 			

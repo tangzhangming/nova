@@ -1,0 +1,144 @@
+// Sola 标准库 - JSON 注解定义
+namespace sola.json
+
+/**
+ * JSON 注解使用说明
+ * 
+ * Sola 支持在类和属性上使用注解来控制JSON序列化行为。
+ * 
+ * ## 字段级注解
+ * 
+ * ### @JsonProperty("name")
+ * 指定JSON字段名，覆盖默认的属性名。
+ * ```sola
+ * public class User {
+ *     @JsonProperty("user_name")
+ *     public string $name;  // 输出为 "user_name"
+ * }
+ * ```
+ * 
+ * ### @JsonIgnore
+ * 忽略该字段，不参与序列化和反序列化。
+ * ```sola
+ * public class User {
+ *     @JsonIgnore
+ *     public string $password;  // 不会出现在JSON中
+ * }
+ * ```
+ * 
+ * ### @JsonOmitEmpty
+ * 当值为空（null、空字符串、0、空数组）时不输出该字段。
+ * ```sola
+ * public class User {
+ *     @JsonOmitEmpty
+ *     public string $nickname;  // 为空时不输出
+ * }
+ * ```
+ * 
+ * ### @JsonString
+ * 将数字类型作为字符串输出。
+ * ```sola
+ * public class Order {
+ *     @JsonString
+ *     public int $id;  // 输出为 "123" 而不是 123
+ * }
+ * ```
+ * 
+ * ### @JsonDateFormat("format")
+ * 指定日期时间格式。
+ * ```sola
+ * public class Event {
+ *     @JsonDateFormat("Y-m-d H:i:s")
+ *     public DateTime $createdAt;  // 输出为 "2024-01-01 12:00:00"
+ * }
+ * ```
+ * 
+ * ## 类级注解
+ * 
+ * ### @JsonNaming(strategy)
+ * 为类的所有字段应用命名策略。
+ * ```sola
+ * @JsonNaming(JsonNaming::SNAKE_CASE)
+ * public class ApiUser {
+ *     public string $userName;   // 输出为 "user_name"
+ *     public int $totalCount;    // 输出为 "total_count"
+ * }
+ * ```
+ * 
+ * ### @JsonExplicit
+ * 只序列化有 @JsonProperty 注解的字段。
+ * ```sola
+ * @JsonExplicit
+ * public class SecureData {
+ *     @JsonProperty("id")
+ *     public int $id;           // 会序列化
+ *     
+ *     public string $secret;    // 不会序列化（无注解）
+ * }
+ * ```
+ * 
+ * ## 组合使用
+ * 
+ * 注解可以组合使用：
+ * ```sola
+ * public class User {
+ *     @JsonProperty("created_at")
+ *     @JsonOmitEmpty
+ *     @JsonDateFormat("Y-m-d")
+ *     public DateTime $createdAt;
+ * }
+ * ```
+ * 
+ * ## 注意事项
+ * 
+ * 1. 注解必须放在属性声明之前
+ * 2. 类级注解放在 class 关键字之前
+ * 3. 字段级注解会覆盖类级注解的效果
+ * 4. @JsonProperty 的名称优先于命名策略
+ */
+
+// 注解定义（作为文档和类型检查用途）
+// 实际的注解处理在运行时由 native_json_encode_object 实现
+
+/**
+ * @JsonProperty - 指定JSON字段名
+ * 
+ * 用法: @JsonProperty("json_field_name")
+ */
+
+/**
+ * @JsonIgnore - 忽略字段
+ * 
+ * 用法: @JsonIgnore
+ */
+
+/**
+ * @JsonOmitEmpty - 空值时不输出
+ * 
+ * 用法: @JsonOmitEmpty
+ */
+
+/**
+ * @JsonString - 数字转字符串
+ * 
+ * 用法: @JsonString
+ */
+
+/**
+ * @JsonDateFormat - 日期格式
+ * 
+ * 用法: @JsonDateFormat("Y-m-d H:i:s")
+ */
+
+/**
+ * @JsonNaming - 命名策略（类级）
+ * 
+ * 用法: @JsonNaming(JsonNaming::SNAKE_CASE)
+ */
+
+/**
+ * @JsonExplicit - 只序列化有注解的字段（类级）
+ * 
+ * 用法: @JsonExplicit
+ */
+

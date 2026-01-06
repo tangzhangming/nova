@@ -1,0 +1,173 @@
+// Sola 标准库 - JSON 处理类
+namespace sola.json
+
+use sola.lang.Str;
+
+/**
+ * JSON 编码/解码工具类
+ * 
+ * 功能特性：
+ * - 支持 SuperArray（万能数组）的序列化和反序列化
+ * - 支持类对象的序列化（公开属性）
+ * - 支持注解控制序列化行为
+ * - 支持命名策略（snake_case, camelCase等）
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.json.Json;
+ * 
+ * // 编码
+ * $data := ["name" => "Alice", "age" => 25];
+ * $json := Json::encode($data);
+ * echo $json;  // {"name":"Alice","age":25}
+ * 
+ * // 解码
+ * $result := Json::decode('{"name":"Bob","age":30}');
+ * echo $result["name"];  // Bob
+ * 
+ * // 美化输出
+ * echo Json::encodePretty($data);
+ * ```
+ */
+public class Json {
+    
+    // ========================================================================
+    // 编码方法
+    // ========================================================================
+    
+    /**
+     * 将任意值编码为JSON字符串
+     * 
+     * @param mixed $value 要编码的值
+     * @return string JSON字符串
+     * 
+     * 类型映射规则：
+     * - SuperArray（纯整数键0,1,2...）-> JSON数组 [...]
+     * - SuperArray（含字符串键）-> JSON对象 {...}
+     * - Object（类实例）-> JSON对象（公开属性）
+     * - int, float -> 数字
+     * - string -> 字符串（自动转义）
+     * - bool -> true/false
+     * - null -> null
+     */
+    public static function encode(mixed $value): string {
+        return native_json_encode($value, false, "");
+    }
+    
+    /**
+     * 将任意值编码为格式化的JSON字符串
+     * 
+     * @param mixed $value 要编码的值
+     * @param string $indent 缩进字符串，默认为两个空格
+     * @return string 格式化的JSON字符串
+     */
+    public static function encodePretty(mixed $value, string $indent = "  "): string {
+        return native_json_encode($value, true, $indent);
+    }
+    
+    /**
+     * 使用选项编码
+     * 
+     * @param object $obj 要编码的对象
+     * @param JsonOptions $options 编码选项
+     * @return string JSON字符串
+     */
+    public static function encodeWith(object $obj, JsonOptions $options): string {
+        $opts := [
+            "pretty" => $options->prettyPrint,
+            "indent" => $options->indent,
+            "naming" => $options->namingStrategy
+        ];
+        return native_json_encode_object($obj, $opts);
+    }
+    
+    // ========================================================================
+    // 解码方法
+    // ========================================================================
+    
+    /**
+     * 将JSON字符串解码为Sola值
+     * 
+     * @param string $json JSON字符串
+     * @return mixed 解码后的值
+     * 
+     * 类型映射规则：
+     * - JSON对象 {...} -> SuperArray（字符串键）
+     * - JSON数组 [...] -> SuperArray（整数键）
+     * - 字符串 -> string
+     * - 整数 -> int
+     * - 小数 -> float
+     * - true/false -> bool
+     * - null -> null
+     * 
+     * @throws JsonException 如果JSON格式无效
+     */
+    public static function decode(string $json): mixed {
+        $result := native_json_decode($json);
+        if ($result == null && $json != "null" && !Json::isValid($json)) {
+            throw new JsonException("Invalid JSON string");
+        }
+        return $result;
+    }
+    
+    /**
+     * 解码JSON并返回关联数组或对象
+     * 
+     * @param string $json JSON字符串
+     * @param bool $assoc 是否返回关联数组（默认true）
+     * @return mixed 解码后的值
+     */
+    public static function decodeAssoc(string $json, bool $assoc = true): mixed {
+        return Json::decode($json);
+    }
+    
+    // ========================================================================
+    // 验证方法
+    // ========================================================================
+    
+    /**
+     * 检查字符串是否为有效的JSON
+     * 
+     * @param string $json 要检查的字符串
+     * @return bool 是否为有效JSON
+     */
+    public static function isValid(string $json): bool {
+        return native_json_is_valid($json);
+    }
+    
+    // ========================================================================
+    // 便捷方法
+    // ========================================================================
+    
+    /**
+     * 获取JSON字符串中指定键的值
+     * 
+     * @param string $json JSON字符串
+     * @param string $key 键名
+     * @return mixed 指定键的值，如果不存在返回null
+     */
+    public static function get(string $json, string $key): mixed {
+        $data := Json::decode($json);
+        if ($data == null) {
+            return null;
+        }
+        return $data[$key];
+    }
+    
+    /**
+     * 将对象转换为JSON（支持注解）
+     * 
+     * @param object $obj 要转换的对象
+     * @param bool $pretty 是否美化输出
+     * @return string JSON字符串
+     */
+    public static function fromObject(object $obj, bool $pretty = false): string {
+        $opts := [
+            "pretty" => $pretty,
+            "indent" => "  ",
+            "naming" => 0
+        ];
+        return native_json_encode_object($obj, $opts);
+    }
+}
+

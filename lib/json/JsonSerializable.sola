@@ -1,0 +1,83 @@
+// Sola 标准库 - JSON 序列化接口
+namespace sola.json
+
+/**
+ * JSON 可序列化接口
+ * 
+ * 实现此接口可以完全控制对象的JSON序列化输出。
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.json.{Json, JsonSerializable};
+ * 
+ * public class Money implements JsonSerializable {
+ *     public int $cents;
+ *     public string $currency;
+ *     
+ *     public function __construct(int $cents, string $currency) {
+ *         $this->cents = $cents;
+ *         $this->currency = $currency;
+ *     }
+ *     
+ *     // 自定义序列化：输出为 "100.00 USD" 格式
+ *     public function jsonSerialize(): mixed {
+ *         $dollars := $this->cents / 100.0;
+ *         return Str::format("%.2f %s", $dollars, $this->currency);
+ *     }
+ * }
+ * 
+ * $money := new Money(10050, "USD");
+ * echo Json::encode($money);  // "100.50 USD"
+ * ```
+ */
+public interface JsonSerializable {
+    
+    /**
+     * 返回要序列化的数据
+     * 
+     * @return mixed 通常返回 SuperArray 或基本类型
+     * 
+     * 返回值会被递归序列化为JSON：
+     * - SuperArray -> JSON对象/数组
+     * - string/int/float/bool/null -> 对应的JSON类型
+     * - 实现了 JsonSerializable 的对象 -> 递归调用 jsonSerialize()
+     */
+    public function jsonSerialize(): mixed;
+}
+
+/**
+ * JSON 可反序列化接口
+ * 
+ * 实现此接口可以控制从JSON数据构造对象的过程。
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.json.{Json, JsonDeserializable};
+ * 
+ * public class Money implements JsonDeserializable {
+ *     public int $cents;
+ *     public string $currency;
+ *     
+ *     // 从 "100.00 USD" 格式解析
+ *     public static function jsonDeserialize(mixed $data): Money {
+ *         $parts := Str::split($data, " ");
+ *         $money := new Money();
+ *         $money->cents = (int)(Str::toFloat($parts[0]) * 100);
+ *         $money->currency = $parts[1];
+ *         return $money;
+ *     }
+ * }
+ * ```
+ */
+public interface JsonDeserializable {
+    
+    /**
+     * 从JSON数据构造对象
+     * 
+     * @param mixed $data 解码后的JSON数据（通常是 SuperArray 或基本类型）
+     * @return self 构造的对象实例
+     */
+    // public static function jsonDeserialize(mixed $data): self;
+    // 注意：Sola目前不支持接口中的静态方法，这个接口作为约定使用
+}
+

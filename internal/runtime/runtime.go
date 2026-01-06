@@ -15,11 +15,12 @@ import (
 
 // Runtime Sola 运行时
 type Runtime struct {
-	vm       *vm.VM
-	builtins map[string]BuiltinFunc
-	loader   *loader.Loader
-	classes  map[string]*bytecode.Class
-	enums    map[string]*bytecode.Enum
+	vm          *vm.VM
+	builtins    map[string]BuiltinFunc
+	loader      *loader.Loader
+	classes     map[string]*bytecode.Class
+	enums       map[string]*bytecode.Enum
+	symbolTable *compiler.SymbolTable // 共享符号表
 }
 
 // BuiltinFunc 内置函数类型
@@ -28,10 +29,11 @@ type BuiltinFunc func(args []bytecode.Value) bytecode.Value
 // New 创建运行时
 func New() *Runtime {
 	r := &Runtime{
-		vm:       vm.New(),
-		builtins: make(map[string]BuiltinFunc),
-		classes:  make(map[string]*bytecode.Class),
-		enums:    make(map[string]*bytecode.Enum),
+		vm:          vm.New(),
+		builtins:    make(map[string]BuiltinFunc),
+		classes:     make(map[string]*bytecode.Class),
+		enums:       make(map[string]*bytecode.Enum),
+		symbolTable: compiler.NewSymbolTable(),
 	}
 	r.registerBuiltins()
 	// 异常类现在通过 lib/lang/*.sola 文件定义，不再在这里内置
@@ -58,15 +60,15 @@ func (r *Runtime) Run(source, filename string) error {
 		return fmt.Errorf(i18n.T(i18n.ErrParseFailed))
 	}
 
-	// 处理 use 声明，加载依赖
+	// 处理 use 声明，加载依赖（使用共享符号表）
 	for _, use := range file.Uses {
 		if err := r.loadDependency(use.Path); err != nil {
 			return fmt.Errorf(i18n.T(i18n.ErrLoadFailed, use.Path, err))
 		}
 	}
 
-	// 编译入口文件
-	c := compiler.New()
+	// 编译入口文件（使用共享符号表，以便识别导入的类）
+	c := compiler.NewWithSymbolTable(r.symbolTable)
 	fn, errs := c.Compile(file)
 
 	if len(errs) > 0 {
@@ -149,8 +151,8 @@ func (r *Runtime) loadDependency(importPath string) error {
 		}
 	}
 
-	// 编译
-	c := compiler.New()
+	// 编译（使用共享符号表）
+	c := compiler.NewWithSymbolTable(r.symbolTable)
 	_, errs := c.Compile(file)
 	if len(errs) > 0 {
 		for _, e := range errs {
@@ -457,6 +459,12 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_time_second"] = nativeTimeSecond
 	r.builtins["native_time_weekday"] = nativeTimeWeekday
 	r.builtins["native_time_make"] = nativeTimeMake
+
+	// Native JSON 函数 (仅供标准库使用)
+	r.builtins["native_json_encode"] = nativeJsonEncode
+	r.builtins["native_json_decode"] = nativeJsonDecode
+	r.builtins["native_json_is_valid"] = nativeJsonIsValid
+	r.builtins["native_json_encode_object"] = nativeJsonEncodeObject
 
 	// Native Base64 函数 (仅供标准库使用)
 	r.builtins["native_base64_encode"] = nativeBase64Encode

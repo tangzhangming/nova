@@ -1,0 +1,189 @@
+// Sola 标准库 - JSON 命名策略
+namespace sola.json
+
+/**
+ * JSON 字段命名策略
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.json.JsonNaming;
+ * 
+ * // 使用类级注解
+ * @JsonNaming(JsonNaming::SNAKE_CASE)
+ * public class User {
+ *     public string $userName;    // 输出: "user_name"
+ *     public int $totalCount;     // 输出: "total_count"
+ * }
+ * 
+ * // 手动转换
+ * $snakeName := JsonNaming::toSnakeCase("userName");  // "user_name"
+ * $camelName := JsonNaming::toCamelCase("user_name"); // "userName"
+ * ```
+ */
+public class JsonNaming {
+    
+    // ========================================================================
+    // 命名策略常量
+    // ========================================================================
+    
+    /** 不转换，保持原样 */
+    public const int NONE = 0;
+    
+    /** 转换为 snake_case：userName -> user_name */
+    public const int SNAKE_CASE = 1;
+    
+    /** 转换为 camelCase：user_name -> userName */
+    public const int CAMEL_CASE = 2;
+    
+    /** 转换为 PascalCase：user_name -> UserName */
+    public const int PASCAL_CASE = 3;
+    
+    /** 转换为 kebab-case：userName -> user-name */
+    public const int KEBAB_CASE = 4;
+    
+    // ========================================================================
+    // 转换方法
+    // ========================================================================
+    
+    /**
+     * 转换为 snake_case
+     * 
+     * @param string $name 原始名称
+     * @return string snake_case 格式的名称
+     * 
+     * 示例：
+     * - "userName" -> "user_name"
+     * - "HTTPServer" -> "h_t_t_p_server"
+     * - "already_snake" -> "already_snake"
+     */
+    public static function toSnakeCase(string $name): string {
+        $result := "";
+        $len := Str::length($name);
+        
+        for ($i := 0; $i < $len; $i++) {
+            $char := Str::charAt($name, $i);
+            
+            // 检查是否是大写字母
+            if ($char >= "A" && $char <= "Z") {
+                if ($i > 0) {
+                    $result = $result + "_";
+                }
+                $result = $result + Str::toLowerCase($char);
+            } else {
+                $result = $result + $char;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 转换为 camelCase
+     * 
+     * @param string $name 原始名称
+     * @return string camelCase 格式的名称
+     * 
+     * 示例：
+     * - "user_name" -> "userName"
+     * - "UPPER_CASE" -> "upperCase"
+     * - "alreadyCamel" -> "alreadyCamel"
+     */
+    public static function toCamelCase(string $name): string {
+        $parts := Str::split($name, "_");
+        if (Str::length($parts) == 0) {
+            return $name;
+        }
+        
+        $result := Str::toLowerCase($parts[0]);
+        
+        for ($i := 1; $i < $parts.len(); $i++) {
+            $part := $parts[$i];
+            if (Str::length($part) > 0) {
+                $first := Str::toUpperCase(Str::charAt($part, 0));
+                $rest := Str::toLowerCase(Str::substring($part, 1));
+                $result = $result + $first + $rest;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 转换为 PascalCase
+     * 
+     * @param string $name 原始名称
+     * @return string PascalCase 格式的名称
+     * 
+     * 示例：
+     * - "user_name" -> "UserName"
+     * - "already_pascal" -> "AlreadyPascal"
+     */
+    public static function toPascalCase(string $name): string {
+        $parts := Str::split($name, "_");
+        $result := "";
+        
+        foreach ($parts as $part) {
+            if (Str::length($part) > 0) {
+                $first := Str::toUpperCase(Str::charAt($part, 0));
+                $rest := Str::toLowerCase(Str::substring($part, 1));
+                $result = $result + $first + $rest;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 转换为 kebab-case
+     * 
+     * @param string $name 原始名称
+     * @return string kebab-case 格式的名称
+     * 
+     * 示例：
+     * - "userName" -> "user-name"
+     * - "HTTPServer" -> "h-t-t-p-server"
+     */
+    public static function toKebabCase(string $name): string {
+        $result := "";
+        $len := Str::length($name);
+        
+        for ($i := 0; $i < $len; $i++) {
+            $char := Str::charAt($name, $i);
+            
+            // 检查是否是大写字母
+            if ($char >= "A" && $char <= "Z") {
+                if ($i > 0) {
+                    $result = $result + "-";
+                }
+                $result = $result + Str::toLowerCase($char);
+            } else {
+                $result = $result + $char;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 根据策略转换名称
+     * 
+     * @param string $name 原始名称
+     * @param int $strategy 命名策略
+     * @return string 转换后的名称
+     */
+    public static function apply(string $name, int $strategy): string {
+        switch ($strategy) {
+            case JsonNaming::SNAKE_CASE:
+                return JsonNaming::toSnakeCase($name);
+            case JsonNaming::CAMEL_CASE:
+                return JsonNaming::toCamelCase($name);
+            case JsonNaming::PASCAL_CASE:
+                return JsonNaming::toPascalCase($name);
+            case JsonNaming::KEBAB_CASE:
+                return JsonNaming::toKebabCase($name);
+            default:
+                return $name;
+        }
+    }
+}
+

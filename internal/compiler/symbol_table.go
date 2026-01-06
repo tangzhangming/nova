@@ -162,6 +162,12 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_regex_replace"] = &FunctionSignature{Name: "native_regex_replace", ParamTypes: []string{"string", "string", "string"}, ReturnType: "string"}
 	st.Functions["native_regex_split"] = &FunctionSignature{Name: "native_regex_split", ParamTypes: []string{"string", "string"}, ReturnType: "string[]"}
 
+	// JSON 函数 (native_json_*)
+	st.Functions["native_json_encode"] = &FunctionSignature{Name: "native_json_encode", ParamTypes: []string{"any", "bool", "string"}, ReturnType: "string", MinArity: 1}
+	st.Functions["native_json_decode"] = &FunctionSignature{Name: "native_json_decode", ParamTypes: []string{"string"}, ReturnType: "any"}
+	st.Functions["native_json_is_valid"] = &FunctionSignature{Name: "native_json_is_valid", ParamTypes: []string{"string"}, ReturnType: "bool"}
+	st.Functions["native_json_encode_object"] = &FunctionSignature{Name: "native_json_encode_object", ParamTypes: []string{"object", "any"}, ReturnType: "string", MinArity: 1}
+
 	// Base64 函数 (native_base64_*)
 	st.Functions["native_base64_encode"] = &FunctionSignature{Name: "native_base64_encode", ParamTypes: []string{"string"}, ReturnType: "string"}
 	st.Functions["native_base64_decode"] = &FunctionSignature{Name: "native_base64_decode", ParamTypes: []string{"string"}, ReturnType: "string"}

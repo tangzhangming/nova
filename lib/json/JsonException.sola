@@ -1,0 +1,33 @@
+// Sola 标准库 - JSON 异常类
+namespace sola.json
+
+use sola.lang.Exception;
+
+/**
+ * JSON 解析/编码异常
+ */
+public class JsonException extends Exception {
+    public int $position;     // 错误位置
+    public string $snippet;   // 错误片段
+    
+    public function __construct(string $message, int $position = 0) {
+        parent::__construct($message);
+        $this->position = $position;
+        $this->snippet = "";
+    }
+    
+    /**
+     * 获取错误位置
+     */
+    public function getPosition(): int {
+        return $this->position;
+    }
+    
+    /**
+     * 获取错误片段
+     */
+    public function getSnippet(): string {
+        return $this->snippet;
+    }
+}
+
