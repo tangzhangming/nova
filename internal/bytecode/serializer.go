@@ -113,6 +113,10 @@ func (s *Serializer) collectStrings(fn *Function, classes map[string]*Class, enu
 		for _, tp := range class.TypeParams {
 			s.addString(tp.Name)
 			s.addString(tp.Constraint)
+			// 收集 implements 类型
+			for _, implType := range tp.ImplementsTypes {
+				s.addString(implType)
+			}
 		}
 		// 收集注解
 		s.collectAnnotations(class.Annotations)
@@ -337,6 +341,11 @@ func (s *Serializer) writeClassTo(buf *bytes.Buffer, class *Class) {
 	for _, tp := range class.TypeParams {
 		binary.Write(buf, binary.BigEndian, s.addString(tp.Name))
 		binary.Write(buf, binary.BigEndian, s.addString(tp.Constraint))
+		// 写入 implements 类型列表
+		binary.Write(buf, binary.BigEndian, uint16(len(tp.ImplementsTypes)))
+		for _, implType := range tp.ImplementsTypes {
+			binary.Write(buf, binary.BigEndian, s.addString(implType))
+		}
 	}
 
 	// 类注解

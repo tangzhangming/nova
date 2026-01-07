@@ -30,17 +30,26 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	// 设置命名空间
 	class.Namespace = c.currentNamespace
 	
-	// 处理泛型类型参数
-	if len(decl.TypeParams) > 0 {
-		class.TypeParams = make([]*bytecode.TypeParamDef, len(decl.TypeParams))
-		for i, tp := range decl.TypeParams {
+	// 处理泛型类型参数（包括类型参数和 where 子句）
+	var allTypeParams []*ast.TypeParameter
+	allTypeParams = append(allTypeParams, decl.TypeParams...)
+	allTypeParams = append(allTypeParams, decl.WhereClause...)
+	
+	if len(allTypeParams) > 0 {
+		class.TypeParams = make([]*bytecode.TypeParamDef, len(allTypeParams))
+		for i, tp := range allTypeParams {
 			constraint := ""
 			if tp.Constraint != nil {
 				constraint = c.getTypeName(tp.Constraint)
 			}
+			var implementsTypes []string
+			for _, implType := range tp.ImplementsTypes {
+				implementsTypes = append(implementsTypes, c.getTypeName(implType))
+			}
 			class.TypeParams[i] = &bytecode.TypeParamDef{
-				Name:       tp.Name.Name,
-				Constraint: constraint,
+				Name:            tp.Name.Name,
+				Constraint:      constraint,
+				ImplementsTypes: implementsTypes,
 			}
 		}
 	}

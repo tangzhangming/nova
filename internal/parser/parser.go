@@ -390,7 +390,7 @@ func (p *Parser) parseTypeParameters() []*ast.TypeParameter {
 	return params
 }
 
-// parseTypeParameter 解析单个类型参数 T 或 T extends Comparable<T>
+// parseTypeParameter 解析单个类型参数 T 或 T extends Comparable<T> implements IComparable, ISerializable
 func (p *Parser) parseTypeParameter() *ast.TypeParameter {
 	nameToken := p.consume(token.IDENT, "expected type parameter name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
@@ -401,9 +401,25 @@ func (p *Parser) parseTypeParameter() *ast.TypeParameter {
 		constraint = p.parseType()
 	}
 
+	var implementsTypes []ast.TypeNode
+	// 检查是否有 implements 约束
+	if p.match(token.IMPLEMENTS) {
+		implType := p.parseType()
+		if implType != nil {
+			implementsTypes = append(implementsTypes, implType)
+		}
+		for p.match(token.COMMA) {
+			implType = p.parseType()
+			if implType != nil {
+				implementsTypes = append(implementsTypes, implType)
+			}
+		}
+	}
+
 	return &ast.TypeParameter{
-		Name:       name,
-		Constraint: constraint,
+		Name:            name,
+		Constraint:      constraint,
+		ImplementsTypes: implementsTypes,
 	}
 }
 
@@ -2069,6 +2085,21 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 		}
 	}
 
+	// where 子句 - 支持多重约束
+	var whereClause []*ast.TypeParameter
+	if p.match(token.WHERE) {
+		whereParam := p.parseTypeParameter()
+		if whereParam != nil {
+			whereClause = append(whereClause, whereParam)
+		}
+		for p.match(token.COMMA) {
+			whereParam = p.parseTypeParameter()
+			if whereParam != nil {
+				whereClause = append(whereClause, whereParam)
+			}
+		}
+	}
+
 	lbrace := p.consume(token.LBRACE, "expected '{'")
 
 	var constants []*ast.ConstDecl
@@ -2098,6 +2129,7 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 		TypeParams:  typeParams,
 		Extends:     extends,
 		Implements:  implements,
+		WhereClause: whereClause,
 		LBrace:      lbrace,
 		Constants:   constants,
 		Properties:  properties,
@@ -2266,6 +2298,21 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 		}
 	}
 
+	// where 子句 - 支持多重约束
+	var whereClause []*ast.TypeParameter
+	if p.match(token.WHERE) {
+		whereParam := p.parseTypeParameter()
+		if whereParam != nil {
+			whereClause = append(whereClause, whereParam)
+		}
+		for p.match(token.COMMA) {
+			whereParam = p.parseTypeParameter()
+			if whereParam != nil {
+				whereClause = append(whereClause, whereParam)
+			}
+		}
+	}
+
 	lbrace := p.consume(token.LBRACE, "expected '{'")
 
 	var methods []*ast.MethodDecl
@@ -2322,6 +2369,7 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 		Name:           name,
 		TypeParams:     typeParams,
 		Extends:        extends,
+		WhereClause:    whereClause,
 		LBrace:         lbrace,
 		Methods:        methods,
 		RBrace:         rbrace,

@@ -375,9 +375,23 @@ func (d *Deserializer) readClass() (*Class, error) {
 		if err != nil {
 			return nil, err
 		}
+		// 读取 implements 类型列表
+		implCount, err := d.readU16()
+		if err != nil {
+			return nil, err
+		}
+		var implementsTypes []string
+		for j := uint16(0); j < implCount; j++ {
+			implIdx, err := d.readU32()
+			if err != nil {
+				return nil, err
+			}
+			implementsTypes = append(implementsTypes, d.getString(implIdx))
+		}
 		class.TypeParams[i] = &TypeParamDef{
-			Name:       d.getString(nameIdx),
-			Constraint: d.getString(constraintIdx),
+			Name:            d.getString(nameIdx),
+			Constraint:      d.getString(constraintIdx),
+			ImplementsTypes: implementsTypes,
 		}
 	}
 

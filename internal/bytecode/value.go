@@ -796,8 +796,9 @@ type Annotation struct {
 
 // TypeParamDef 泛型类型参数定义
 type TypeParamDef struct {
-	Name       string // 类型参数名 (T, K, V 等)
-	Constraint string // 约束类型名 (extends 后的类型)
+	Name            string   // 类型参数名 (T, K, V 等)
+	Constraint      string   // extends 约束类型名
+	ImplementsTypes []string // implements 约束接口列表
 }
 
 // Class 类定义

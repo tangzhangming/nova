@@ -176,24 +176,36 @@ func (t *NullType) End() token.Position { return t.Token.Pos }
 func (t *NullType) String() string      { return "null" }
 func (t *NullType) typeNode()           {}
 
-// TypeParameter 泛型类型参数 <T extends Comparable<T>>
+// TypeParameter 泛型类型参数 <T extends Comparable<T> implements IComparable, ISerializable>
 type TypeParameter struct {
-	Name       *Identifier // 类型参数名 (T, K, V 等)
-	Constraint TypeNode    // 约束类型 (extends 后的类型)，可为 nil
+	Name            *Identifier // 类型参数名 (T, K, V 等)
+	Constraint      TypeNode    // 约束类型 (extends 后的类型)，可为 nil
+	ImplementsTypes []TypeNode // implements 接口列表，可为 nil
 }
 
 func (t *TypeParameter) Pos() token.Position { return t.Name.Pos() }
 func (t *TypeParameter) End() token.Position {
+	if len(t.ImplementsTypes) > 0 {
+		return t.ImplementsTypes[len(t.ImplementsTypes)-1].End()
+	}
 	if t.Constraint != nil {
 		return t.Constraint.End()
 	}
 	return t.Name.End()
 }
 func (t *TypeParameter) String() string {
+	result := t.Name.String()
 	if t.Constraint != nil {
-		return t.Name.String() + " extends " + t.Constraint.String()
+		result += " extends " + t.Constraint.String()
 	}
-	return t.Name.String()
+	if len(t.ImplementsTypes) > 0 {
+		var ifaces []string
+		for _, iface := range t.ImplementsTypes {
+			ifaces = append(ifaces, iface.String())
+		}
+		result += " implements " + strings.Join(ifaces, ", ")
+	}
+	return result
 }
 func (t *TypeParameter) typeNode() {}
 
@@ -1144,6 +1156,7 @@ type ClassDecl struct {
 	TypeParams  []*TypeParameter // 泛型类型参数 <T, K extends Comparable>
 	Extends     *Identifier      // 可为 nil
 	Implements  []TypeNode       // 支持泛型接口 Container<T>
+	WhereClause []*TypeParameter // where 子句约束，可为 nil
 	LBrace      token.Token
 	Constants   []*ConstDecl
 	Properties  []*PropertyDecl
@@ -1164,6 +1177,7 @@ type InterfaceDecl struct {
 	Name           *Identifier
 	TypeParams     []*TypeParameter // 泛型类型参数 <T, K extends Comparable>
 	Extends        []TypeNode       // 支持泛型接口 Comparable<T>
+	WhereClause    []*TypeParameter // where 子句约束，可为 nil
 	LBrace         token.Token
 	Methods        []*MethodDecl
 	RBrace         token.Token

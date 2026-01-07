@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
@@ -1606,8 +1607,13 @@ func (vm *VM) binaryOp(op bytecode.OpCode) InterpretResult {
 	b := vm.pop()
 	a := vm.pop()
 
-	// 字符串拼接
-	if op == bytecode.OpAdd && (a.Type == bytecode.ValString || b.Type == bytecode.ValString) {
+	// 【重要】字符串拼接：只有两个操作数都是字符串时才允许拼接
+	// 【警告】请勿将条件修改为 (a.Type == ValString || b.Type == ValString)
+	// 否则会导致类型不安全的隐式转换问题：
+	//   - "hello" + 123 会变成 "hello123"（应该报错）
+	//   - 456 + "world" 会变成 "456world"（应该报错）
+	// 正确的行为：只有 string + string 才能相加，其他情况应该报类型错误
+	if op == bytecode.OpAdd && a.Type == bytecode.ValString && b.Type == bytecode.ValString {
 		vm.push(bytecode.NewString(a.AsString() + b.AsString()))
 		return InterpretOK
 	}
@@ -2368,9 +2374,18 @@ func (vm *VM) castValue(v bytecode.Value, targetType string) (bytecode.Value, bo
 		case bytecode.ValFloat:
 			return bytecode.NewInt(int64(v.AsFloat())), true
 		case bytecode.ValString:
-			// 尝试解析字符串为整数
-			var i int64
-			_, err := fmt.Sscanf(v.AsString(), "%d", &i)
+			// 【重要】严格解析字符串为整数
+			// 必须使用 strconv.ParseInt 进行严格验证，而不是 fmt.Sscanf
+			// fmt.Sscanf("%d") 会解析到第一个非数字字符为止，导致以下错误行为：
+			//   - "123abc" 会解析成功得到 123（应该失败，因为包含非数字字符）
+			//   - "3.14" 会解析成功得到 3（应该失败，因为是浮点数）
+			// strconv.ParseInt 会对整个字符串进行严格验证：
+			//   - "123abc" -> 失败
+			//   - "3.14" -> 失败
+			//   - "123" -> 成功
+			// 【警告】请勿将此修改回 fmt.Sscanf，否则会引入类型安全漏洞！
+			s := strings.TrimSpace(v.AsString())
+			i, err := strconv.ParseInt(s, 10, 64)
 			if err == nil {
 				return bytecode.NewInt(i), true
 			}

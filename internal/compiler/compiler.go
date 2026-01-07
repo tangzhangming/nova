@@ -466,6 +466,12 @@ func (c *Compiler) compileVarDecl(s *ast.VarDeclStmt) {
 		}
 	}
 	
+	// 如果是泛型类型，验证约束
+	if genericType, ok := s.Type.(*ast.GenericType); ok {
+		baseName := c.getTypeName(genericType.BaseType)
+		c.validateGenericConstraints(baseName, genericType.TypeArgs)
+	}
+	
 	// 检查是否是定长数组类型
 	if arrType, ok := s.Type.(*ast.ArrayType); ok && arrType.Size != nil {
 		// 获取数组大小（必须是常量整数）
@@ -2067,6 +2073,12 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 	// 静态类型检查：检查构造函数参数类型
 	c.checkConstructorArgTypes(e)
 	
+	// 验证泛型约束（如果是泛型类型实例化）
+	if len(e.TypeArgs) > 0 {
+		className := e.ClassName.Name
+		c.validateGenericConstraints(className, e.TypeArgs)
+	}
+	
 	idx := c.makeConstant(bytecode.NewString(e.ClassName.Name))
 	c.emitU16(bytecode.OpNewObject, idx)
 
@@ -2610,6 +2622,16 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 				args = append(args, c.getTypeName(arg))
 			}
 			return e.ClassName.Name + "<" + strings.Join(args, ", ") + ">"
+		}
+		// 尝试从构造函数参数推断泛型类型参数
+		classSig := c.symbolTable.GetClassSignature(e.ClassName.Name)
+		if classSig != nil && len(classSig.TypeParams) > 0 && len(e.Arguments) > 0 {
+			// 从第一个参数推断类型（简化实现）
+			firstArgType := c.inferExprType(e.Arguments[0])
+			if firstArgType != "" && firstArgType != "any" && firstArgType != "error" {
+				// 推断为第一个类型参数
+				return e.ClassName.Name + "<" + firstArgType + ">"
+			}
 		}
 		return e.ClassName.Name
 	case *ast.TernaryExpr:
@@ -3269,5 +3291,43 @@ func (c *Compiler) evalConstInt(expr ast.Expression) int {
 	}
 	c.error(expr.Pos(), i18n.T(i18n.ErrArraySizeNotConst))
 	return -1
+}
+
+// validateGenericConstraints 验证泛型类型参数的约束
+func (c *Compiler) validateGenericConstraints(className string, typeArgs []ast.TypeNode) {
+	// 获取类的泛型签名
+	classSig := c.symbolTable.GetClassSignature(className)
+	if classSig == nil {
+		return // 不是泛型类，无需验证
+	}
+	
+	// 检查类型参数数量是否匹配
+	if len(typeArgs) != len(classSig.TypeParams) {
+		c.error(typeArgs[0].Pos(), i18n.T(i18n.ErrGenericTypeArgCount, className, len(classSig.TypeParams), len(typeArgs)))
+		return
+	}
+	
+	// 验证每个类型参数是否满足约束
+	for i, typeArg := range typeArgs {
+		if i >= len(classSig.TypeParams) {
+			break
+		}
+		typeParam := classSig.TypeParams[i]
+		typeArgName := c.getTypeName(typeArg)
+		
+		// 验证 extends 约束
+		if typeParam.ExtendsType != "" {
+			if !c.symbolTable.ValidateTypeConstraint(typeArgName, typeParam.ExtendsType) {
+				c.error(typeArg.Pos(), i18n.T(i18n.ErrGenericConstraintViolated, typeArgName, typeParam.ExtendsType))
+			}
+		}
+		
+		// 验证 implements 约束
+		for _, implType := range typeParam.ImplementsTypes {
+			if !c.symbolTable.CheckImplements(typeArgName, implType) {
+				c.error(typeArg.Pos(), i18n.T(i18n.ErrGenericConstraintViolated, typeArgName, implType))
+			}
+		}
+	}
 }
 

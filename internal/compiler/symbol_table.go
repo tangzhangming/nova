@@ -48,8 +48,9 @@ type PropertySignature struct {
 
 // TypeParamInfo 类型参数信息
 type TypeParamInfo struct {
-	Name       string // 类型参数名 (T, K, V 等)
-	Constraint string // 约束类型 (extends 后的类型)
+	Name            string   // 类型参数名 (T, K, V 等)
+	ExtendsType     string   // extends 约束类型
+	ImplementsTypes []string // implements 约束接口列表
 }
 
 // ClassSignature 类签名 (用于泛型类)
@@ -582,17 +583,26 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 		className = namespace + "\\" + className
 	}
 	
-	// 收集泛型类型参数
-	if len(decl.TypeParams) > 0 {
-		typeParams := make([]*TypeParamInfo, len(decl.TypeParams))
-		for i, tp := range decl.TypeParams {
-			constraint := ""
+	// 收集泛型类型参数（包括类型参数和 where 子句）
+	var allTypeParams []*ast.TypeParameter
+	allTypeParams = append(allTypeParams, decl.TypeParams...)
+	allTypeParams = append(allTypeParams, decl.WhereClause...)
+	
+	if len(allTypeParams) > 0 {
+		typeParams := make([]*TypeParamInfo, len(allTypeParams))
+		for i, tp := range allTypeParams {
+			extendsType := ""
 			if tp.Constraint != nil {
-				constraint = typeNodeToString(tp.Constraint)
+				extendsType = typeNodeToString(tp.Constraint)
+			}
+			var implementsTypes []string
+			for _, implType := range tp.ImplementsTypes {
+				implementsTypes = append(implementsTypes, typeNodeToString(implType))
 			}
 			typeParams[i] = &TypeParamInfo{
-				Name:       tp.Name.Name,
-				Constraint: constraint,
+				Name:            tp.Name.Name,
+				ExtendsType:     extendsType,
+				ImplementsTypes: implementsTypes,
 			}
 		}
 		st.ClassSignatures[className] = &ClassSignature{
@@ -673,17 +683,26 @@ func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl, namespace s
 		interfaceName = namespace + "\\" + interfaceName
 	}
 	
-	// 收集泛型类型参数
-	if len(decl.TypeParams) > 0 {
-		typeParams := make([]*TypeParamInfo, len(decl.TypeParams))
-		for i, tp := range decl.TypeParams {
-			constraint := ""
+	// 收集泛型类型参数（包括类型参数和 where 子句）
+	var allTypeParams []*ast.TypeParameter
+	allTypeParams = append(allTypeParams, decl.TypeParams...)
+	allTypeParams = append(allTypeParams, decl.WhereClause...)
+	
+	if len(allTypeParams) > 0 {
+		typeParams := make([]*TypeParamInfo, len(allTypeParams))
+		for i, tp := range allTypeParams {
+			extendsType := ""
 			if tp.Constraint != nil {
-				constraint = typeNodeToString(tp.Constraint)
+				extendsType = typeNodeToString(tp.Constraint)
+			}
+			var implementsTypes []string
+			for _, implType := range tp.ImplementsTypes {
+				implementsTypes = append(implementsTypes, typeNodeToString(implType))
 			}
 			typeParams[i] = &TypeParamInfo{
-				Name:       tp.Name.Name,
-				Constraint: constraint,
+				Name:            tp.Name.Name,
+				ExtendsType:     extendsType,
+				ImplementsTypes: implementsTypes,
 			}
 		}
 		st.InterfaceSigs[interfaceName] = &InterfaceSignature{
@@ -789,5 +808,79 @@ func typeNodeToString(t ast.TypeNode) string {
 	default:
 		return "any"
 	}
+}
+
+// ValidateTypeConstraint 验证类型参数是否满足 extends 约束
+func (st *SymbolTable) ValidateTypeConstraint(typeArg, constraint string) bool {
+	if constraint == "" {
+		return true // 无约束，任何类型都满足
+	}
+	
+	// 提取基类名（去除泛型参数）
+	baseTypeArg := extractBaseTypeName(typeArg)
+	baseConstraint := extractBaseTypeName(constraint)
+	
+	// 完全匹配
+	if baseTypeArg == baseConstraint {
+		return true
+	}
+	
+	// 检查继承关系：typeArg 是否是 constraint 的子类
+	current := baseTypeArg
+	for {
+		parent, ok := st.ClassParents[current]
+		if !ok || parent == "" {
+			break
+		}
+		if parent == baseConstraint {
+			return true
+		}
+		current = parent
+	}
+	
+	return false
+}
+
+// CheckImplements 检查类型是否实现了指定接口
+func (st *SymbolTable) CheckImplements(typeName, interfaceName string) bool {
+	// 提取基类名
+	baseTypeName := extractBaseTypeName(typeName)
+	baseInterfaceName := extractBaseTypeName(interfaceName)
+	
+	// 获取类的实现接口列表
+	class, ok := st.ClassSignatures[baseTypeName]
+	if !ok {
+		// 如果类不存在，尝试查找方法签名来推断
+		// 这里简化处理，实际应该检查类的 Implements 列表
+		return false
+	}
+	
+	// 检查类的方法签名中是否有该接口的方法
+	// 简化实现：检查是否有该接口的方法
+	methods, ok := st.ClassMethods[baseTypeName]
+	if !ok {
+		return false
+	}
+	
+	// 检查接口的所有方法是否都在类中实现
+	interfaceMethods, ok := st.ClassMethods[baseInterfaceName]
+	if !ok {
+		return false
+	}
+	
+	// 检查接口的每个方法是否在类中都有实现
+	for methodName := range interfaceMethods {
+		if _, hasMethod := methods[methodName]; !hasMethod {
+			return false
+		}
+	}
+	
+	return true
+}
+
+// GetClassSignature 获取类的泛型签名
+func (st *SymbolTable) GetClassSignature(className string) *ClassSignature {
+	baseName := extractBaseTypeName(className)
+	return st.ClassSignatures[baseName]
 }
 
