@@ -82,9 +82,50 @@ echo "Hello, Sola!";
 | `string` | 字符串 | `"hello"`, `'world'` |
 | `void` | 无返回值 | - |
 | `null` | 空值 | `null` |
-| `object` | 任意对象 | - |
-| `mixed` | 任意类型 | - |
-| `array` | 动态数组（PHP风格万能数组） | `[1, 2, 3]` |
+
+### 特殊类型说明
+
+#### `object` 类型
+
+`object` 是所有类的基类型，类似于 Java 的 `Object` 或 C# 的 `object`。
+
+```sola
+// ⚠️ 不推荐：失去类型安全
+public function process(object $obj): void { ... }
+
+// ✅ 推荐：使用具体类型
+public function process(User $user): void { ... }
+
+// ✅ 推荐：使用接口约束
+public function process(ISerializable $obj): void { ... }
+
+// ✅ 推荐：使用泛型
+public function process<T>(T $obj): void { ... }
+```
+
+**使用场景**：
+- 反射相关操作
+- 需要存储任意对象的容器（但推荐用泛型 `T` 代替）
+
+#### `array` 类型
+
+`array` 是无类型约束的动态数组，**不推荐在新代码中使用**。
+
+```sola
+// ⚠️ 不推荐：无类型安全
+array $data = [1, 2, 3];
+
+// ✅ 推荐：使用类型化数组
+int[] $numbers = int{1, 2, 3};
+string[] $names = string{"Alice", "Bob"};
+
+// ✅ 推荐：使用泛型集合
+ArrayList<int> $list = new ArrayList<int>();
+```
+
+**使用场景**：
+- 与外部 API 交互（如 JSON 解析结果）
+- 需要混合类型的场景（建议用 SuperArray 代替）
 
 ### 数字字面量
 ```sola
@@ -129,22 +170,27 @@ map[string]int $ages = map[string]int{
 };
 ```
 
-#### SuperArray（万能数组，PHP风格）
+#### SuperArray（万能数组）
+
+SuperArray 是 Sola 提供的动态混合类型数组，支持整数和字符串混合键。适用于与动态数据交互的场景（如 JSON 解析）。
+
 ```sola
 // 自动索引
 $arr := [1, 2, 3];
 
-// 关联数组
+// 关联数组（键值对）
 $data := [
     "name" => "Sola",
     "version" => 1,
-    0 => "mixed"
+    0 => "first"
 ];
 
 // 访问
 echo $arr[0];        // 1
 echo $data["name"];  // Sola
 ```
+
+> **静态类型建议**：对于已知结构的数据，推荐使用类型化数组 `T[]`、`map[K]V` 或自定义类，以获得更好的类型安全和IDE支持。
 
 ### 可空类型
 ```sola
@@ -453,10 +499,24 @@ $list->map((int $x): int => $x * 2);
 ### 函数类型参数
 ```sola
 public function process(
-    array $data,
+    int[] $data,
     function(int $item): bool $predicate
-): array {
-    $result := [];
+): int[] {
+    $result := int{};
+    foreach ($data as $item) {
+        if ($predicate($item)) {
+            $result[] = $item;
+        }
+    }
+    return $result;
+}
+
+// 泛型版本（更灵活）
+public function filter<T>(
+    T[] $data,
+    function(T $item): bool $predicate
+): T[] {
+    $result := T{};
     foreach ($data as $item) {
         if ($predicate($item)) {
             $result[] = $item;
@@ -506,8 +566,8 @@ public class User {
         return self::$count;
     }
     
-    // 魔术方法
-    public function __toString(): string {
+    // 转字符串方法（普通方法，需显式调用）
+    public function toString(): string {
         return #"User({$this->name})";
     }
 }
@@ -814,6 +874,31 @@ public function example(): void {
 }
 ```
 
+### 特殊方法
+
+Sola 支持以下特殊方法（由运行时自动调用）：
+
+| 方法 | 说明 |
+|------|------|
+| `__construct` | 构造函数，创建对象时自动调用 |
+| `__destruct` | 析构函数，对象被垃圾回收时调用 |
+
+```sola
+public class Resource {
+    private int $handle;
+    
+    public function __construct() {
+        $this->handle = openResource();
+    }
+    
+    public function __destruct() {
+        closeResource($this->handle);
+    }
+}
+```
+
+> **注意**：Sola 是静态类型语言，不支持 PHP 风格的魔术方法（如 `__toString`、`__get`、`__set` 等）。如需类似功能，请使用显式方法或属性访问器。
+
 ### final 类和方法
 ```sola
 // 不能被继承的类
@@ -972,14 +1057,14 @@ public function divide(int $a, int $b): int {
 ### 自定义异常
 ```sola
 public class ValidationException extends Exception {
-    private array $errors;
+    private string[] $errors;
     
-    public function __construct(string $message, array $errors) {
+    public function __construct(string $message, string[] $errors) {
         parent::__construct($message);
         $this->errors = $errors;
     }
     
-    public function getErrors(): array {
+    public function getErrors(): string[] {
         return $this->errors;
     }
 }
@@ -1184,14 +1269,16 @@ public class UserService {
             throw new Exception("Failed to fetch users");
         }
         
+        // JSON 解码返回 SuperArray（与外部数据交互的合理场景）
         $data := Json::decode($response->body());
         $users := new ArrayList<User>();
         
+        // 将动态数据转换为强类型对象
         foreach ($data as $item) {
             $user := new User(
-                $item["id"],
-                $item["name"],
-                $item["email"]
+                $item["id"] as int,
+                $item["name"] as string,
+                $item["email"] as string
             );
             $users->add($user);
         }
