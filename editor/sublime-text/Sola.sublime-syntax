@@ -14,6 +14,7 @@ variables:
 contexts:
   main:
     - include: comments
+    - include: annotations
     - include: strings
     - include: numbers
     - include: keywords
@@ -25,12 +26,15 @@ contexts:
     - include: constants
 
   comments:
-    # Single line comment
-    - match: '//'
-      scope: punctuation.definition.comment.sola
+    # Doc comment (must be before multi-line comment)
+    - match: '/\*\*'
+      scope: punctuation.definition.comment.begin.sola
       push:
-        - meta_scope: comment.line.double-slash.sola
-        - match: $\n?
+        - meta_scope: comment.block.documentation.sola
+        - match: '@(param|return|throws|deprecated|see|since|version|author)'
+          scope: storage.type.class.doxygen.sola
+        - match: '\*/'
+          scope: punctuation.definition.comment.end.sola
           pop: true
     # Multi-line comment
     - match: '/\*'
@@ -40,14 +44,18 @@ contexts:
         - match: '\*/'
           scope: punctuation.definition.comment.end.sola
           pop: true
-    # Doc comment
-    - match: '/\*\*'
-      scope: punctuation.definition.comment.begin.sola
+    # Single line comment
+    - match: '//'
+      scope: punctuation.definition.comment.sola
       push:
-        - meta_scope: comment.block.documentation.sola
-        - match: '\*/'
-          scope: punctuation.definition.comment.end.sola
+        - meta_scope: comment.line.double-slash.sola
+        - match: $\n?
           pop: true
+
+  annotations:
+    # Annotation
+    - match: '@{{identifier}}'
+      scope: storage.type.annotation.sola
 
   strings:
     # Interpolated string
@@ -100,27 +108,39 @@ contexts:
 
   keywords:
     # Control flow
-    - match: '\b(if|else|elseif|switch|case|default|for|foreach|while|do|break|continue|return|throw|try|catch|finally)\b'
+    - match: '\b(if|else|elseif|switch|case|default|match|for|foreach|while|do|break|continue|return|throw|try|catch|finally)\b'
       scope: keyword.control.sola
     # Declaration
-    - match: '\b(function|class|interface|enum|abstract|extends|implements|namespace|use|as|new|const)\b'
+    - match: '\b(function|class|interface|enum|abstract|extends|implements|namespace|use|as|new|const|type)\b'
       scope: keyword.declaration.sola
     # Modifier
     - match: '\b(public|private|protected|static|final|readonly)\b'
       scope: storage.modifier.sola
+    # Accessor keywords
+    - match: '\b(get|set)\b'
+      scope: storage.modifier.accessor.sola
+    # Type operators
+    - match: '\b(is|as)\b'
+      scope: keyword.operator.type.sola
     # Other keywords
     - match: '\b(echo|print|isset|unset|instanceof)\b'
       scope: keyword.other.sola
 
   types:
     # Primitive types
-    - match: '\b(int|i8|i16|i32|i64|uint|u8|u16|u32|u64|float|f32|f64|bool|string|void|null|array|map|object|func)\b'
+    - match: '\b(int|i8|i16|i32|i64|uint|u8|u16|u32|u64|byte|float|f32|f64|bool|string|void|null|array|superarray|map|object|func)\b'
       scope: storage.type.sola
     # Nullable type
     - match: '\?(?={{identifier}})'
       scope: storage.type.nullable.sola
+    # Union type separator
+    - match: '\|'
+      scope: keyword.operator.type.union.sola
 
   operators:
+    # Safe type cast
+    - match: 'as\?'
+      scope: keyword.operator.type.sola
     # Assignment
     - match: ':=|=>|\+=|-=|\*=|/=|%=|='
       scope: keyword.operator.assignment.sola
@@ -137,8 +157,11 @@ contexts:
     - match: '&|\||\^|~|<<|>>'
       scope: keyword.operator.bitwise.sola
     # Member access
-    - match: '->|::'
+    - match: '->|::|\.(?!\.)'
       scope: keyword.operator.accessor.sola
+    # Spread operator
+    - match: '\.\.\.'
+      scope: keyword.operator.spread.sola
 
   variables:
     # $this

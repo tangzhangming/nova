@@ -11,6 +11,9 @@
         { "trigger": "while", "contents": "while (${1:condition}) {\n\t${2}\n}" },
         { "trigger": "dowhile", "contents": "do {\n\t${1}\n} while (${2:condition});" },
         { "trigger": "switch", "contents": "switch (${1:\\$var}) {\n\tcase ${2:value}:\n\t\t${3}\n\t\tbreak;\n\tdefault:\n\t\t${4}\n}" },
+        { "trigger": "match", "contents": "match (${1:\\$value}) {\n\t${2:value1} => ${3:result1},\n\t${4:value2} => ${5:result2},\n\t_ => ${6:default}\n}" },
+        { "trigger": "matcht", "contents": "match (${1:\\$value}) {\n\t${2:int} \\$${3:n} => ${4:expression},\n\t${5:string} \\$${6:s} => ${7:expression},\n\t_ => ${8:default}\n}" },
+        { "trigger": "matchg", "contents": "match (${1:\\$value}) {\n\t${2:int} \\$${3:n} if ${4:\\$n >= 0} => ${5:expression},\n\t_ => ${6:default}\n}" },
         { "trigger": "try", "contents": "try {\n\t${1}\n} catch (Exception \\$e) {\n\t${2}\n}" },
         { "trigger": "trycf", "contents": "try {\n\t${1}\n} catch (Exception \\$e) {\n\t${2}\n} finally {\n\t${3}\n}" },
         { "trigger": "throw", "contents": "throw new ${1:Exception}(\"${2:message}\");" },
@@ -19,6 +22,10 @@
         { "trigger": "fn", "contents": "function ${1:name}(${2:params}): ${3:void} {\n\t${4}\n}" },
         { "trigger": "pfn", "contents": "public function ${1:name}(${2:params}): ${3:void} {\n\t${4}\n}" },
         { "trigger": "sfn", "contents": "public static function ${1:name}(${2:params}): ${3:void} {\n\t${4}\n}" },
+        { "trigger": "arrow", "contents": "(${1:params}): ${2:type} => ${3:expression}" },
+        { "trigger": "closure", "contents": "function(${1:params}): ${2:type} {\n\t${3}\n}" },
+        { "trigger": "closureuse", "contents": "function(${1:params}): ${2:type} use (${3:\\$var}) {\n\t${4}\n}" },
+        { "trigger": "generic", "contents": "public function ${1:name}<${2:T}>(${3:\\$param}: ${2:T}): ${4:T} {\n\t${5}\n}" },
         { "trigger": "class", "contents": "class ${1:ClassName} {\n\t${2}\n}" },
         { "trigger": "classext", "contents": "class ${1:ClassName} extends ${2:ParentClass} {\n\t${3}\n}" },
         { "trigger": "interface", "contents": "interface ${1:InterfaceName} {\n\t${2}\n}" },
@@ -31,19 +38,25 @@
         { "trigger": "namespace", "contents": "namespace ${1:sola.pkg}" },
         { "trigger": "use", "contents": "use ${1:sola.lang.Exception};" },
         { "trigger": "useex", "contents": "use sola.lang.Exception;\nuse sola.lang.RuntimeException;" },
+        { "trigger": "typealias", "contents": "type ${1:AliasName} = ${2:OriginalType};" },
         
         // Variables
         { "trigger": "var", "contents": "${1:type} \\$${2:name} = ${3:value};" },
         { "trigger": "vardecl", "contents": "\\$${1:name} := ${2:value};" },
-        { "trigger": "arr", "contents": "${1:type}[] \\$${2:name} = [${3}];" },
-        { "trigger": "map", "contents": "map<${1:string}, ${2:int}> \\$${3:name} = [${4}];" },
+        { "trigger": "arr", "contents": "${1:type}[] \\$${2:name} = ${1:type}{${3}};" },
+        { "trigger": "arrlit", "contents": "${1:type}{${2}}" },
+        { "trigger": "map", "contents": "map[${1:string}]${2:int} \\$${3:name} = map[${1:string}]${2:int}{${4}};" },
+        { "trigger": "maplit", "contents": "map[${1:string}]${2:int}{\n\t${3:key}: ${4:value}\n}" },
+        { "trigger": "superarr", "contents": "superarray \\$${1:name} = [${2}];" },
+        { "trigger": "nullable", "contents": "?${1:string} \\$${2:name} = null;" },
+        { "trigger": "union", "contents": "${1:int}|${2:string} \\$${3:name};" },
         
         // Types
         "int", "i8", "i16", "i32", "i64",
-        "uint", "u8", "u16", "u32", "u64",
+        "uint", "u8", "u16", "u32", "u64", "byte",
         "float", "f32", "f64",
         "bool", "string", "void", "null",
-        "array", "map", "object", "func",
+        "array", "superarray", "map", "object", "func",
         
         // Built-in Functions
         { "trigger": "print", "contents": "print(${1});" },
@@ -70,6 +83,11 @@
         
         // Common patterns
         { "trigger": "getset", "contents": "private ${1:type} \\$${2:name};\n\npublic function get${3:Name}(): ${1:type} {\n\treturn \\$this->${2:name};\n}\n\npublic function set${3:Name}(${1:type} \\$value): void {\n\t\\$this->${2:name} = \\$value;\n}" },
+        { "trigger": "autoprop", "contents": "public ${1:type} \\$${2:name} { get; set; }" },
+        { "trigger": "propro", "contents": "public ${1:type} \\$${2:name} { get; }" },
+        { "trigger": "propgs", "contents": "public ${1:type} \\$${2:name} { get; private set; }" },
+        { "trigger": "propget", "contents": "public ${1:type} \\$${2:name} {\n\tget {\n\t\t${3:return \\$this->_${2:name};}\n\t}\n\tset {\n\t\t${4:\\$this->_${2:name} = \\$value;}\n\t}\n}" },
+        { "trigger": "propexpr", "contents": "public ${1:type} \\$${2:name} => ${3:expression};" },
         
         // Modifiers
         "public", "private", "protected", "static", "final", "readonly", "abstract",
@@ -79,7 +97,17 @@
         
         // Keywords
         "return", "break", "continue", "new", "instanceof", "const",
-        "extends", "implements", "this", "self", "parent"
+        "extends", "implements", "this", "self", "parent", "match",
+        "get", "set", "is", "as", "type",
+        
+        // Type check patterns
+        { "trigger": "is", "contents": "if (${1:\\$var} is ${2:Type}) {\n\t${3}\n}" },
+        { "trigger": "cast", "contents": "${1:\\$var} as ${2:Type}" },
+        { "trigger": "safecast", "contents": "${1:\\$var} as? ${2:Type}" },
+        
+        // Annotations
+        { "trigger": "deprecated", "contents": "@Deprecated(\"${1:reason}\")" },
+        { "trigger": "annotation", "contents": "@${1:AnnotationName}" }
     ]
 }
 

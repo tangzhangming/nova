@@ -1,0 +1,156 @@
+namespace example.test
+
+use sola.lang.Exception;
+use sola.collections.ArrayList;
+
+/**
+ * 示例类 - 展示 Sola 语法特性
+ * @author SOLA Team
+ * @version 1.0
+ */
+@Deprecated("Use NewExample instead")
+public class Example {
+    // 自动属性
+    public string $name { get; set; }
+    public int $age { get; private set; }
+    public string $id { get; }
+    
+    // 表达式体属性
+    public bool $isAdult => $this->age >= 18;
+    
+    // 类型化数组
+    private int[] $numbers = int{1, 2, 3, 4, 5};
+    
+    // SuperArray (动态类型)
+    private superarray $data = ["key" => "value", 0 => 42];
+    
+    // Map 类型
+    private map[string]int $scores = map[string]int{
+        "Alice": 95,
+        "Bob": 87
+    };
+    
+    // 构造函数
+    public function __construct(string $id, string $name, int $age) {
+        $this->id = $id;
+        $this->name = $name;
+        $this->age = $age;
+    }
+    
+    // match 表达式 - 值匹配
+    public function getGrade(int $score): string {
+        return match ($score) {
+            100 => "Perfect",
+            90 => "A",
+            80 => "B",
+            70 => "C",
+            _ => "F"
+        };
+    }
+    
+    // match 表达式 - 类型匹配
+    public function process(int|string $value): string {
+        return match ($value) {
+            int $n => #"Number: {$n}",
+            string $s => #"Text: {$s}",
+            _ => "Unknown"
+        };
+    }
+    
+    // match 表达式 - 带守卫条件
+    public function categorize(int $value): string {
+        return match ($value) {
+            int $n if $n < 0 => "Negative",
+            int $n if $n == 0 => "Zero",
+            int $n if $n > 0 => "Positive",
+            _ => "Unknown"
+        };
+    }
+    
+    // 类型检查和转换
+    public function checkType(object $obj): void {
+        // 类型检查 (is)
+        if ($obj is Example) {
+            echo "It's an Example!";
+        }
+        
+        // 类型转换 (as)
+        $example := $obj as Example;
+        
+        // 安全类型转换 (as?)
+        $maybeExample := $obj as? Example;
+        if ($maybeExample != null) {
+            echo $maybeExample->name;
+        }
+    }
+    
+    // 可空类型
+    public function findUser(int $id): ?string {
+        if ($id > 0) {
+            return "User";
+        }
+        return null;
+    }
+    
+    // 泛型函数
+    public function filter<T>(T[] $items, function(T $item): bool $predicate): T[] {
+        $result := T{};
+        foreach ($items as $item) {
+            if ($predicate($item)) {
+                $result[] = $item;
+            }
+        }
+        return $result;
+    }
+    
+    // 箭头函数和闭包
+    public function demo(): void {
+        // 箭头函数
+        $square := (int $x): int => $x * $x;
+        
+        // 闭包
+        $multiplier := 10;
+        $multiply := function(int $x): int use ($multiplier) {
+            return $x * $multiplier;
+        };
+        
+        echo $square(5);       // 25
+        echo $multiply(3);     // 30
+    }
+}
+
+// 类型别名
+type StringList = string[];
+type UserMap = map[string]Example;
+
+// 抽象类
+abstract class Shape {
+    abstract public function area(): float;
+}
+
+// 接口
+public interface Drawable {
+    public function draw(): void;
+}
+
+// 使用示例
+$example := new Example("001", "Alice", 25);
+
+// 单行注释
+echo $example->name;    // Alice
+
+/* 
+ * 多行注释
+ * 演示块注释
+ */
+$example->name = "Bob";
+
+// match 表达式
+$grade := $example->getGrade(90);
+echo $grade;  // A
+
+// 类型检查
+if ($example is Example) {
+    echo "Type check passed!";
+}
+
