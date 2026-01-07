@@ -253,6 +253,21 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	return fn
 }
 
+// countExpectedReturns 计算预期的返回值数量
+func (c *Compiler) countExpectedReturns(returnType ast.TypeNode) int {
+	if returnType == nil {
+		return 0 // void
+	}
+	
+	// 检查是否是多返回值类型（TupleType）
+	if tuple, ok := returnType.(*ast.TupleType); ok {
+		return len(tuple.Types)
+	}
+	
+	// 单一返回值
+	return 1
+}
+
 // evaluateConstExpr 计算常量表达式的值（用于默认参数和常量折叠）
 func (c *Compiler) evaluateConstExpr(expr ast.Expression) bytecode.Value {
 	switch e := expr.(type) {
@@ -1612,6 +1627,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	case *ast.IsExpr:
 		c.compileIsExpr(e)
 
+	case *ast.MatchExpr:
+		c.compileMatchExpr(e)
+
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
 	}
@@ -2748,6 +2766,113 @@ func (c *Compiler) compileTypeCastExpr(e *ast.TypeCastExpr) {
 	}
 }
 
+// compileMatchExpr 编译模式匹配表达式
+func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) {
+	// 编译被匹配的表达式
+	c.compileExpr(e.Expr)
+	
+	// 收集所有跳转到结束的位置
+	var endJumps []int
+	// 收集跳转到下一个 case 的位置
+	var nextCaseJumps []int
+	
+	// 编译每个 case
+	for i, case_ := range e.Cases {
+		// 修补之前的跳转（跳转到当前 case）
+		// 跳转过来时，栈上有 [matched_value, false]，需要弹出 false
+		if len(nextCaseJumps) > 0 {
+			for _, jump := range nextCaseJumps {
+				c.patchJump(jump)
+			}
+			c.emit(bytecode.OpPop) // 弹出 false（之前的匹配失败）
+			nextCaseJumps = nil
+		}
+		_ = i
+		
+		// 编译模式匹配
+		switch p := case_.Pattern.(type) {
+		case *ast.WildcardPattern:
+			// 通配符：总是匹配，不需要检查
+			// 栈上还有被匹配的值
+			
+		case *ast.ValuePattern:
+			// 值模式：复制值，比较
+			c.emit(bytecode.OpDup) // 复制被匹配的值
+			c.compileExpr(p.Value) // 编译模式中的值
+			c.emit(bytecode.OpEq)  // 比较，结果在栈顶
+			// 如果不匹配，跳转到下一个 case
+			nextJump := c.emitJump(bytecode.OpJumpIfFalse)
+			c.emit(bytecode.OpPop) // 弹出 true（匹配成功）
+			// 跳转目标需要弹出 false
+			nextCaseJumps = append(nextCaseJumps, nextJump)
+			
+		case *ast.TypePattern:
+			// 类型模式：复制值，检查类型
+			c.emit(bytecode.OpDup) // 复制被匹配的值
+			typeName := c.getTypeName(p.Type)
+			typeIdx := c.makeConstant(bytecode.NewString(typeName))
+			c.emitU16(bytecode.OpCheckType, typeIdx)
+			// 如果类型不匹配，跳转到下一个 case
+			nextJump := c.emitJump(bytecode.OpJumpIfFalse)
+			c.emit(bytecode.OpPop) // 弹出 true（匹配成功）
+			nextCaseJumps = append(nextCaseJumps, nextJump)
+		}
+		
+		// 检查守卫条件（如果有）
+		if case_.Guard != nil {
+			c.compileExpr(case_.Guard)
+			nextJump := c.emitJump(bytecode.OpJumpIfFalse)
+			c.emit(bytecode.OpPop) // 弹出 true
+			nextCaseJumps = append(nextCaseJumps, nextJump)
+		}
+		
+		// 匹配成功，编译 body
+		c.compileExpr(case_.Body)
+		
+		// 交换栈顶：现在栈上是 [被匹配的值, body结果]
+		// 需要变成 [body结果]
+		c.emit(bytecode.OpSwap)
+		c.emit(bytecode.OpPop) // 弹出被匹配的值
+		
+		// 跳转到结束（除了最后一个 case）
+		if i < len(e.Cases)-1 {
+			endJump := c.emitJump(bytecode.OpJump)
+			endJumps = append(endJumps, endJump)
+		}
+	}
+	
+	// 修补之前的跳转（处理最后一个 case 失败的情况）
+	for _, jump := range nextCaseJumps {
+		c.patchJump(jump)
+	}
+	
+	// 修补所有跳转到结束的跳转
+	for _, jump := range endJumps {
+		c.patchJump(jump)
+	}
+}
+
+
+// checkMatchExhaustiveness 检查 match 表达式的穷尽性（可选）
+func (c *Compiler) checkMatchExhaustiveness(e *ast.MatchExpr, exprType string) {
+	// 简化实现：只检查是否有通配符
+	// 如果所有 case 都有具体的模式（没有通配符），给出警告（不是错误）
+	hasWildcard := false
+	for _, case_ := range e.Cases {
+		if _, ok := case_.Pattern.(*ast.WildcardPattern); ok {
+			hasWildcard = true
+			break
+		}
+	}
+	
+	// 如果有通配符，认为已经覆盖所有情况
+	// 如果没有通配符，建议添加（但这不是错误，因为可能所有情况都已明确覆盖）
+	if !hasWildcard && len(e.Cases) > 0 {
+		// 可以选择发出警告或忽略
+		// 这里我们不做任何操作，因为穷尽性检查是可选的
+	}
+}
+
 // compileIsExpr 编译类型检查表达式 ($x is string)
 // 在运行时检查表达式的类型是否与目标类型兼容
 func (c *Compiler) compileIsExpr(e *ast.IsExpr) {
@@ -3170,6 +3295,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 			return "error"
 		}
 		return "func(): " + bodyType
+	case *ast.MatchExpr:
+		// match 表达式：返回所有 case body 的公共类型
+		return c.inferMatchExprType(e)
 	case *ast.Identifier:
 		// 可能是类名、枚举等
 		return e.Name
@@ -3177,6 +3305,94 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		// 静态类型系统：所有表达式必须有明确类型
 		c.error(expr.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
 		return "error"
+	}
+}
+
+// inferMatchExprType 推断 match 表达式的返回类型
+func (c *Compiler) inferMatchExprType(e *ast.MatchExpr) string {
+	if len(e.Cases) == 0 {
+		c.error(e.Pos(), "match 表达式至少需要一个 case")
+		return "error"
+	}
+	
+	// 收集所有 case body 的类型
+	var types []string
+	for _, case_ := range e.Cases {
+		bodyType := c.inferMatchCaseBodyType(case_)
+		if bodyType == "error" {
+			return "error"
+		}
+		if bodyType != "" {
+			types = append(types, bodyType)
+		}
+	}
+	
+	if len(types) == 0 {
+		c.error(e.Pos(), "无法推断 match 表达式的返回类型")
+		return "error"
+	}
+	
+	// 如果所有类型相同，返回该类型
+	firstType := types[0]
+	allSame := true
+	for _, t := range types {
+		if t != firstType {
+			allSame = false
+			break
+		}
+	}
+	
+	if allSame {
+		return firstType
+	}
+	
+	// 如果类型不同，检查是否兼容
+	// 简化处理：返回第一个类型（未来可以改进为真正的联合类型推断）
+	return firstType
+}
+
+// inferMatchCaseBodyType 推断 match case body 的类型（考虑类型收窄）
+func (c *Compiler) inferMatchCaseBodyType(case_ *ast.MatchCase) string {
+	// 如果是类型模式且绑定了变量，需要收窄变量类型
+	var savedTypes map[string]string
+	if tp, ok := case_.Pattern.(*ast.TypePattern); ok && tp.Variable != nil {
+		// 收窄变量类型
+		typeName := c.getTypeName(tp.Type)
+		savedTypes = make(map[string]string)
+		savedTypes[tp.Variable.Name] = c.getVariableType(tp.Variable.Name)
+		c.narrowVariableType(tp.Variable.Name, typeName)
+	}
+	
+	// 推断 body 类型
+	bodyType := c.inferExprType(case_.Body)
+	
+	// 恢复变量类型
+	if savedTypes != nil {
+		for name, oldType := range savedTypes {
+			c.restoreVariableType(name, oldType)
+		}
+	}
+	
+	return bodyType
+}
+
+// narrowVariableType 收窄变量类型
+func (c *Compiler) narrowVariableType(name, newType string) {
+	if c.narrowedTypes == nil {
+		c.narrowedTypes = make(map[string]string)
+	}
+	c.narrowedTypes[name] = newType
+}
+
+// restoreVariableType 恢复变量类型
+func (c *Compiler) restoreVariableType(name, oldType string) {
+	if c.narrowedTypes == nil {
+		return
+	}
+	if oldType == "" {
+		delete(c.narrowedTypes, name)
+	} else {
+		c.narrowedTypes[name] = oldType
 	}
 }
 

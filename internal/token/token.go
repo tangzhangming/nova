@@ -126,6 +126,7 @@ const (
 	SWITCH   // switch
 	CASE     // case
 	DEFAULT  // default
+	MATCH    // match (模式匹配)
 	FOR      // for
 	FOREACH  // foreach
 	WHILE    // while
@@ -257,6 +258,7 @@ var tokenNames = map[TokenType]string{
 	SWITCH:         "switch",
 	CASE:           "case",
 	DEFAULT:        "default",
+	MATCH:          "match",
 	FOR:            "for",
 	FOREACH:        "foreach",
 	WHILE:          "while",
@@ -328,6 +330,7 @@ var keywords = map[string]TokenType{
 	"switch":     SWITCH,
 	"case":       CASE,
 	"default":    DEFAULT,
+	"match":      MATCH,
 	"for":        FOR,
 	"foreach":    FOREACH,
 	"while":      WHILE,

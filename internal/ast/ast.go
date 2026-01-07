@@ -1385,3 +1385,93 @@ func (f *File) String() string {
 type Program struct {
 	Files []*File
 }
+
+// ============================================================================
+// 模式匹配表达式
+// ============================================================================
+
+// MatchExpr 模式匹配表达式
+type MatchExpr struct {
+	MatchToken token.Token
+	LParen     token.Token
+	Expr       Expression // 被匹配的表达式
+	RParen     token.Token
+	LBrace     token.Token
+	Cases      []*MatchCase
+	RBrace     token.Token
+}
+
+func (e *MatchExpr) Pos() token.Position { return e.MatchToken.Pos }
+func (e *MatchExpr) End() token.Position { return e.RBrace.Pos }
+func (e *MatchExpr) String() string      { return "match (...) {...}" }
+func (e *MatchExpr) exprNode()           {}
+
+// MatchCase 匹配分支
+type MatchCase struct {
+	Pattern  Pattern     // 模式（类型模式、值模式或通配符）
+	Guard    Expression  // 守卫条件（可选，nil 表示无守卫）
+	IfToken  token.Token // if 关键字（可选）
+	Arrow    token.Token // =>
+	Body     Expression  // 表达式体（match 是表达式，返回一个值）
+}
+
+func (c *MatchCase) Pos() token.Position { return c.Pattern.Pos() }
+func (c *MatchCase) End() token.Position { return c.Body.End() }
+func (c *MatchCase) String() string {
+	if c.Guard != nil {
+		return c.Pattern.String() + " if " + c.Guard.String() + " => " + c.Body.String()
+	}
+	return c.Pattern.String() + " => " + c.Body.String()
+}
+
+// Pattern 模式接口
+type Pattern interface {
+	Node
+	patternNode()
+}
+
+// TypePattern 类型模式 (User $u, int $n)
+type TypePattern struct {
+	Type     TypeNode  // 类型
+	Variable *Variable // 绑定的变量（可为 nil，用于类型检查但不绑定）
+}
+
+func (p *TypePattern) Pos() token.Position {
+	if p.Variable != nil {
+		return p.Type.Pos()
+	}
+	return p.Type.Pos()
+}
+func (p *TypePattern) End() token.Position {
+	if p.Variable != nil {
+		return p.Variable.End()
+	}
+	return p.Type.End()
+}
+func (p *TypePattern) String() string {
+	if p.Variable != nil {
+		return p.Type.String() + " " + p.Variable.String()
+	}
+	return p.Type.String()
+}
+func (p *TypePattern) patternNode() {}
+
+// ValuePattern 值模式 (1, "hello", true, null)
+type ValuePattern struct {
+	Value Expression
+}
+
+func (p *ValuePattern) Pos() token.Position { return p.Value.Pos() }
+func (p *ValuePattern) End() token.Position { return p.Value.End() }
+func (p *ValuePattern) String() string      { return p.Value.String() }
+func (p *ValuePattern) patternNode()        {}
+
+// WildcardPattern 通配符模式 (_)
+type WildcardPattern struct {
+	Underscore token.Token
+}
+
+func (p *WildcardPattern) Pos() token.Position { return p.Underscore.Pos }
+func (p *WildcardPattern) End() token.Position { return p.Underscore.Pos }
+func (p *WildcardPattern) String() string      { return "_" }
+func (p *WildcardPattern) patternNode()        {}

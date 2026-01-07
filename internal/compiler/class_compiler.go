@@ -84,7 +84,7 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 
 	// 编译常量
 	for _, constDecl := range decl.Constants {
-		value := c.evaluateConstant(constDecl.Value)
+		value := c.evaluateConstExpr(constDecl.Value)
 		class.Constants[constDecl.Name.Name] = value
 	}
 
@@ -101,7 +101,7 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 			// 普通字段
 			var value bytecode.Value
 			if prop.Value != nil {
-				value = c.evaluateConstant(prop.Value)
+				value = c.evaluateConstExpr(prop.Value)
 			} else {
 				value = bytecode.NullValue
 			}
@@ -164,7 +164,7 @@ func (c *Compiler) evaluateAnnotationArgs(args []ast.Expression) []bytecode.Valu
 	}
 	result := make([]bytecode.Value, len(args))
 	for i, arg := range args {
-		result[i] = c.evaluateConstant(arg)
+		result[i] = c.evaluateConstExpr(arg)
 	}
 	return result
 }
@@ -304,7 +304,7 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 	vis := toByteVisibility(prop.Visibility)
 	
 	// 如果有 getter 访问器
-	if prop.Accessor.Getter != nil {
+	if prop.Accessor.GetBody != nil || prop.Accessor.GetExpr != nil {
 		// 创建 getter 方法
 		getterName := "get_" + prop.Name.Name
 		getter := &bytecode.Method{
@@ -347,8 +347,14 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		
 		// 编译 getter 体
 		c.beginScope()
-		for _, stmt := range prop.Accessor.Getter.Statements {
-			c.compileStmt(stmt)
+		if prop.Accessor.GetBody != nil {
+			for _, stmt := range prop.Accessor.GetBody.Statements {
+				c.compileStmt(stmt)
+			}
+		} else if prop.Accessor.GetExpr != nil {
+			// 表达式体 getter
+			c.compileExpr(prop.Accessor.GetExpr)
+			c.emit(bytecode.OpReturn)
 		}
 		c.endScope()
 		
@@ -371,7 +377,7 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 	}
 	
 	// 如果有 setter 访问器
-	if prop.Accessor.Setter != nil {
+	if prop.Accessor.SetBody != nil || prop.Accessor.SetExpr != nil {
 		// 创建 setter 方法
 		setterName := "set_" + prop.Name.Name
 		setter := &bytecode.Method{
@@ -405,20 +411,23 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		// 预留 slot 0 给 $this
 		c.addLocal("")
 		
-		// 添加参数作为局部变量
-		if len(prop.Accessor.Setter.Parameters) > 0 {
-			param := prop.Accessor.Setter.Parameters[0]
-			typeName := ""
-			if prop.Type != nil {
-				typeName = c.getTypeName(prop.Type)
-			}
-			c.addLocalWithType(param.Name.Name, typeName)
+		// 添加 value 参数作为局部变量
+		typeName := ""
+		if prop.Type != nil {
+			typeName = c.getTypeName(prop.Type)
 		}
+		c.addLocalWithType("value", typeName)
 		
 		// 编译 setter 体
 		c.beginScope()
-		for _, stmt := range prop.Accessor.Setter.Body.Statements {
-			c.compileStmt(stmt)
+		if prop.Accessor.SetBody != nil {
+			for _, stmt := range prop.Accessor.SetBody.Statements {
+				c.compileStmt(stmt)
+			}
+		} else if prop.Accessor.SetExpr != nil {
+			// 表达式体 setter
+			c.compileExpr(prop.Accessor.SetExpr)
+			c.emit(bytecode.OpPop)
 		}
 		c.endScope()
 		
@@ -615,4 +624,72 @@ func (c *Compiler) formatParamTypes(paramTypes []string) string {
 		return "()"
 	}
 	return "(" + strings.Join(paramTypes, ", ") + ")"
+}
+
+// CompileInterface 编译接口声明
+func (c *Compiler) CompileInterface(decl *ast.InterfaceDecl) *bytecode.Class {
+	// 接口编译为特殊的类（IsInterface = true）
+	class := bytecode.NewClass(decl.Name.Name)
+	class.IsInterface = true
+	
+	// 处理继承的接口
+	for _, ext := range decl.Extends {
+		class.Implements = append(class.Implements, c.getTypeName(ext))
+	}
+	
+	// 编译接口方法（只收集签名，不编译实现）
+	for _, method := range decl.Methods {
+		m := &bytecode.Method{
+			Name:        method.Name.Name,
+			ClassName:   decl.Name.Name,
+			Arity:       len(method.Parameters),
+			MinArity:    len(method.Parameters),
+			IsStatic:    method.Static,
+			Visibility:  bytecode.VisPublic, // 接口方法都是公开的
+		}
+		class.AddMethod(m)
+	}
+	
+	return class
+}
+
+// CompileEnum 编译枚举声明
+func (c *Compiler) CompileEnum(decl *ast.EnumDecl) *bytecode.Enum {
+	enum := bytecode.NewEnum(decl.Name.Name)
+	
+	// 编译枚举值
+	var nextValue int64 = 0
+	for _, member := range decl.Cases {
+		if member.Value != nil {
+			// 有显式值
+			val := c.evaluateConstExpr(member.Value)
+			if val.Type == bytecode.ValInt {
+				nextValue = val.AsInt()
+			}
+		}
+		enum.Cases[member.Name.Name] = bytecode.NewInt(nextValue)
+		nextValue++
+	}
+	
+	return enum
+}
+
+// validateFinalConstraints 验证 final 类约束
+func (c *Compiler) validateFinalConstraints(file *ast.File) {
+	for _, decl := range file.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			if classDecl.Extends != nil && classDecl.Final {
+				parentName := classDecl.Extends.Name
+				// 检查父类信息
+				if _, ok := c.symbolTable.ClassSignatures[parentName]; ok {
+					// 查找父类的 class
+					if parentClass, found := c.classes[parentName]; found {
+						if parentClass.IsFinal {
+							c.error(classDecl.ClassToken.Pos, i18n.T(i18n.ErrCannotExtendFinalClass, parentName))
+						}
+					}
+				}
+			}
+		}
+	}
 }

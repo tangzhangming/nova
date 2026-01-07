@@ -616,6 +616,8 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 		return p.parseNewExpr()
 	case token.FUNCTION:
 		return p.parseClosureExpr()
+	case token.MATCH:
+		return p.parseMatchExpr()
 	// Go 风格数组字面量: int{1, 2, 3}
 	case token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
 		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
@@ -2684,4 +2686,128 @@ func (p *Parser) parseInterpStringParts(tok token.Token) []ast.Expression {
 	}
 
 	return parts
+}
+
+// ============================================================================
+// 模式匹配表达式解析
+// ============================================================================
+
+// parseMatchExpr 解析 match 表达式
+// match ($expr) {
+//     pattern [if guard] => body,
+//     ...
+// }
+func (p *Parser) parseMatchExpr() *ast.MatchExpr {
+	matchToken := p.advance()
+	lparen := p.consume(token.LPAREN, "expected '(' after 'match'")
+	expr := p.parseExpression()
+	rparen := p.consume(token.RPAREN, "expected ')' after match expression")
+	lbrace := p.consume(token.LBRACE, "expected '{' after match expression")
+
+	var cases []*ast.MatchCase
+	for !p.check(token.RBRACE) && !p.isAtEnd() {
+		case_ := p.parseMatchCase()
+		if case_ != nil {
+			cases = append(cases, case_)
+		}
+		// 允许逗号分隔（可选）
+		if p.match(token.COMMA) {
+			continue
+		}
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}' after match cases")
+
+	return &ast.MatchExpr{
+		MatchToken: matchToken,
+		LParen:     lparen,
+		Expr:       expr,
+		RParen:     rparen,
+		LBrace:     lbrace,
+		Cases:      cases,
+		RBrace:     rbrace,
+	}
+}
+
+// parseMatchCase 解析匹配分支
+// pattern [if guard] => body
+func (p *Parser) parseMatchCase() *ast.MatchCase {
+	// 解析模式
+	pattern := p.parsePattern()
+	if pattern == nil {
+		p.error(i18n.T(i18n.ErrExpectedExpression))
+		return nil
+	}
+
+	// 检查是否有守卫条件
+	var guard ast.Expression
+	var ifToken token.Token
+	if p.match(token.IF) {
+		ifToken = p.previous()
+		guard = p.parseExpression()
+	}
+
+	// 期望 =>
+	arrow := p.consume(token.DOUBLE_ARROW, "expected '=>' after pattern")
+
+	// 解析 body（表达式，不是语句）
+	body := p.parseExpression()
+
+	return &ast.MatchCase{
+		Pattern: pattern,
+		Guard:   guard,
+		IfToken: ifToken,
+		Arrow:   arrow,
+		Body:    body,
+	}
+}
+
+// parsePattern 解析模式（类型模式、值模式、通配符）
+func (p *Parser) parsePattern() ast.Pattern {
+	// 通配符 _
+	if p.check(token.IDENT) && p.peek().Literal == "_" {
+		underscore := p.advance()
+		return &ast.WildcardPattern{
+			Underscore: underscore,
+		}
+	}
+
+	// 检查是否是类型开始（类型模式）
+	if p.isTypeStart() {
+		return p.parseTypePattern()
+	}
+
+	// 否则是值模式
+	return p.parseValuePattern()
+}
+
+// parseTypePattern 解析类型模式 (User $u, int $n)
+func (p *Parser) parseTypePattern() *ast.TypePattern {
+	typeNode := p.parseType()
+
+	// 检查是否有变量绑定
+	var varNode *ast.Variable
+	if p.check(token.VARIABLE) {
+		varToken := p.advance()
+		varName := varToken.Literal[1:] // 去掉 $
+		varNode = &ast.Variable{
+			Token: varToken,
+			Name:  varName,
+		}
+	}
+
+	return &ast.TypePattern{
+		Type:     typeNode,
+		Variable: varNode,
+	}
+}
+
+// parseValuePattern 解析值模式 (1, "hello", true, null)
+func (p *Parser) parseValuePattern() *ast.ValuePattern {
+	// 只解析主表达式（字面量），不解析完整表达式
+	// 避免把 => 当作表达式的一部分
+	value := p.parsePrefixExpr()
+	return &ast.ValuePattern{
+		Value: value,
+	}
 }
