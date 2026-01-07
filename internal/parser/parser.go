@@ -477,6 +477,7 @@ const (
 	PREC_BIT_AND    // &
 	PREC_EQUALITY   // ==, !=
 	PREC_COMPARISON // <, >, <=, >=
+	PREC_IS         // is (类型检查)
 	PREC_CAST       // as, as?
 	PREC_SHIFT      // <<, >>
 	PREC_TERM       // +, -
@@ -508,6 +509,8 @@ func (p *Parser) getPrecedence(t token.TokenType) int {
 		return PREC_EQUALITY
 	case token.LT, token.LE, token.GT, token.GE:
 		return PREC_COMPARISON
+	case token.IS:
+		return PREC_IS
 	case token.AS, token.AS_SAFE:
 		return PREC_CAST
 	case token.LEFT_SHIFT, token.RIGHT_SHIFT:
@@ -641,6 +644,8 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 		return p.parseAssignExpr(left)
 	case token.QUESTION:
 		return p.parseTernaryExpr(left)
+	case token.IS:
+		return p.parseIsExpr(left)
 	case token.AS, token.AS_SAFE:
 		return p.parseTypeCastExpr(left)
 	case token.LBRACKET:
@@ -657,6 +662,20 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 		return p.parsePostfixIncDec(left)
 	default:
 		return left
+	}
+}
+
+// parseIsExpr 解析类型检查表达式 ($x is string, $obj is MyClass)
+// 用于类型收窄：在 if($x is string) 分支内，$x 的类型被收窄为 string
+func (p *Parser) parseIsExpr(left ast.Expression) ast.Expression {
+	isToken := p.advance() // 消费 is
+	typeName := p.parseType()
+	
+	return &ast.IsExpr{
+		Expr:     left,
+		IsToken:  isToken,
+		Negated:  false,
+		TypeName: typeName,
 	}
 }
 
@@ -2021,8 +2040,10 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 		return p.parseInterface(annotations, visibility)
 	case token.ENUM:
 		return p.parseEnum()
+	case token.TYPE:
+		return p.parseTypeAlias()
 	default:
-		p.error(i18n.T(i18n.ErrExpectedToken, "'class', 'interface' or 'enum'"))
+		p.error(i18n.T(i18n.ErrExpectedToken, "'class', 'interface', 'enum' or 'type'"))
 		return nil
 	}
 }
@@ -2419,6 +2440,23 @@ func (p *Parser) parseEnum() *ast.EnumDecl {
 		LBrace:    lbrace,
 		Cases:     cases,
 		RBrace:    rbrace,
+	}
+}
+
+// parseTypeAlias 解析类型别名声明 (type StringList = string[])
+func (p *Parser) parseTypeAlias() *ast.TypeAliasDecl {
+	typeToken := p.advance() // 消费 type
+	nameToken := p.consume(token.IDENT, "expected type alias name")
+	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
+	
+	equals := p.consume(token.ASSIGN, "expected '=' in type alias")
+	aliasType := p.parseType()
+	
+	return &ast.TypeAliasDecl{
+		TypeToken: typeToken,
+		Name:      name,
+		Equals:    equals,
+		AliasType: aliasType,
 	}
 }
 

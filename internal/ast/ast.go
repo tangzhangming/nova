@@ -468,6 +468,25 @@ func (e *BinaryExpr) String() string {
 }
 func (e *BinaryExpr) exprNode() {}
 
+// IsExpr 类型检查表达式 ($x is string, $obj is MyClass)
+// 用于类型收窄：在 if($x is string) 分支内，$x 的类型被收窄为 string
+type IsExpr struct {
+	Expr     Expression  // 被检查的表达式
+	IsToken  token.Token // is 关键字
+	Negated  bool        // 是否取反 (!is)
+	TypeName TypeNode    // 目标类型
+}
+
+func (e *IsExpr) Pos() token.Position { return e.Expr.Pos() }
+func (e *IsExpr) End() token.Position { return e.TypeName.End() }
+func (e *IsExpr) String() string {
+	if e.Negated {
+		return e.Expr.String() + " !is " + e.TypeName.String()
+	}
+	return e.Expr.String() + " is " + e.TypeName.String()
+}
+func (e *IsExpr) exprNode() {}
+
 // TernaryExpr 三元表达式 (cond ? then : else)
 type TernaryExpr struct {
 	Condition Expression
@@ -1212,6 +1231,21 @@ type EnumCase struct {
 func (c *EnumCase) Pos() token.Position { return c.Name.Pos() }
 func (c *EnumCase) End() token.Position { return c.Name.End() }
 func (c *EnumCase) String() string      { return c.Name.String() }
+
+// TypeAliasDecl 类型别名声明 (type StringList = string[])
+type TypeAliasDecl struct {
+	TypeToken token.Token // type 关键字
+	Name      *Identifier // 别名名称
+	Equals    token.Token // = 符号
+	AliasType TypeNode    // 目标类型
+}
+
+func (d *TypeAliasDecl) Pos() token.Position { return d.TypeToken.Pos }
+func (d *TypeAliasDecl) End() token.Position { return d.AliasType.End() }
+func (d *TypeAliasDecl) String() string {
+	return "type " + d.Name.Name + " = " + d.AliasType.String()
+}
+func (d *TypeAliasDecl) declNode() {}
 
 // NamespaceDecl 命名空间声明
 type NamespaceDecl struct {

@@ -49,6 +49,10 @@ type Compiler struct {
 	sourceFile       string // 当前编译的源文件路径
 	currentLine      int    // 当前编译的行号
 	currentNamespace string // 当前命名空间
+	
+	// 类型收窄上下文：变量名 -> 收窄后的类型
+	// 用于在 if 分支中收窄变量类型（如 if($x is string) 后 $x 的类型为 string）
+	narrowedTypes map[string]string
 
 	errors []Error
 }
@@ -586,6 +590,9 @@ func (c *Compiler) compileMultiVarDecl(s *ast.MultiVarDeclStmt) {
 }
 
 func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
+	// 类型收窄：分析条件中的 is 表达式
+	narrowings := c.extractTypeNarrowings(s.Condition, true)
+	
 	// 编译条件
 	c.compileExpr(s.Condition)
 
@@ -593,8 +600,14 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 	thenJump := c.emitJump(bytecode.OpJumpIfFalse)
 	c.emit(bytecode.OpPop) // 弹出条件值
 
+	// 应用类型收窄
+	savedTypes := c.applyTypeNarrowings(narrowings)
+	
 	// 编译 then 分支
 	c.compileStmt(s.Then)
+	
+	// 恢复类型
+	c.restoreTypes(savedTypes)
 
 	elseJump := c.emitJump(bytecode.OpJump)
 
@@ -604,10 +617,21 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 
 	// 编译 elseif 分支
 	for _, elseIf := range s.ElseIfs {
+		// 类型收窄：分析 elseif 条件
+		elseIfNarrowings := c.extractTypeNarrowings(elseIf.Condition, true)
+		
 		c.compileExpr(elseIf.Condition)
 		nextJump := c.emitJump(bytecode.OpJumpIfFalse)
 		c.emit(bytecode.OpPop)
+		
+		// 应用类型收窄
+		savedElseIfTypes := c.applyTypeNarrowings(elseIfNarrowings)
+		
 		c.compileStmt(elseIf.Body)
+		
+		// 恢复类型
+		c.restoreTypes(savedElseIfTypes)
+		
 		elseJump = c.emitJump(bytecode.OpJump)
 		c.patchJump(nextJump)
 		c.emit(bytecode.OpPop)
@@ -615,10 +639,123 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 
 	// 编译 else 分支
 	if s.Else != nil {
+		// 在 else 分支中，应用反向收窄（条件为假时的类型）
+		reverseNarrowings := c.extractTypeNarrowings(s.Condition, false)
+		savedElseTypes := c.applyTypeNarrowings(reverseNarrowings)
+		
 		c.compileStmt(s.Else)
+		
+		c.restoreTypes(savedElseTypes)
 	}
 
 	c.patchJump(elseJump)
+}
+
+// TypeNarrowing 表示一个类型收窄
+type TypeNarrowing struct {
+	VarName     string // 变量名
+	NarrowedType string // 收窄后的类型
+}
+
+// extractTypeNarrowings 从条件表达式中提取类型收窄信息
+// positive: true 表示条件为真时的收窄，false 表示条件为假时的收窄
+func (c *Compiler) extractTypeNarrowings(cond ast.Expression, positive bool) []TypeNarrowing {
+	var narrowings []TypeNarrowing
+	
+	switch e := cond.(type) {
+	case *ast.IsExpr:
+		// $x is string
+		if v, ok := e.Expr.(*ast.Variable); ok {
+			typeName := c.getTypeName(e.TypeName)
+			// 如果是取反的 is 表达式，反转 positive 标志
+			effectivePositive := positive
+			if e.Negated {
+				effectivePositive = !positive
+			}
+			if effectivePositive {
+				narrowings = append(narrowings, TypeNarrowing{
+					VarName:     v.Name,
+					NarrowedType: typeName,
+				})
+			}
+		}
+	case *ast.BinaryExpr:
+		// 处理 && 和 || 逻辑运算
+		if e.Operator.Type == token.AND && positive {
+			// a && b: 当条件为真时，两边都为真
+			narrowings = append(narrowings, c.extractTypeNarrowings(e.Left, true)...)
+			narrowings = append(narrowings, c.extractTypeNarrowings(e.Right, true)...)
+		} else if e.Operator.Type == token.OR && !positive {
+			// a || b: 当条件为假时，两边都为假
+			narrowings = append(narrowings, c.extractTypeNarrowings(e.Left, false)...)
+			narrowings = append(narrowings, c.extractTypeNarrowings(e.Right, false)...)
+		}
+		// 处理 !== null 检查
+		if e.Operator.Type == token.NE {
+			if v, ok := e.Left.(*ast.Variable); ok {
+				if _, ok := e.Right.(*ast.NullLiteral); ok {
+					if positive {
+						// $x !== null: 在 then 分支中 $x 不是 null
+						varType := c.getVariableType(v.Name)
+						if strings.Contains(varType, "|null") {
+							narrowedType := strings.Replace(varType, "|null", "", 1)
+							narrowings = append(narrowings, TypeNarrowing{
+								VarName:     v.Name,
+								NarrowedType: narrowedType,
+							})
+						}
+					}
+				}
+			}
+		}
+	case *ast.UnaryExpr:
+		// !expr: 反转收窄方向
+		if e.Operator.Type == token.NOT {
+			narrowings = append(narrowings, c.extractTypeNarrowings(e.Operand, !positive)...)
+		}
+	}
+	
+	return narrowings
+}
+
+// applyTypeNarrowings 应用类型收窄，返回被覆盖的原始类型（用于恢复）
+func (c *Compiler) applyTypeNarrowings(narrowings []TypeNarrowing) map[string]string {
+	if len(narrowings) == 0 {
+		return nil
+	}
+	
+	if c.narrowedTypes == nil {
+		c.narrowedTypes = make(map[string]string)
+	}
+	
+	saved := make(map[string]string)
+	for _, n := range narrowings {
+		// 保存原始类型
+		if original, exists := c.narrowedTypes[n.VarName]; exists {
+			saved[n.VarName] = original
+		} else {
+			saved[n.VarName] = "" // 标记为之前不存在
+		}
+		// 应用收窄
+		c.narrowedTypes[n.VarName] = n.NarrowedType
+	}
+	
+	return saved
+}
+
+// restoreTypes 恢复类型收窄前的状态
+func (c *Compiler) restoreTypes(saved map[string]string) {
+	if saved == nil {
+		return
+	}
+	
+	for varName, originalType := range saved {
+		if originalType == "" {
+			delete(c.narrowedTypes, varName)
+		} else {
+			c.narrowedTypes[varName] = originalType
+		}
+	}
 }
 
 func (c *Compiler) compileWhileStmt(s *ast.WhileStmt) {
@@ -807,6 +944,10 @@ func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 }
 
 func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
+	// 穷尽性检查：如果 switch 表达式是枚举类型，检查是否覆盖所有值
+	exprType := c.inferExprType(s.Expr)
+	c.checkSwitchExhaustiveness(s, exprType)
+	
 	c.compileExpr(s.Expr)
 
 	var endJumps []int
@@ -843,6 +984,45 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 	}
 
 	c.emit(bytecode.OpPop) // 弹出 switch 表达式
+}
+
+// checkSwitchExhaustiveness 检查 switch 语句的穷尽性
+// 如果 switch 表达式是枚举类型且没有 default 分支，检查是否覆盖了所有枚举值
+func (c *Compiler) checkSwitchExhaustiveness(s *ast.SwitchStmt, exprType string) {
+	// 如果有 default 分支，无需检查穷尽性
+	if s.Default != nil {
+		return
+	}
+	
+	// 检查是否是枚举类型
+	enumValues := c.symbolTable.GetEnumValues(exprType)
+	if len(enumValues) == 0 {
+		return // 不是枚举类型，跳过检查
+	}
+	
+	// 收集所有 case 覆盖的值
+	coveredValues := make(map[string]bool)
+	for _, caseClause := range s.Cases {
+		// 尝试从 case 值中提取枚举成员名
+		if sa, ok := caseClause.Value.(*ast.StaticAccess); ok {
+			if member, ok := sa.Member.(*ast.Identifier); ok {
+				coveredValues[member.Name] = true
+			}
+		}
+	}
+	
+	// 检查是否所有枚举值都被覆盖
+	var missingValues []string
+	for _, val := range enumValues {
+		if !coveredValues[val] {
+			missingValues = append(missingValues, val)
+		}
+	}
+	
+	if len(missingValues) > 0 {
+		// 发出警告而不是错误，允许代码继续编译
+		c.error(s.Expr.Pos(), i18n.T(i18n.ErrSwitchNotExhaustive, exprType, strings.Join(missingValues, ", ")))
+	}
 }
 
 func (c *Compiler) compileBreakStmt() {
@@ -1172,6 +1352,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 
 	case *ast.TypeCastExpr:
 		c.compileTypeCastExpr(e)
+	
+	case *ast.IsExpr:
+		c.compileIsExpr(e)
 
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
@@ -2289,6 +2472,25 @@ func (c *Compiler) compileTypeCastExpr(e *ast.TypeCastExpr) {
 	}
 }
 
+// compileIsExpr 编译类型检查表达式 ($x is string)
+// 在运行时检查表达式的类型是否与目标类型兼容
+func (c *Compiler) compileIsExpr(e *ast.IsExpr) {
+	// 编译被检查的表达式
+	c.compileExpr(e.Expr)
+	
+	// 获取目标类型名称
+	typeName := c.getTypeName(e.TypeName)
+	typeIdx := c.makeConstant(bytecode.NewString(typeName))
+	
+	// 发射类型检查指令（复用 OpCheckType）
+	c.emitU16(bytecode.OpCheckType, typeIdx)
+	
+	// 如果是取反的 is 表达式，添加 NOT 指令
+	if e.Negated {
+		c.emit(bytecode.OpNot)
+	}
+}
+
 // ============================================================================
 // 作用域管理
 // ============================================================================
@@ -2379,7 +2581,15 @@ func (c *Compiler) setLocalType(name string, typeName string) {
 }
 
 // getVariableType 获取变量类型（局部或全局）
+// 支持类型收窄：在 if 分支中，变量类型可能被收窄
 func (c *Compiler) getVariableType(name string) string {
+	// 首先检查类型收窄上下文（优先级最高）
+	if c.narrowedTypes != nil {
+		if narrowedType, ok := c.narrowedTypes[name]; ok {
+			return narrowedType
+		}
+	}
+	
 	// 先查局部变量
 	if t := c.getLocalType(name); t != "" {
 		return t
@@ -2623,17 +2833,8 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 			}
 			return e.ClassName.Name + "<" + strings.Join(args, ", ") + ">"
 		}
-		// 尝试从构造函数参数推断泛型类型参数
-		classSig := c.symbolTable.GetClassSignature(e.ClassName.Name)
-		if classSig != nil && len(classSig.TypeParams) > 0 && len(e.Arguments) > 0 {
-			// 从第一个参数推断类型（简化实现）
-			firstArgType := c.inferExprType(e.Arguments[0])
-			if firstArgType != "" && firstArgType != "any" && firstArgType != "error" {
-				// 推断为第一个类型参数
-				return e.ClassName.Name + "<" + firstArgType + ">"
-			}
-		}
-		return e.ClassName.Name
+		// 增强泛型推断：尝试从构造函数参数推断泛型类型参数
+		return c.inferGenericNewExpr(e)
 	case *ast.TernaryExpr:
 		// 三元表达式：两个分支类型应该相同
 		thenType := c.inferExprType(e.Then)
@@ -2677,6 +2878,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.TypeCastExpr:
 		// 类型转换：返回目标类型
 		return c.getTypeName(e.TargetType)
+	case *ast.IsExpr:
+		// is 表达式：返回 bool 类型
+		return "bool"
 	case *ast.ClosureExpr:
 		// 闭包表达式
 		if e.ReturnType != nil {
@@ -2746,6 +2950,7 @@ func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
 
 // inferMethodCallType 推断方法调用的返回类型
 // 静态类型系统：方法必须在符号表中有签名
+// 增强泛型推断：支持从泛型对象类型替换方法返回类型中的类型参数
 func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 	objType := c.inferExprType(e.Object)
 	if objType == "error" {
@@ -2756,33 +2961,165 @@ func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 		return "error"
 	}
 	
-	// 从泛型类型中提取基类名（Box<int> -> Box）
+	// 从泛型类型中提取基类名和类型参数（Box<int> -> Box, [int]）
 	baseType := c.extractBaseTypeName(objType)
+	typeArgs := c.extractTypeArgs(objType)
 	
 	// 如果类型没有命名空间分隔符，尝试加上当前命名空间
 	if !strings.Contains(baseType, "\\") && !strings.Contains(baseType, ".") && c.currentNamespace != "" {
 		// 尝试反斜杠分隔符
 		fullType := c.currentNamespace + "\\" + baseType
 		if sig := c.symbolTable.GetMethod(fullType, e.Method.Name, len(e.Arguments)); sig != nil {
-			return sig.ReturnType
+			return c.substituteTypeParams(sig.ReturnType, baseType, typeArgs)
 		}
 		// 尝试点分隔符（如果命名空间用点）
 		fullType2 := strings.ReplaceAll(c.currentNamespace, ".", "\\") + "\\" + baseType
 		if fullType2 != fullType {
 			if sig := c.symbolTable.GetMethod(fullType2, e.Method.Name, len(e.Arguments)); sig != nil {
-				return sig.ReturnType
+				return c.substituteTypeParams(sig.ReturnType, baseType, typeArgs)
 			}
 		}
 	}
 	
 	// 获取方法签名
 	if sig := c.symbolTable.GetMethod(baseType, e.Method.Name, len(e.Arguments)); sig != nil {
-		return sig.ReturnType
+		// 增强泛型推断：替换返回类型中的类型参数
+		return c.substituteTypeParams(sig.ReturnType, baseType, typeArgs)
 	}
 	
 	// 静态类型系统：方法必须存在
 	c.error(e.Pos(), i18n.T(i18n.ErrMethodNotFound, objType, e.Method.Name, len(e.Arguments)))
 	return "error"
+}
+
+// inferGenericNewExpr 增强泛型推断：从构造函数参数推断泛型类型
+func (c *Compiler) inferGenericNewExpr(e *ast.NewExpr) string {
+	classSig := c.symbolTable.GetClassSignature(e.ClassName.Name)
+	if classSig == nil || len(classSig.TypeParams) == 0 {
+		return e.ClassName.Name
+	}
+	
+	if len(e.Arguments) == 0 {
+		return e.ClassName.Name
+	}
+	
+	// 获取构造函数签名
+	methods := c.symbolTable.GetMethod(e.ClassName.Name, "__construct", len(e.Arguments))
+	if methods == nil {
+		// 没有显式构造函数，尝试从第一个参数推断
+		firstArgType := c.inferExprType(e.Arguments[0])
+		if firstArgType != "" && firstArgType != "any" && firstArgType != "error" {
+			return e.ClassName.Name + "<" + firstArgType + ">"
+		}
+		return e.ClassName.Name
+	}
+	
+	// 尝试从参数类型推断泛型类型参数
+	inferredTypeArgs := make([]string, len(classSig.TypeParams))
+	for i := range inferredTypeArgs {
+		inferredTypeArgs[i] = "" // 初始化为空
+	}
+	
+	// 遍历参数，尝试匹配类型参数
+	for i, param := range methods.ParamTypes {
+		if i >= len(e.Arguments) {
+			break
+		}
+		
+		argType := c.inferExprType(e.Arguments[i])
+		if argType == "" || argType == "any" || argType == "error" {
+			continue
+		}
+		
+		// 检查参数类型是否是类型参数
+		for j, tp := range classSig.TypeParams {
+			if param == tp.Name {
+				// 找到匹配的类型参数
+				if inferredTypeArgs[j] == "" {
+					inferredTypeArgs[j] = argType
+				}
+				break
+			}
+		}
+	}
+	
+	// 检查是否所有类型参数都被推断
+	allInferred := true
+	for _, t := range inferredTypeArgs {
+		if t == "" {
+			allInferred = false
+			break
+		}
+	}
+	
+	if allInferred && len(inferredTypeArgs) > 0 {
+		return e.ClassName.Name + "<" + strings.Join(inferredTypeArgs, ", ") + ">"
+	}
+	
+	// 如果无法完全推断，至少尝试从第一个参数推断第一个类型参数
+	if len(inferredTypeArgs) > 0 && inferredTypeArgs[0] != "" {
+		return e.ClassName.Name + "<" + inferredTypeArgs[0] + ">"
+	}
+	
+	return e.ClassName.Name
+}
+
+// extractTypeArgs 从泛型类型中提取类型参数列表
+// 例如：Box<int, string> -> ["int", "string"]
+func (c *Compiler) extractTypeArgs(typeName string) []string {
+	start := strings.Index(typeName, "<")
+	end := strings.LastIndex(typeName, ">")
+	if start == -1 || end == -1 || end <= start {
+		return nil
+	}
+	
+	argsStr := typeName[start+1 : end]
+	if argsStr == "" {
+		return nil
+	}
+	
+	// 简单分割（不处理嵌套泛型）
+	args := strings.Split(argsStr, ",")
+	result := make([]string, len(args))
+	for i, arg := range args {
+		result[i] = strings.TrimSpace(arg)
+	}
+	return result
+}
+
+// substituteTypeParams 替换返回类型中的类型参数
+// 例如：返回类型是 T，类是 Box，类型参数是 [int]，则返回 int
+func (c *Compiler) substituteTypeParams(returnType, className string, typeArgs []string) string {
+	if len(typeArgs) == 0 {
+		return returnType
+	}
+	
+	// 获取类的类型参数定义
+	classSig := c.symbolTable.GetClassSignature(className)
+	if classSig == nil || len(classSig.TypeParams) == 0 {
+		return returnType
+	}
+	
+	// 构建类型参数映射
+	for i, tp := range classSig.TypeParams {
+		if i >= len(typeArgs) {
+			break
+		}
+		// 替换类型参数
+		if returnType == tp.Name {
+			return typeArgs[i]
+		}
+		// 处理数组类型 T[]
+		if returnType == tp.Name+"[]" {
+			return typeArgs[i] + "[]"
+		}
+		// 处理 Map 类型中的类型参数
+		if strings.Contains(returnType, tp.Name) {
+			returnType = strings.ReplaceAll(returnType, tp.Name, typeArgs[i])
+		}
+	}
+	
+	return returnType
 }
 
 // inferStaticAccessType 推断静态访问的类型

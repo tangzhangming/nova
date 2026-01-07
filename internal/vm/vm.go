@@ -1312,11 +1312,16 @@ func (vm *VM) execute() InterpretResult {
 				chunk = frame.Closure.Function.Chunk
 			}
 
-		// 类型检查 - 静态类型系统：类型检查已在编译期完成，此处仅消费参数
+		// 类型检查 - 用于 is 表达式的运行时类型检查
 		case bytecode.OpCheckType:
-			// 静态类型系统改造后，类型检查在编译期进行
-			// 此指令保留用于向后兼容，但不执行运行时检查
-			frame.IP += 2 // 跳过 typeIdx 参数
+			typeIdx := chunk.ReadU16(frame.IP)
+			frame.IP += 2
+			targetType := chunk.Constants[typeIdx].AsString()
+			value := vm.pop()
+			
+			// 执行类型检查，返回布尔结果
+			result := vm.checkValueType(value, targetType)
+			vm.push(bytecode.NewBool(result))
 			
 		case bytecode.OpCast:
 			typeIdx := chunk.ReadU16(frame.IP)

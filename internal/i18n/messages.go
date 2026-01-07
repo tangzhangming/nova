@@ -77,6 +77,9 @@ const (
 	ErrGenericTypeRequired       = "compiler.generic_type_required"
 	ErrDuplicateTypeParam        = "compiler.duplicate_type_param"
 	
+	// 穷尽性检查
+	ErrSwitchNotExhaustive = "compiler.switch_not_exhaustive"
+	
 	// 类名解析相关
 	ErrSelfOutsideClass = "compiler.self_outside_class"
 

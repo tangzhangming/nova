@@ -76,6 +76,9 @@ var messagesZH = map[string]string{
 	ErrGenericTypeRequired:       "泛型类型 '%s' 需要类型参数",
 	ErrDuplicateTypeParam:        "重复的类型参数 '%s'",
 	
+	// 穷尽性检查
+	ErrSwitchNotExhaustive: "switch 语句未覆盖枚举 '%s' 的所有值，缺少: %s",
+	
 	// 类名解析相关
 	ErrSelfOutsideClass: "不能在类外使用 self::class",
 

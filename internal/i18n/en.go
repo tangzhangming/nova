@@ -76,6 +76,9 @@ var messagesEN = map[string]string{
 	ErrGenericTypeRequired:       "generic type '%s' requires type arguments",
 	ErrDuplicateTypeParam:        "duplicate type parameter '%s'",
 	
+	// Exhaustiveness checking
+	ErrSwitchNotExhaustive: "switch statement does not cover all values of enum '%s', missing: %s",
+	
 	// Class name resolution
 	ErrSelfOutsideClass: "cannot use self::class outside of class",
 

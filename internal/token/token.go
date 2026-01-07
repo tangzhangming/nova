@@ -146,11 +146,13 @@ const (
 	PARENT    // parent
 	AS        // as
 	AS_SAFE   // as? (安全类型断言)
+	IS        // is (类型检查)
 	NAMESPACE // namespace
 	USE       // use
 	MAP       // map
 	ECHO      // echo
 	WHERE     // where (泛型约束)
+	TYPE      // type (类型别名)
 	keyword_end
 )
 
@@ -267,11 +269,13 @@ var tokenNames = map[TokenType]string{
 	PARENT:         "parent",
 	AS:             "as",
 	AS_SAFE:        "as?",
+	IS:             "is",
 	NAMESPACE:      "namespace",
 	USE:            "use",
 	MAP:            "map",
 	ECHO:           "echo",
 	WHERE:          "where",
+	TYPE:           "type",
 }
 
 var keywords = map[string]TokenType{
@@ -330,11 +334,13 @@ var keywords = map[string]TokenType{
 	"self":       SELF,
 	"parent":     PARENT,
 	"as":         AS,
+	"is":         IS,
 	"namespace":  NAMESPACE,
 	"use":        USE,
 	"map":        MAP,
 	"echo":       ECHO,
 	"where":      WHERE,
+	"type":       TYPE,
 }
 
 // LookupIdent 查找标识符是否为关键字

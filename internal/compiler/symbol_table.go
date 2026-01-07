@@ -74,6 +74,9 @@ type SymbolTable struct {
 	ClassParents    map[string]string                        // 类继承关系: 子类名 -> 父类名
 	ClassSignatures map[string]*ClassSignature               // 泛型类签名: 类名 -> 签名
 	InterfaceSigs   map[string]*InterfaceSignature           // 泛型接口签名: 接口名 -> 签名
+	TypeAliases     map[string]string                        // 类型别名: 别名 -> 目标类型
+	EnumValues      map[string][]string                      // 枚举值: 枚举名 -> 枚举值列表
+	ClassInterfaces map[string][]string                      // 类实现的接口: 类名 -> 接口列表
 }
 
 // NewSymbolTable 创建符号表
@@ -86,6 +89,9 @@ func NewSymbolTable() *SymbolTable {
 		ClassParents:    make(map[string]string),
 		ClassSignatures: make(map[string]*ClassSignature),
 		InterfaceSigs:   make(map[string]*InterfaceSignature),
+		TypeAliases:     make(map[string]string),
+		EnumValues:      make(map[string][]string),
+		ClassInterfaces: make(map[string][]string),
 	}
 	// 注册内置函数签名
 	st.registerBuiltinFunctions()
@@ -571,8 +577,62 @@ func (st *SymbolTable) CollectFromFile(file *ast.File) {
 			st.collectFromClass(d, namespace)
 		case *ast.InterfaceDecl:
 			st.collectFromInterface(d, namespace)
+		case *ast.EnumDecl:
+			st.collectFromEnum(d, namespace)
+		case *ast.TypeAliasDecl:
+			st.collectFromTypeAlias(d, namespace)
 		}
 	}
+}
+
+// collectFromEnum 从枚举声明收集符号
+func (st *SymbolTable) collectFromEnum(decl *ast.EnumDecl, namespace string) {
+	enumName := decl.Name.Name
+	if namespace != "" {
+		enumName = namespace + "\\" + enumName
+	}
+	
+	// 收集枚举值列表（用于穷尽性检查）
+	values := make([]string, len(decl.Cases))
+	for i, c := range decl.Cases {
+		values[i] = c.Name.Name
+	}
+	st.EnumValues[enumName] = values
+}
+
+// collectFromTypeAlias 从类型别名声明收集符号
+func (st *SymbolTable) collectFromTypeAlias(decl *ast.TypeAliasDecl, namespace string) {
+	aliasName := decl.Name.Name
+	if namespace != "" {
+		aliasName = namespace + "\\" + aliasName
+	}
+	
+	targetType := typeNodeToString(decl.AliasType)
+	st.TypeAliases[aliasName] = targetType
+}
+
+// ResolveTypeAlias 解析类型别名，返回实际类型
+func (st *SymbolTable) ResolveTypeAlias(typeName string) string {
+	// 递归解析类型别名，防止循环引用（最多解析10层）
+	for i := 0; i < 10; i++ {
+		if resolved, ok := st.TypeAliases[typeName]; ok {
+			typeName = resolved
+		} else {
+			break
+		}
+	}
+	return typeName
+}
+
+// GetEnumValues 获取枚举的所有值
+func (st *SymbolTable) GetEnumValues(enumName string) []string {
+	return st.EnumValues[enumName]
+}
+
+// IsEnumType 判断类型是否是枚举
+func (st *SymbolTable) IsEnumType(typeName string) bool {
+	_, ok := st.EnumValues[typeName]
+	return ok
 }
 
 // collectFromClass 从类声明收集符号
@@ -672,6 +732,15 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 			MinArity:   minArity,
 			IsStatic:   method.Static,
 		})
+	}
+	
+	// 收集类实现的接口（用于类型收窄和 is 检查）
+	if len(decl.Implements) > 0 {
+		interfaces := make([]string, len(decl.Implements))
+		for i, iface := range decl.Implements {
+			interfaces[i] = extractBaseTypeName(typeNodeToString(iface))
+		}
+		st.ClassInterfaces[className] = interfaces
 	}
 }
 
@@ -847,12 +916,13 @@ func (st *SymbolTable) CheckImplements(typeName, interfaceName string) bool {
 	baseTypeName := extractBaseTypeName(typeName)
 	baseInterfaceName := extractBaseTypeName(interfaceName)
 	
-	// 获取类的实现接口列表
-	class, ok := st.ClassSignatures[baseTypeName]
-	if !ok {
-		// 如果类不存在，尝试查找方法签名来推断
-		// 这里简化处理，实际应该检查类的 Implements 列表
-		return false
+	// 首先检查 ClassInterfaces 表（从类声明的 implements 收集）
+	if interfaces, ok := st.ClassInterfaces[baseTypeName]; ok {
+		for _, iface := range interfaces {
+			if iface == baseInterfaceName {
+				return true
+			}
+		}
 	}
 	
 	// 检查类的方法签名中是否有该接口的方法
@@ -882,5 +952,107 @@ func (st *SymbolTable) CheckImplements(typeName, interfaceName string) bool {
 func (st *SymbolTable) GetClassSignature(className string) *ClassSignature {
 	baseName := extractBaseTypeName(className)
 	return st.ClassSignatures[baseName]
+}
+
+// IsTypeCompatible 检查 actualType 是否与 targetType 兼容
+// 用于 is 表达式和类型收窄
+func (st *SymbolTable) IsTypeCompatible(actualType, targetType string) bool {
+	// 解析类型别名
+	actualType = st.ResolveTypeAlias(actualType)
+	targetType = st.ResolveTypeAlias(targetType)
+	
+	// 完全匹配
+	if actualType == targetType {
+		return true
+	}
+	
+	// any 类型与任何类型兼容
+	if actualType == "any" || targetType == "any" {
+		return true
+	}
+	
+	// null 类型检查
+	if actualType == "null" && strings.Contains(targetType, "|null") {
+		return true
+	}
+	
+	// 联合类型检查：actualType 在 targetType 的联合类型中
+	if strings.Contains(targetType, "|") {
+		parts := strings.Split(targetType, "|")
+		for _, p := range parts {
+			if strings.TrimSpace(p) == actualType {
+				return true
+			}
+		}
+	}
+	
+	// 检查继承关系
+	if st.ValidateTypeConstraint(actualType, targetType) {
+		return true
+	}
+	
+	// 检查接口实现
+	if st.CheckImplements(actualType, targetType) {
+		return true
+	}
+	
+	return false
+}
+
+// GetClassInterfaces 获取类实现的接口列表
+func (st *SymbolTable) GetClassInterfaces(className string) []string {
+	baseName := extractBaseTypeName(className)
+	return st.ClassInterfaces[baseName]
+}
+
+// NarrowType 类型收窄：根据类型检查条件收窄变量类型
+// 返回收窄后的类型
+func (st *SymbolTable) NarrowType(originalType, checkType string, positive bool) string {
+	originalType = st.ResolveTypeAlias(originalType)
+	checkType = st.ResolveTypeAlias(checkType)
+	
+	if positive {
+		// 正向收窄：如果检查通过，类型变为检查类型
+		// 例如：if ($x is string) { /* $x 是 string */ }
+		if st.IsTypeCompatible(checkType, originalType) {
+			return checkType
+		}
+		// 如果是联合类型，移除不兼容的部分
+		if strings.Contains(originalType, "|") {
+			parts := strings.Split(originalType, "|")
+			var compatible []string
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if st.IsTypeCompatible(checkType, p) || p == checkType {
+					compatible = append(compatible, checkType)
+					break
+				}
+			}
+			if len(compatible) == 1 {
+				return compatible[0]
+			}
+		}
+		return checkType
+	} else {
+		// 反向收窄：如果检查失败，从联合类型中移除检查类型
+		// 例如：if (!($x is string)) { /* $x 不是 string */ }
+		if strings.Contains(originalType, "|") {
+			parts := strings.Split(originalType, "|")
+			var remaining []string
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != checkType {
+					remaining = append(remaining, p)
+				}
+			}
+			if len(remaining) == 1 {
+				return remaining[0]
+			}
+			if len(remaining) > 1 {
+				return strings.Join(remaining, "|")
+			}
+		}
+		return originalType
+	}
 }
 
