@@ -577,11 +577,9 @@ func (c *Compiler) computeExprSignature(expr ast.Expression) string {
 	case *ast.NullLiteral:
 		return "null"
 	case *ast.Variable:
-		// 检查变量是否在循环中被修改
-		if c.inLoopAnalysis && c.loopModifiedVars[e.Name] {
-			return "" // 循环中会被修改，不能缓存
-		}
-		return fmt.Sprintf("var:%s", e.Name)
+		// 变量加载本身非常快，不需要缓存
+		// 缓存变量会导致 DUP 指令错误地复制栈顶值
+		return ""
 	case *ast.Identifier:
 		// 标识符可能是函数或类，暂时不缓存
 		return ""
@@ -4939,19 +4937,24 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 
 	switch op.Type {
 	case token.PLUS:
-		// + 运算符：两边都是数字，或者一边是字符串（字符串拼接会自动转换）
-		if leftType == "string" || rightType == "string" {
-			return // 字符串拼接是合法的（VM 会自动转换非字符串类型）
+		// + 运算符：严格类型检查，不允许隐式类型转换
+		// 只允许: string + string, int + int, float + float
+		if leftType == "string" && rightType == "string" {
+			return // 字符串拼接
 		}
-		if isNumeric(leftType) && isNumeric(rightType) {
-			return // 数字相加是合法的
+		if leftType == rightType && isNumeric(leftType) {
+			return // 相同数字类型相加
 		}
-		// 其他组合都是错误的
+		// 其他组合都是错误的（包括 int + float, string + int 等）
 		c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, "+", leftType, rightType))
 
 	case token.MINUS, token.STAR, token.SLASH, token.PERCENT:
-		// 算术运算符：两边必须都是数字
-		if !isNumeric(leftType) || !isNumeric(rightType) {
+		// 算术运算符：严格类型检查，两边必须是相同的数字类型
+		if leftType != rightType {
+			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
+			return
+		}
+		if !isNumeric(leftType) {
 			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
 		}
 
