@@ -15,53 +15,97 @@ const (
 	GCBlack                // 已扫描完成（存活）
 )
 
+// GCGeneration 对象代
+type GCGeneration byte
+
+const (
+	GenYoung GCGeneration = iota // 年轻代
+	GenOld                       // 老年代
+)
+
+// GCPhase 增量 GC 阶段
+type GCPhase byte
+
+const (
+	GCPhaseNone    GCPhase = iota // 无 GC 进行
+	GCPhaseMarkYoung              // 标记年轻代
+	GCPhaseMarkOld                // 标记老年代（Full GC）
+	GCPhaseSweep                  // 清除阶段
+)
+
 // GCObject 可被 GC 管理的对象接口
 type GCObject interface {
 	GetGCColor() GCColor
 	SetGCColor(GCColor)
 	GetGCChildren() []GCObject // 返回引用的子对象
+	GetGeneration() GCGeneration
+	SetGeneration(GCGeneration)
+	GetSurvivalCount() int
+	IncrementSurvivalCount()
 }
 
-// GC 垃圾回收器
+// GC 分代增量垃圾回收器
 type GC struct {
-	// 堆上所有对象
-	heap []GCObject
+	// ========== 分代堆 ==========
+	youngGen []GCObject // 年轻代对象
+	oldGen   []GCObject // 老年代对象
 
 	// 对象注册表，用于根据指针快速找到对应的包装器
 	objects map[uintptr]*GCObjectWrapper
 
-	// 灰色对象队列（待扫描）
-	grayList []GCObject
+	// ========== 增量标记 ==========
+	grayList      []GCObject // 灰色对象队列（待扫描）
+	currentPhase  GCPhase    // 当前 GC 阶段
+	markWorkDone  int        // 已完成的标记工作量
+	markWorkLimit int        // 每次增量标记的工作量限制
 
-	// 统计信息
-	totalAllocations int64 // 总分配次数
-	totalCollections int64 // 总回收次数
-	totalFreed       int64 // 总释放对象数
+	// ========== 写屏障 ==========
+	writeBarrierEnabled bool        // 写屏障是否启用
+	rememberedSet       []GCObject  // 记忆集：老年代中指向年轻代的对象
 
-	// GC 触发阈值
-	threshold     int // 触发 GC 的对象数量阈值
-	nextThreshold int // 下次 GC 阈值（动态调整）
+	// ========== 晋升 ==========
+	promotionThreshold int // 存活次数达到此值后晋升到老年代
 
-	// 分配计数器（用于周期性触发 GC）
-	allocSinceLastGC int // 自上次 GC 以来的分配数
-	allocThreshold   int // 分配多少个对象后检查 GC
+	// ========== 统计信息 ==========
+	totalAllocations   int64 // 总分配次数
+	totalCollections   int64 // 总回收次数
+	youngCollections   int64 // 年轻代回收次数
+	oldCollections     int64 // 老年代回收次数（Full GC）
+	totalFreed         int64 // 总释放对象数
+	totalPromoted      int64 // 总晋升对象数
+	avgPauseTimeUs     int64 // 平均停顿时间（微秒）
+	maxPauseTimeUs     int64 // 最大停顿时间（微秒）
 
-	// GC 是否启用
-	enabled bool
+	// ========== 触发策略 ==========
+	youngThreshold    int     // 年轻代触发阈值
+	oldThreshold      int     // 老年代触发阈值
+	youngGrowthFactor float64 // 年轻代增长因子
+	oldGrowthFactor   float64 // 老年代增长因子
+	allocSinceLastGC  int     // 自上次 GC 以来的分配数
 
-	// 调试模式
-	debug bool
+	// ========== 自适应调整 ==========
+	targetPauseTimeUs int64   // 目标停顿时间（微秒）
+	adaptiveEnabled   bool    // 是否启用自适应调整
 
-	// 内存泄漏检测
-	leakDetection    bool                      // 是否启用泄漏检测
-	allocationSites  map[uintptr]AllocationInfo // 分配点信息
-	leakReports      []LeakReport              // 泄漏报告
-	cycleDetection   bool                      // 是否启用循环引用检测
-	detectedCycles   []CycleInfo               // 检测到的循环引用
+	// ========== 控制开关 ==========
+	enabled bool // GC 是否启用
+	debug   bool // 调试模式
 
-	// 对象池 - 减少内存分配和 GC 压力
-	arrayPool        *ObjectPool // 数组对象池
+	// ========== 内存泄漏检测 ==========
+	leakDetection   bool                       // 是否启用泄漏检测
+	allocationSites map[uintptr]AllocationInfo // 分配点信息
+	leakReports     []LeakReport               // 泄漏报告
+	cycleDetection  bool                       // 是否启用循环引用检测
+	detectedCycles  []CycleInfo                // 检测到的循环引用
+
+	// ========== 对象池 ==========
+	arrayPool         *ObjectPool // 数组对象池
 	stringBuilderPool *ObjectPool // StringBuilder 对象池
+
+	// 兼容旧接口
+	heap          []GCObject // 废弃：仅用于兼容
+	threshold     int        // 废弃：使用 youngThreshold
+	nextThreshold int        // 废弃
 }
 
 // AllocationInfo 分配点信息
@@ -139,37 +183,62 @@ func (p *ObjectPool) Stats() (hits, misses int64, poolSize int) {
 	return p.hits, p.misses, len(p.pool)
 }
 
-// NewGC 创建垃圾回收器
+// NewGC 创建分代增量垃圾回收器
 func NewGC() *GC {
 	gc := &GC{
-		heap:             make([]GCObject, 0, 64),
-		objects:          make(map[uintptr]*GCObjectWrapper, 64),
-		grayList:         make([]GCObject, 0, 32),
-		threshold:        32,   // 初始阈值：32 个对象后触发 GC
-		nextThreshold:    32,
-		allocSinceLastGC: 0,
-		allocThreshold:   16,   // 每分配 16 个对象检查一次是否需要 GC
-		enabled:          true,
-		debug:            false,
-		leakDetection:    false,
-		allocationSites:  make(map[uintptr]AllocationInfo),
-		leakReports:      nil,
-		cycleDetection:   false,
-		detectedCycles:   nil,
+		// 分代堆
+		youngGen: make([]GCObject, 0, 128),
+		oldGen:   make([]GCObject, 0, 64),
+		objects:  make(map[uintptr]*GCObjectWrapper, 128),
+
+		// 增量标记
+		grayList:      make([]GCObject, 0, 64),
+		currentPhase:  GCPhaseNone,
+		markWorkLimit: 50, // 每次增量标记处理 50 个对象
+
+		// 写屏障
+		writeBarrierEnabled: false,
+		rememberedSet:       make([]GCObject, 0, 32),
+
+		// 晋升
+		promotionThreshold: 3, // 存活 3 次后晋升
+
+		// 触发策略
+		youngThreshold:    64,  // 年轻代 64 个对象后触发
+		oldThreshold:      256, // 老年代 256 个对象后触发 Full GC
+		youngGrowthFactor: 1.5, // 年轻代动态增长因子
+		oldGrowthFactor:   2.0, // 老年代动态增长因子
+		allocSinceLastGC:  0,
+
+		// 自适应调整
+		targetPauseTimeUs: 1000, // 目标停顿时间 1ms
+		adaptiveEnabled:   true,
+
+		// 控制开关
+		enabled: true,
+		debug:   false,
+
+		// 内存泄漏检测
+		leakDetection:   false,
+		allocationSites: make(map[uintptr]AllocationInfo),
+
+		// 兼容旧接口
+		heap:          make([]GCObject, 0, 64),
+		threshold:     64,
+		nextThreshold: 64,
 	}
-	
+
 	// 初始化对象池
-	gc.arrayPool = NewObjectPool(32, 
+	gc.arrayPool = NewObjectPool(32,
 		func() interface{} { return make([]bytecode.Value, 0, 8) },
 		func(obj interface{}) {
 			arr := obj.([]bytecode.Value)
-			// 清空数组但保留容量
 			for i := range arr {
 				arr[i] = bytecode.NullValue
 			}
 		},
 	)
-	
+
 	gc.stringBuilderPool = NewObjectPool(16,
 		func() interface{} { return bytecode.NewStringBuilder() },
 		func(obj interface{}) {
@@ -178,7 +247,7 @@ func NewGC() *GC {
 			sb.Len = 0
 		},
 	)
-	
+
 	return gc
 }
 
@@ -255,13 +324,16 @@ func (gc *GC) SetThreshold(threshold int) {
 	gc.nextThreshold = threshold
 }
 
-// Track 将对象加入 GC 管理
+// Track 将对象加入 GC 管理（新对象进入年轻代）
 func (gc *GC) Track(obj GCObject) {
 	if obj == nil {
 		return
 	}
-	gc.heap = append(gc.heap, obj)
+	obj.SetGeneration(GenYoung)
+	gc.youngGen = append(gc.youngGen, obj)
+	gc.heap = append(gc.heap, obj) // 兼容
 	gc.totalAllocations++
+	gc.allocSinceLastGC++
 }
 
 // TrackValue 将值包装为 GCObject 并追踪（如果需要）
@@ -278,10 +350,37 @@ func (gc *GC) TrackValue(v bytecode.Value) *GCObjectWrapper {
 	}
 	w := NewGCObjectWrapper(v, gc)
 	gc.objects[key] = w
-	gc.heap = append(gc.heap, w)
+	// 新对象进入年轻代
+	w.generation = GenYoung
+	gc.youngGen = append(gc.youngGen, w)
+	gc.heap = append(gc.heap, w) // 兼容
 	gc.totalAllocations++
 	gc.allocSinceLastGC++
 	return w
+}
+
+// WriteBarrier 写屏障：当老年代对象引用年轻代对象时调用
+// 用于维护记忆集，确保年轻代 GC 时不会遗漏老年代的引用
+func (gc *GC) WriteBarrier(parent, child GCObject) {
+	if !gc.writeBarrierEnabled {
+		return
+	}
+	// 如果父对象在老年代，子对象在年轻代，添加到记忆集
+	if parent.GetGeneration() == GenOld && child.GetGeneration() == GenYoung {
+		gc.rememberedSet = append(gc.rememberedSet, parent)
+	}
+}
+
+// WriteBarrierValue 值类型的写屏障
+func (gc *GC) WriteBarrierValue(parentVal, childVal bytecode.Value) {
+	if !gc.writeBarrierEnabled {
+		return
+	}
+	parent := gc.GetWrapper(parentVal)
+	child := gc.GetWrapper(childVal)
+	if parent != nil && child != nil {
+		gc.WriteBarrier(parent, child)
+	}
 }
 
 // NeedsCollection 检查是否应该触发 GC（基于分配计数）
@@ -289,11 +388,17 @@ func (gc *GC) NeedsCollection() bool {
 	if !gc.enabled {
 		return false
 	}
-	// 基于分配计数器检查
-	if gc.allocSinceLastGC >= gc.allocThreshold {
-		return gc.ShouldCollect()
-	}
-	return false
+	return gc.ShouldCollectYoung() || gc.ShouldCollectOld()
+}
+
+// ShouldCollectYoung 检查是否应该触发年轻代 GC
+func (gc *GC) ShouldCollectYoung() bool {
+	return gc.enabled && len(gc.youngGen) >= gc.youngThreshold
+}
+
+// ShouldCollectOld 检查是否应该触发老年代 GC（Full GC）
+func (gc *GC) ShouldCollectOld() bool {
+	return gc.enabled && len(gc.oldGen) >= gc.oldThreshold
 }
 
 // ResetAllocCounter 重置分配计数器（在 GC 后调用）
@@ -315,65 +420,248 @@ func (gc *GC) GetWrapper(v bytecode.Value) *GCObjectWrapper {
 
 // HeapSize 返回堆上对象数量
 func (gc *GC) HeapSize() int {
-	return len(gc.heap)
+	return len(gc.youngGen) + len(gc.oldGen)
 }
 
-// ShouldCollect 检查是否应该触发 GC
+// YoungGenSize 返回年轻代对象数量
+func (gc *GC) YoungGenSize() int {
+	return len(gc.youngGen)
+}
+
+// OldGenSize 返回老年代对象数量
+func (gc *GC) OldGenSize() int {
+	return len(gc.oldGen)
+}
+
+// ShouldCollect 检查是否应该触发 GC（兼容旧接口）
 func (gc *GC) ShouldCollect() bool {
-	return gc.enabled && len(gc.heap) >= gc.nextThreshold
+	return gc.ShouldCollectYoung()
 }
 
-// Collect 执行垃圾回收
+// Collect 执行垃圾回收（兼容旧接口，执行年轻代 GC）
 // roots: 根集合（栈、全局变量等）
 func (gc *GC) Collect(roots []GCObject) int {
+	return gc.CollectYoung(roots)
+}
+
+// CollectYoung 执行年轻代 GC（Minor GC）
+// 只回收年轻代对象，速度快，停顿短
+func (gc *GC) CollectYoung(roots []GCObject) int {
 	if !gc.enabled {
 		return 0
 	}
 
 	gc.totalCollections++
-	beforeSize := len(gc.heap)
+	gc.youngCollections++
+	beforeSize := len(gc.youngGen)
 
-	// 阶段1: 标记（Mark）
-	gc.mark(roots)
+	// 启用写屏障
+	gc.writeBarrierEnabled = true
 
-	// 阶段2: 清除（Sweep）
-	freed := gc.sweep()
+	// 阶段1: 标记年轻代
+	gc.markYoung(roots)
+
+	// 阶段2: 清除年轻代并晋升存活对象
+	freed, promoted := gc.sweepYoung()
 
 	gc.totalFreed += int64(freed)
+	gc.totalPromoted += int64(promoted)
 
 	// 重置分配计数器
 	gc.allocSinceLastGC = 0
 
-	// 动态调整下次 GC 阈值
-	// 策略：下次阈值 = 当前存活对象数 * 2，但不低于初始阈值
-	afterSize := len(gc.heap)
-	gc.nextThreshold = afterSize * 2
-	if gc.nextThreshold < gc.threshold {
-		gc.nextThreshold = gc.threshold
-	}
+	// 清空记忆集
+	gc.rememberedSet = gc.rememberedSet[:0]
+
+	// 动态调整年轻代阈值
+	gc.adjustYoungThreshold()
+
+	// 禁用写屏障
+	gc.writeBarrierEnabled = false
 
 	if gc.debug {
-		println("[GC] Collection #", gc.totalCollections,
+		println("[GC] Minor Collection #", gc.youngCollections,
 			": before=", beforeSize,
-			", after=", afterSize,
+			", after=", len(gc.youngGen),
 			", freed=", freed,
-			", next_threshold=", gc.nextThreshold)
+			", promoted=", promoted)
+	}
+
+	// 检查是否需要触发 Full GC
+	if gc.ShouldCollectOld() {
+		gc.CollectFull(roots)
 	}
 
 	return freed
 }
 
-// mark 标记阶段：从根集合开始，标记所有可达对象
-func (gc *GC) mark(roots []GCObject) {
-	// 1. 将所有对象标记为白色
-	for _, obj := range gc.heap {
+// CollectFull 执行完整 GC（Major GC / Full GC）
+// 回收所有代的对象，停顿较长但更彻底
+func (gc *GC) CollectFull(roots []GCObject) int {
+	if !gc.enabled {
+		return 0
+	}
+
+	gc.oldCollections++
+	beforeYoung := len(gc.youngGen)
+	beforeOld := len(gc.oldGen)
+
+	// 标记所有代
+	gc.markAll(roots)
+
+	// 清除所有代
+	freedYoung, promotedYoung := gc.sweepYoung()
+	freedOld := gc.sweepOld()
+
+	totalFreed := freedYoung + freedOld
+	gc.totalFreed += int64(totalFreed)
+	gc.totalPromoted += int64(promotedYoung)
+
+	// 动态调整阈值
+	gc.adjustOldThreshold()
+
+	if gc.debug {
+		println("[GC] Major Collection #", gc.oldCollections,
+			": young before=", beforeYoung, ", after=", len(gc.youngGen),
+			", old before=", beforeOld, ", after=", len(gc.oldGen),
+			", freed=", totalFreed)
+	}
+
+	// 更新兼容字段
+	gc.heap = append(gc.youngGen[:0:0], gc.youngGen...)
+	gc.heap = append(gc.heap, gc.oldGen...)
+	gc.nextThreshold = gc.youngThreshold
+
+	return totalFreed
+}
+
+// CollectIncremental 执行增量 GC
+// 每次只做部分工作，减少单次停顿时间
+func (gc *GC) CollectIncremental(roots []GCObject) bool {
+	if !gc.enabled {
+		return true // 完成
+	}
+
+	switch gc.currentPhase {
+	case GCPhaseNone:
+		// 开始新的 GC 周期
+		if gc.ShouldCollectYoung() {
+			gc.startIncrementalMark(roots, false)
+			return false
+		}
+		return true
+
+	case GCPhaseMarkYoung, GCPhaseMarkOld:
+		// 继续增量标记
+		done := gc.incrementalMark()
+		if done {
+			gc.currentPhase = GCPhaseSweep
+		}
+		return false
+
+	case GCPhaseSweep:
+		// 执行清除（清除阶段通常很快，一次完成）
+		if gc.currentPhase == GCPhaseMarkOld {
+			gc.sweepYoung()
+			gc.sweepOld()
+		} else {
+			gc.sweepYoung()
+		}
+		gc.currentPhase = GCPhaseNone
+		gc.allocSinceLastGC = 0
+		return true
+	}
+
+	return true
+}
+
+// startIncrementalMark 开始增量标记
+func (gc *GC) startIncrementalMark(roots []GCObject, fullGC bool) {
+	// 将所有对象标记为白色
+	if fullGC {
+		gc.currentPhase = GCPhaseMarkOld
+		for _, obj := range gc.youngGen {
+			if obj != nil {
+				obj.SetGCColor(GCWhite)
+			}
+		}
+		for _, obj := range gc.oldGen {
+			if obj != nil {
+				obj.SetGCColor(GCWhite)
+			}
+		}
+	} else {
+		gc.currentPhase = GCPhaseMarkYoung
+		for _, obj := range gc.youngGen {
+			if obj != nil {
+				obj.SetGCColor(GCWhite)
+			}
+		}
+	}
+
+	// 启用写屏障
+	gc.writeBarrierEnabled = true
+
+	// 将根对象和记忆集加入灰色队列
+	gc.grayList = gc.grayList[:0]
+	for _, root := range roots {
+		if root != nil && root.GetGCColor() == GCWhite {
+			root.SetGCColor(GCGray)
+			gc.grayList = append(gc.grayList, root)
+		}
+	}
+	// 记忆集中的老年代对象也是根
+	for _, obj := range gc.rememberedSet {
+		if obj != nil && obj.GetGCColor() == GCWhite {
+			obj.SetGCColor(GCGray)
+			gc.grayList = append(gc.grayList, obj)
+		}
+	}
+
+	gc.markWorkDone = 0
+}
+
+// incrementalMark 增量标记：每次处理有限数量的对象
+func (gc *GC) incrementalMark() bool {
+	workDone := 0
+
+	for len(gc.grayList) > 0 && workDone < gc.markWorkLimit {
+		// 取出一个灰色对象
+		obj := gc.grayList[len(gc.grayList)-1]
+		gc.grayList = gc.grayList[:len(gc.grayList)-1]
+
+		// 标记为黑色
+		obj.SetGCColor(GCBlack)
+		workDone++
+
+		// 将其子对象标记为灰色
+		for _, child := range obj.GetGCChildren() {
+			if child != nil && child.GetGCColor() == GCWhite {
+				// 年轻代 GC 时只标记年轻代对象
+				if gc.currentPhase == GCPhaseMarkYoung && child.GetGeneration() == GenOld {
+					continue
+				}
+				child.SetGCColor(GCGray)
+				gc.grayList = append(gc.grayList, child)
+			}
+		}
+	}
+
+	gc.markWorkDone += workDone
+	return len(gc.grayList) == 0
+}
+
+// markYoung 标记年轻代对象
+func (gc *GC) markYoung(roots []GCObject) {
+	// 1. 将年轻代对象标记为白色
+	for _, obj := range gc.youngGen {
 		if obj != nil {
 			obj.SetGCColor(GCWhite)
 		}
 	}
 
 	// 2. 将根对象标记为灰色并加入灰色队列
-	gc.grayList = gc.grayList[:0] // 清空灰色队列
+	gc.grayList = gc.grayList[:0]
 	for _, root := range roots {
 		if root != nil && root.GetGCColor() == GCWhite {
 			root.SetGCColor(GCGray)
@@ -381,16 +669,68 @@ func (gc *GC) mark(roots []GCObject) {
 		}
 	}
 
-	// 3. 处理灰色队列直到为空
+	// 3. 记忆集中的老年代对象也是根（它们可能引用年轻代对象）
+	for _, obj := range gc.rememberedSet {
+		if obj != nil {
+			// 老年代对象本身不需要标记，但要扫描它的子对象
+			for _, child := range obj.GetGCChildren() {
+				if child != nil && child.GetGeneration() == GenYoung && child.GetGCColor() == GCWhite {
+					child.SetGCColor(GCGray)
+					gc.grayList = append(gc.grayList, child)
+				}
+			}
+		}
+	}
+
+	// 4. 处理灰色队列
 	for len(gc.grayList) > 0 {
-		// 取出一个灰色对象
 		obj := gc.grayList[len(gc.grayList)-1]
 		gc.grayList = gc.grayList[:len(gc.grayList)-1]
 
-		// 标记为黑色
 		obj.SetGCColor(GCBlack)
 
-		// 将其子对象标记为灰色
+		for _, child := range obj.GetGCChildren() {
+			if child != nil && child.GetGCColor() == GCWhite {
+				// 年轻代 GC 只追踪年轻代对象
+				if child.GetGeneration() == GenYoung {
+					child.SetGCColor(GCGray)
+					gc.grayList = append(gc.grayList, child)
+				}
+			}
+		}
+	}
+}
+
+// markAll 标记所有代的对象（Full GC）
+func (gc *GC) markAll(roots []GCObject) {
+	// 1. 将所有对象标记为白色
+	for _, obj := range gc.youngGen {
+		if obj != nil {
+			obj.SetGCColor(GCWhite)
+		}
+	}
+	for _, obj := range gc.oldGen {
+		if obj != nil {
+			obj.SetGCColor(GCWhite)
+		}
+	}
+
+	// 2. 将根对象标记为灰色
+	gc.grayList = gc.grayList[:0]
+	for _, root := range roots {
+		if root != nil && root.GetGCColor() == GCWhite {
+			root.SetGCColor(GCGray)
+			gc.grayList = append(gc.grayList, root)
+		}
+	}
+
+	// 3. 处理灰色队列
+	for len(gc.grayList) > 0 {
+		obj := gc.grayList[len(gc.grayList)-1]
+		gc.grayList = gc.grayList[:len(gc.grayList)-1]
+
+		obj.SetGCColor(GCBlack)
+
 		for _, child := range obj.GetGCChildren() {
 			if child != nil && child.GetGCColor() == GCWhite {
 				child.SetGCColor(GCGray)
@@ -400,22 +740,19 @@ func (gc *GC) mark(roots []GCObject) {
 	}
 }
 
-// sweep 清除阶段：回收所有白色（未标记）对象
-func (gc *GC) sweep() int {
-	freed := 0
-	alive := make([]GCObject, 0, len(gc.heap))
+// sweepYoung 清除年轻代，返回 (释放数, 晋升数)
+func (gc *GC) sweepYoung() (freed, promoted int) {
+	alive := make([]GCObject, 0, len(gc.youngGen))
 
-	for _, obj := range gc.heap {
+	for _, obj := range gc.youngGen {
 		if obj == nil {
 			continue
 		}
 		if obj.GetGCColor() == GCWhite {
 			// 白色对象：不可达，回收
 			freed++
-			// 可以在这里调用析构函数等清理逻辑
 			gc.finalize(obj)
 
-			// 从注册表移除
 			if w, ok := obj.(*GCObjectWrapper); ok {
 				key := gc.keyOf(w.value)
 				if key != 0 {
@@ -423,13 +760,89 @@ func (gc *GC) sweep() int {
 				}
 			}
 		} else {
-			// 黑色对象：存活，保留
+			// 黑色对象：存活
+			obj.IncrementSurvivalCount()
+
+			// 检查是否应该晋升到老年代
+			if obj.GetSurvivalCount() >= gc.promotionThreshold {
+				obj.SetGeneration(GenOld)
+				gc.oldGen = append(gc.oldGen, obj)
+				promoted++
+			} else {
+				alive = append(alive, obj)
+			}
+		}
+	}
+
+	gc.youngGen = alive
+	return
+}
+
+// sweepOld 清除老年代
+func (gc *GC) sweepOld() int {
+	freed := 0
+	alive := make([]GCObject, 0, len(gc.oldGen))
+
+	for _, obj := range gc.oldGen {
+		if obj == nil {
+			continue
+		}
+		if obj.GetGCColor() == GCWhite {
+			freed++
+			gc.finalize(obj)
+
+			if w, ok := obj.(*GCObjectWrapper); ok {
+				key := gc.keyOf(w.value)
+				if key != 0 {
+					delete(gc.objects, key)
+				}
+			}
+		} else {
 			alive = append(alive, obj)
 		}
 	}
 
-	gc.heap = alive
+	gc.oldGen = alive
 	return freed
+}
+
+// mark 标记阶段（兼容旧接口）
+func (gc *GC) mark(roots []GCObject) {
+	gc.markAll(roots)
+}
+
+// sweep 清除阶段（兼容旧接口）
+func (gc *GC) sweep() int {
+	freedYoung, _ := gc.sweepYoung()
+	freedOld := gc.sweepOld()
+	return freedYoung + freedOld
+}
+
+// adjustYoungThreshold 动态调整年轻代阈值
+func (gc *GC) adjustYoungThreshold() {
+	// 策略：基于存活率调整
+	// 存活对象多 -> 增大阈值（减少 GC 频率）
+	// 存活对象少 -> 可以保持或减小阈值
+	survivalRate := float64(len(gc.youngGen)) / float64(gc.youngThreshold)
+	if survivalRate > 0.5 {
+		// 存活率高，增大阈值
+		gc.youngThreshold = int(float64(gc.youngThreshold) * gc.youngGrowthFactor)
+		if gc.youngThreshold > 1024 {
+			gc.youngThreshold = 1024 // 上限
+		}
+	}
+	gc.nextThreshold = gc.youngThreshold // 兼容
+}
+
+// adjustOldThreshold 动态调整老年代阈值
+func (gc *GC) adjustOldThreshold() {
+	survivalRate := float64(len(gc.oldGen)) / float64(gc.oldThreshold)
+	if survivalRate > 0.7 {
+		gc.oldThreshold = int(float64(gc.oldThreshold) * gc.oldGrowthFactor)
+		if gc.oldThreshold > 4096 {
+			gc.oldThreshold = 4096 // 上限
+		}
+	}
 }
 
 // finalize 对象析构（可扩展）
@@ -441,11 +854,18 @@ func (gc *GC) finalize(obj GCObject) {
 // Stats 返回 GC 统计信息
 func (gc *GC) Stats() GCStats {
 	return GCStats{
-		HeapSize:         len(gc.heap),
+		HeapSize:         gc.HeapSize(),
+		YoungGenSize:     len(gc.youngGen),
+		OldGenSize:       len(gc.oldGen),
 		TotalAllocations: gc.totalAllocations,
 		TotalCollections: gc.totalCollections,
+		YoungCollections: gc.youngCollections,
+		OldCollections:   gc.oldCollections,
 		TotalFreed:       gc.totalFreed,
+		TotalPromoted:    gc.totalPromoted,
 		NextThreshold:    gc.nextThreshold,
+		YoungThreshold:   gc.youngThreshold,
+		OldThreshold:     gc.oldThreshold,
 		LeakReports:      gc.leakReports,
 		DetectedCycles:   gc.detectedCycles,
 	}
@@ -466,19 +886,36 @@ func (gc *GC) DetectLeaks() []LeakReport {
 	typeCount := make(map[string]int)
 	typeSamples := make(map[string][]string)
 
-	for _, obj := range gc.heap {
+	// 检查年轻代
+	for _, obj := range gc.youngGen {
 		if obj == nil {
 			continue
 		}
-
 		if w, ok := obj.(*GCObjectWrapper); ok {
-			typeName := gc.getTypeName(w.value)
+			typeName := gc.getTypeName(w.value) + " (young)"
 			typeCount[typeName]++
 
-			// 记录部分分配调用栈样本
 			key := gc.keyOf(w.value)
 			if info, exists := gc.allocationSites[key]; exists {
-				if len(typeSamples[typeName]) < 3 { // 最多保留 3 个样本
+				if len(typeSamples[typeName]) < 3 {
+					typeSamples[typeName] = append(typeSamples[typeName], info.StackTrace)
+				}
+			}
+		}
+	}
+
+	// 检查老年代
+	for _, obj := range gc.oldGen {
+		if obj == nil {
+			continue
+		}
+		if w, ok := obj.(*GCObjectWrapper); ok {
+			typeName := gc.getTypeName(w.value) + " (old)"
+			typeCount[typeName]++
+
+			key := gc.keyOf(w.value)
+			if info, exists := gc.allocationSites[key]; exists {
+				if len(typeSamples[typeName]) < 3 {
 					typeSamples[typeName] = append(typeSamples[typeName], info.StackTrace)
 				}
 			}
@@ -510,7 +947,21 @@ func (gc *GC) DetectCycles() []CycleInfo {
 	inStack := make(map[uintptr]bool)
 	path := make([]uintptr, 0)
 
-	for _, obj := range gc.heap {
+	// 检查年轻代
+	for _, obj := range gc.youngGen {
+		if obj == nil {
+			continue
+		}
+		if w, ok := obj.(*GCObjectWrapper); ok {
+			key := gc.keyOf(w.value)
+			if !visited[key] {
+				gc.detectCycleDFS(w, visited, inStack, path)
+			}
+		}
+	}
+
+	// 检查老年代
+	for _, obj := range gc.oldGen {
 		if obj == nil {
 			continue
 		}
@@ -685,29 +1136,55 @@ func (gc *GC) PrintCycleReport() {
 
 // DebugDump 输出完整的 GC 调试信息
 func (gc *GC) DebugDump() {
-	println("\n[GC] Debug Dump")
-	println("================")
-	println("Heap Size:", len(gc.heap))
+	println("\n[GC] Debug Dump - Generational GC")
+	println("==================================")
+	println("Young Generation Size:", len(gc.youngGen))
+	println("Old Generation Size:", len(gc.oldGen))
+	println("Total Heap Size:", gc.HeapSize())
+	println("")
+	println("Young GC Collections:", gc.youngCollections)
+	println("Full GC Collections:", gc.oldCollections)
 	println("Total Allocations:", gc.totalAllocations)
-	println("Total Collections:", gc.totalCollections)
 	println("Total Freed:", gc.totalFreed)
-	println("Next Threshold:", gc.nextThreshold)
+	println("Total Promoted:", gc.totalPromoted)
+	println("")
+	println("Young Threshold:", gc.youngThreshold)
+	println("Old Threshold:", gc.oldThreshold)
+	println("Promotion Threshold:", gc.promotionThreshold, "survivals")
 	println("")
 
-	// 按类型统计对象
-	typeCounts := make(map[string]int)
-	for _, obj := range gc.heap {
+	// 按类型和代统计对象
+	youngTypeCounts := make(map[string]int)
+	oldTypeCounts := make(map[string]int)
+
+	for _, obj := range gc.youngGen {
 		if obj == nil {
 			continue
 		}
 		if w, ok := obj.(*GCObjectWrapper); ok {
 			typeName := gc.getTypeName(w.value)
-			typeCounts[typeName]++
+			youngTypeCounts[typeName]++
 		}
 	}
 
-	println("Objects by Type:")
-	for typeName, count := range typeCounts {
+	for _, obj := range gc.oldGen {
+		if obj == nil {
+			continue
+		}
+		if w, ok := obj.(*GCObjectWrapper); ok {
+			typeName := gc.getTypeName(w.value)
+			oldTypeCounts[typeName]++
+		}
+	}
+
+	println("Young Generation Objects by Type:")
+	for typeName, count := range youngTypeCounts {
+		println("  ", typeName, ":", count)
+	}
+
+	println("")
+	println("Old Generation Objects by Type:")
+	for typeName, count := range oldTypeCounts {
 		println("  ", typeName, ":", count)
 	}
 
@@ -726,11 +1203,18 @@ func (gc *GC) DebugDump() {
 
 // GCStats GC 统计信息
 type GCStats struct {
-	HeapSize         int
-	TotalAllocations int64
-	TotalCollections int64
-	TotalFreed       int64
-	NextThreshold    int
+	HeapSize         int   // 堆总大小
+	YoungGenSize     int   // 年轻代大小
+	OldGenSize       int   // 老年代大小
+	TotalAllocations int64 // 总分配次数
+	TotalCollections int64 // 总回收次数
+	YoungCollections int64 // 年轻代回收次数
+	OldCollections   int64 // 老年代回收次数（Full GC）
+	TotalFreed       int64 // 总释放对象数
+	TotalPromoted    int64 // 总晋升对象数
+	NextThreshold    int   // 下次 GC 阈值（兼容）
+	YoungThreshold   int   // 年轻代阈值
+	OldThreshold     int   // 老年代阈值
 	LeakReports      []LeakReport // 泄漏报告
 	DetectedCycles   []CycleInfo  // 检测到的循环引用
 }
@@ -741,17 +1225,21 @@ type GCStats struct {
 
 // GCObjectWrapper 包装需要 GC 管理的对象
 type GCObjectWrapper struct {
-	color GCColor
-	value bytecode.Value
-	gc    *GC
+	color         GCColor
+	generation    GCGeneration
+	survivalCount int // 存活次数（用于晋升决策）
+	value         bytecode.Value
+	gc            *GC
 }
 
 // NewGCObjectWrapper 创建 GC 对象包装器
 func NewGCObjectWrapper(v bytecode.Value, gc *GC) *GCObjectWrapper {
 	return &GCObjectWrapper{
-		color: GCWhite,
-		value: v,
-		gc:    gc,
+		color:         GCWhite,
+		generation:    GenYoung,
+		survivalCount: 0,
+		value:         v,
+		gc:            gc,
 	}
 }
 
@@ -765,6 +1253,22 @@ func (w *GCObjectWrapper) SetGCColor(c GCColor) {
 
 func (w *GCObjectWrapper) GetGCChildren() []GCObject {
 	return w.gc.getValueChildren(w.value)
+}
+
+func (w *GCObjectWrapper) GetGeneration() GCGeneration {
+	return w.generation
+}
+
+func (w *GCObjectWrapper) SetGeneration(g GCGeneration) {
+	w.generation = g
+}
+
+func (w *GCObjectWrapper) GetSurvivalCount() int {
+	return w.survivalCount
+}
+
+func (w *GCObjectWrapper) IncrementSurvivalCount() {
+	w.survivalCount++
 }
 
 func (w *GCObjectWrapper) GetValue() bytecode.Value {
