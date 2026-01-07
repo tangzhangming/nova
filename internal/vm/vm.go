@@ -65,9 +65,10 @@ type VM struct {
 	classes map[string]*bytecode.Class
 	enums   map[string]*bytecode.Enum
 
-	// 异常处理
-	tryStack    []TryContext
-	exception   bytecode.Value
+	// 异常处理 - 优化：使用 tryDepth 快速判断是否在 try 块中
+	tryStack     []TryContext
+	tryDepth     int            // try 块嵌套深度，用于快速路径判断
+	exception    bytecode.Value
 	hasException bool
 
 	// 垃圾回收
@@ -985,6 +986,41 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError(i18n.T(i18n.ErrLengthRequiresArray))
 			}
 
+		// 无边界检查的数组访问（用于循环优化，边界检查已在循环外完成）
+		case bytecode.OpArrayGetUnchecked:
+			idx := vm.pop()
+			arrVal := vm.pop()
+			switch arrVal.Type {
+			case bytecode.ValArray:
+				arr := arrVal.AsArray()
+				i := int(idx.AsInt())
+				vm.push(arr[i])
+			case bytecode.ValFixedArray:
+				fa := arrVal.AsFixedArray()
+				i := int(idx.AsInt())
+				vm.push(fa.Elements[i])
+			default:
+				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
+			}
+
+		case bytecode.OpArraySetUnchecked:
+			value := vm.pop()
+			idx := vm.pop()
+			arrVal := vm.pop()
+			switch arrVal.Type {
+			case bytecode.ValArray:
+				arr := arrVal.AsArray()
+				i := int(idx.AsInt())
+				arr[i] = value
+			case bytecode.ValFixedArray:
+				fa := arrVal.AsFixedArray()
+				i := int(idx.AsInt())
+				fa.Elements[i] = value
+			default:
+				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
+			}
+			vm.push(value)
+
 		// Map 操作
 		case bytecode.OpNewMap:
 			size := int(chunk.ReadU16(frame.IP))
@@ -1366,23 +1402,25 @@ func (vm *VM) execute() InterpretResult {
 				finallyIP = enterTryIP + int(finallyOffset)
 			}
 			
-			vm.tryStack = append(vm.tryStack, TryContext{
-				EnterTryIP:    enterTryIP,
-				CatchHandlers: catchHandlers,
-				FinallyIP:     finallyIP,
-				FrameCount:    vm.frameCount,
-				StackTop:      vm.stackTop,
-			})
+		vm.tryStack = append(vm.tryStack, TryContext{
+			EnterTryIP:    enterTryIP,
+			CatchHandlers: catchHandlers,
+			FinallyIP:     finallyIP,
+			FrameCount:    vm.frameCount,
+			StackTop:      vm.stackTop,
+		})
+		vm.tryDepth++ // 更新 try 深度计数
 
 		case bytecode.OpLeaveTry:
-			// 离开 try 块（正常流程）
+			// 离开 try 块（正常流程）- 零成本异常路径优化
 			// 如果没有 finally 块，移除 TryContext
 			// 如果有 finally 块，保留 TryContext 供 finally 使用
-			if len(vm.tryStack) > 0 {
+			if vm.tryDepth > 0 {
 				tryCtx := &vm.tryStack[len(vm.tryStack)-1]
 				if tryCtx.FinallyIP < 0 {
 					// 没有 finally 块，移除 TryContext
 					vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+					vm.tryDepth-- // 更新 try 深度计数
 				}
 				// 有 finally 块，保留 TryContext，等待 OpLeaveFinally 时移除
 			}
@@ -1407,12 +1445,13 @@ func (vm *VM) execute() InterpretResult {
 			}
 
 		case bytecode.OpLeaveFinally:
-			// 离开 finally 块，检查是否有挂起的异常或返回值
-			if len(vm.tryStack) > 0 {
+			// 离开 finally 块，检查是否有挂起的异常或返回值 - 零成本异常路径优化
+			if vm.tryDepth > 0 {
 				tryCtx := &vm.tryStack[len(vm.tryStack)-1]
 				if tryCtx.InFinally {
 					tryCtx.InFinally = false
 					vm.tryStack = vm.tryStack[:len(vm.tryStack)-1]
+					vm.tryDepth-- // 更新 try 深度计数
 					
 					// 如果有挂起的异常，重新抛出
 					if tryCtx.HasPendingExc {

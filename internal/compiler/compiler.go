@@ -68,6 +68,11 @@ type Compiler struct {
 	compiledFunctions map[string]*bytecode.Function // 已编译函数缓存（用于内联）
 	currentFuncName   string                        // 当前编译的函数名（防止自递归内联）
 
+	// 数组访问边界检查优化相关字段
+	boundsCheckedArrays map[string]bool // 在当前循环中已验证边界的数组变量
+	loopBoundVar        string          // 当前循环的边界变量（用于 for 循环优化）
+	inOptimizedLoop     bool            // 是否在可优化边界检查的循环中
+
 	errors []Error
 }
 
@@ -127,6 +132,7 @@ func NewWithSymbolTable(st *SymbolTable) *Compiler {
 		loopModifiedVars: make(map[string]bool),
 		loopHoistedExprs: make([]hoistedExpr, 0),
 		compiledFunctions: make(map[string]*bytecode.Function),
+		boundsCheckedArrays: make(map[string]bool),
 	}
 }
 
@@ -2837,7 +2843,29 @@ func (c *Compiler) compileIndexExpr(e *ast.IndexExpr) {
 	c.compileExpr(e.Index)
 
 	// 判断是数组还是 Map (运行时处理)
-	c.emit(bytecode.OpArrayGet)
+	// 数组访问边界检查优化：在已验证边界的循环中使用无检查版本
+	if c.inOptimizedLoop && c.canSkipBoundsCheck(e) {
+		c.emit(bytecode.OpArrayGetUnchecked)
+	} else {
+		c.emit(bytecode.OpArrayGet)
+	}
+}
+
+// canSkipBoundsCheck 检查是否可以跳过边界检查
+// 条件：索引是循环变量，且数组在循环外已验证边界
+func (c *Compiler) canSkipBoundsCheck(e *ast.IndexExpr) bool {
+	// 检查对象是否是已验证边界的数组变量
+	if v, ok := e.Object.(*ast.Variable); ok {
+		if c.boundsCheckedArrays[v.Name] {
+			// 检查索引是否是安全的（循环变量或常量）
+			if idx, ok := e.Index.(*ast.Variable); ok {
+				if idx.Name == c.loopBoundVar {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (c *Compiler) compilePropertyAccess(e *ast.PropertyAccess) {

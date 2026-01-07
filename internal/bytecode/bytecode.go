@@ -87,11 +87,13 @@ const (
 	OpCallStatic // 调用静态方法 (classIndex: u16, nameIndex: u16, argCount: u8)
 
 	// 数组操作
-	OpNewArray      // 创建数组 (length: u16)
-	OpNewFixedArray // 创建定长数组 (capacity: u16, initLength: u16)
-	OpArrayGet      // 获取数组元素
-	OpArraySet      // 设置数组元素
-	OpArrayLen      // 获取数组长度
+	OpNewArray         // 创建数组 (length: u16)
+	OpNewFixedArray    // 创建定长数组 (capacity: u16, initLength: u16)
+	OpArrayGet         // 获取数组元素（带边界检查）
+	OpArraySet         // 设置数组元素（带边界检查）
+	OpArrayLen         // 获取数组长度
+	OpArrayGetUnchecked // 获取数组元素（无边界检查，用于循环优化）
+	OpArraySetUnchecked // 设置数组元素（无边界检查，用于循环优化）
 
 	// Map 操作
 	OpNewMap  // 创建 Map (size: u16)
@@ -192,7 +194,9 @@ var opNames = map[OpCode]string{
 	OpReturn:      "RETURN",
 	OpReturnNull:  "RETURN_NULL",
 	OpClosure:     "CLOSURE",
-	OpNewObject:   "NEW_OBJECT",
+	OpNewObject:         "NEW_OBJECT",
+	OpArrayGetUnchecked: "ARRAY_GET_UNCHECKED",
+	OpArraySetUnchecked: "ARRAY_SET_UNCHECKED",
 	OpGetField:    "GET_FIELD",
 	OpSetField:    "SET_FIELD",
 	OpCallMethod:  "CALL_METHOD",
