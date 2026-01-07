@@ -1386,6 +1386,249 @@ type Program struct {
 	Files []*File
 }
 
+// Visitor 访问者函数类型
+type Visitor func(node Node) bool
+
+// Walk 遍历 AST 节点
+func Walk(node Node, visitor Visitor) {
+	if node == nil {
+		return
+	}
+	
+	if !visitor(node) {
+		return
+	}
+
+	switch n := node.(type) {
+	case *File:
+		if n.Namespace != nil {
+			Walk(n.Namespace, visitor)
+		}
+		for _, u := range n.Uses {
+			Walk(u, visitor)
+		}
+		for _, d := range n.Declarations {
+			Walk(d, visitor)
+		}
+		for _, s := range n.Statements {
+			Walk(s, visitor)
+		}
+
+	case *BlockStmt:
+		for _, stmt := range n.Statements {
+			Walk(stmt, visitor)
+		}
+
+	case *IfStmt:
+		Walk(n.Condition, visitor)
+		Walk(n.Then, visitor)
+		for _, elseIf := range n.ElseIfs {
+			Walk(elseIf.Condition, visitor)
+			Walk(elseIf.Body, visitor)
+		}
+		if n.Else != nil {
+			Walk(n.Else, visitor)
+		}
+
+	case *ForStmt:
+		if n.Init != nil {
+			Walk(n.Init, visitor)
+		}
+		if n.Condition != nil {
+			Walk(n.Condition, visitor)
+		}
+		if n.Post != nil {
+			Walk(n.Post, visitor)
+		}
+		Walk(n.Body, visitor)
+
+	case *WhileStmt:
+		Walk(n.Condition, visitor)
+		Walk(n.Body, visitor)
+
+	case *ForeachStmt:
+		Walk(n.Iterable, visitor)
+		Walk(n.Body, visitor)
+
+	case *DoWhileStmt:
+		Walk(n.Body, visitor)
+		Walk(n.Condition, visitor)
+
+	case *BinaryExpr:
+		Walk(n.Left, visitor)
+		Walk(n.Right, visitor)
+
+	case *UnaryExpr:
+		Walk(n.Operand, visitor)
+
+	case *AssignExpr:
+		Walk(n.Left, visitor)
+		Walk(n.Right, visitor)
+
+	case *CallExpr:
+		Walk(n.Function, visitor)
+		for _, arg := range n.Arguments {
+			Walk(arg, visitor)
+		}
+		for _, na := range n.NamedArguments {
+			Walk(na.Value, visitor)
+		}
+
+	case *MethodCall:
+		Walk(n.Object, visitor)
+		for _, arg := range n.Arguments {
+			Walk(arg, visitor)
+		}
+		for _, na := range n.NamedArguments {
+			Walk(na.Value, visitor)
+		}
+
+	case *IndexExpr:
+		Walk(n.Object, visitor)
+		Walk(n.Index, visitor)
+
+	case *PropertyAccess:
+		Walk(n.Object, visitor)
+
+	case *TernaryExpr:
+		Walk(n.Condition, visitor)
+		Walk(n.Then, visitor)
+		Walk(n.Else, visitor)
+
+	case *VarDeclStmt:
+		if n.Value != nil {
+			Walk(n.Value, visitor)
+		}
+
+	case *MultiVarDeclStmt:
+		Walk(n.Value, visitor)
+
+	case *ReturnStmt:
+		for _, val := range n.Values {
+			Walk(val, visitor)
+		}
+
+	case *ArrayLiteral:
+		for _, elem := range n.Elements {
+			Walk(elem, visitor)
+		}
+
+	case *MapLiteral:
+		for _, pair := range n.Pairs {
+			Walk(pair.Key, visitor)
+			Walk(pair.Value, visitor)
+		}
+
+	case *SuperArrayLiteral:
+		for _, elem := range n.Elements {
+			if elem.Key != nil {
+				Walk(elem.Key, visitor)
+			}
+			Walk(elem.Value, visitor)
+		}
+
+	case *NewExpr:
+		for _, arg := range n.Arguments {
+			Walk(arg, visitor)
+		}
+		for _, na := range n.NamedArguments {
+			Walk(na.Value, visitor)
+		}
+
+	case *ClosureExpr:
+		Walk(n.Body, visitor)
+
+	case *ArrowFuncExpr:
+		Walk(n.Body, visitor)
+
+	case *TryStmt:
+		Walk(n.Try, visitor)
+		for _, catch := range n.Catches {
+			Walk(catch.Body, visitor)
+		}
+		if n.Finally != nil {
+			Walk(n.Finally.Body, visitor)
+		}
+
+	case *SwitchStmt:
+		Walk(n.Expr, visitor)
+		for _, caseClause := range n.Cases {
+			Walk(caseClause.Value, visitor)
+			for _, stmt := range caseClause.Body {
+				Walk(stmt, visitor)
+			}
+		}
+		if n.Default != nil {
+			for _, stmt := range n.Default.Body {
+				Walk(stmt, visitor)
+			}
+		}
+
+	case *ExprStmt:
+		Walk(n.Expr, visitor)
+
+	case *EchoStmt:
+		Walk(n.Value, visitor)
+
+	case *ThrowStmt:
+		Walk(n.Exception, visitor)
+
+	case *IsExpr:
+		Walk(n.Expr, visitor)
+
+	case *TypeCastExpr:
+		Walk(n.Expr, visitor)
+
+	case *MatchExpr:
+		Walk(n.Expr, visitor)
+		for _, matchCase := range n.Cases {
+			Walk(matchCase.Pattern, visitor)
+			if matchCase.Guard != nil {
+				Walk(matchCase.Guard, visitor)
+			}
+			Walk(matchCase.Body, visitor)
+		}
+
+	case *InterpStringLiteral:
+		for _, part := range n.Parts {
+			Walk(part, visitor)
+		}
+
+	case *StaticAccess:
+		Walk(n.Class, visitor)
+		Walk(n.Member, visitor)
+
+	case *ClassAccessExpr:
+		Walk(n.Object, visitor)
+
+	case *ClassDecl:
+		for _, prop := range n.Properties {
+			if prop.Value != nil {
+				Walk(prop.Value, visitor)
+			}
+			if prop.ExprBody != nil {
+				Walk(prop.ExprBody, visitor)
+			}
+		}
+		for _, method := range n.Methods {
+			if method.Body != nil {
+				Walk(method.Body, visitor)
+			}
+		}
+
+	case *MethodDecl:
+		if n.Body != nil {
+			Walk(n.Body, visitor)
+		}
+
+	case *TypePattern:
+		// 类型模式没有需要遍历的子节点
+
+	case *ValuePattern:
+		Walk(n.Value, visitor)
+	}
+}
+
 // ============================================================================
 // 模式匹配表达式
 // ============================================================================

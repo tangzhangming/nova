@@ -54,6 +54,16 @@ type Compiler struct {
 	// 用于在 if 分支中收窄变量类型（如 if($x is string) 后 $x 的类型为 string）
 	narrowedTypes map[string]string
 
+	// CSE (公共子表达式消除) 相关字段
+	cseEnabled    bool           // 是否启用 CSE
+	exprCache     map[string]int // 表达式签名 -> 临时变量slot
+	cseScopeDepth int            // CSE 作用域深度
+
+	// LICM (循环不变式外提) 相关字段
+	loopModifiedVars map[string]bool // 循环内被修改的变量
+	loopHoistedExprs []hoistedExpr   // 待外提的表达式
+	inLoopAnalysis   bool            // 是否在循环分析阶段
+
 	errors []Error
 }
 
@@ -63,6 +73,12 @@ type Local struct {
 	Depth    int
 	Index    int
 	TypeName string // 变量类型名（用于类型检查）
+}
+
+// hoistedExpr 表示一个被外提的表达式
+type hoistedExpr struct {
+	Expr    ast.Expression
+	TempVar string // 临时变量名
 }
 
 // Error 编译错误
@@ -79,12 +95,16 @@ func (e Error) Error() string {
 func New() *Compiler {
 	fn := bytecode.NewFunction("<script>")
 	return &Compiler{
-		function:    fn,
-		locals:      make([]Local, 256),
-		classes:     make(map[string]*bytecode.Class),
-		enums:       make(map[string]*bytecode.Enum),
-		globalTypes: make(map[string]string),
-		symbolTable: NewSymbolTable(),
+		function:        fn,
+		locals:          make([]Local, 256),
+		classes:         make(map[string]*bytecode.Class),
+		enums:           make(map[string]*bytecode.Enum),
+		globalTypes:     make(map[string]string),
+		symbolTable:     NewSymbolTable(),
+		cseEnabled:      true, // 默认启用 CSE
+		exprCache:       make(map[string]int),
+		loopModifiedVars: make(map[string]bool),
+		loopHoistedExprs: make([]hoistedExpr, 0),
 	}
 }
 
@@ -92,12 +112,16 @@ func New() *Compiler {
 func NewWithSymbolTable(st *SymbolTable) *Compiler {
 	fn := bytecode.NewFunction("<script>")
 	return &Compiler{
-		function:    fn,
-		locals:      make([]Local, 256),
-		classes:     make(map[string]*bytecode.Class),
-		enums:       make(map[string]*bytecode.Enum),
-		globalTypes: make(map[string]string),
-		symbolTable: st,
+		function:        fn,
+		locals:          make([]Local, 256),
+		classes:         make(map[string]*bytecode.Class),
+		enums:           make(map[string]*bytecode.Enum),
+		globalTypes:     make(map[string]string),
+		symbolTable:     st,
+		cseEnabled:      true, // 默认启用 CSE
+		exprCache:       make(map[string]int),
+		loopModifiedVars: make(map[string]bool),
+		loopHoistedExprs: make([]hoistedExpr, 0),
 	}
 }
 
@@ -503,6 +527,116 @@ func compareValues(a, b bytecode.Value) int {
 		return 0
 	}
 	return 0
+}
+
+// computeExprSignature 计算表达式的唯一签名，用于 CSE
+// 返回空字符串表示该表达式不能缓存（有副作用或无法确定）
+func (c *Compiler) computeExprSignature(expr ast.Expression) string {
+	if expr == nil {
+		return ""
+	}
+
+	switch e := expr.(type) {
+	case *ast.IntegerLiteral:
+		return fmt.Sprintf("int:%d", e.Value)
+	case *ast.FloatLiteral:
+		return fmt.Sprintf("float:%g", e.Value)
+	case *ast.StringLiteral:
+		return fmt.Sprintf("str:%s", e.Value)
+	case *ast.BoolLiteral:
+		if e.Value {
+			return "bool:true"
+		}
+		return "bool:false"
+	case *ast.NullLiteral:
+		return "null"
+	case *ast.Variable:
+		// 检查变量是否在循环中被修改
+		if c.inLoopAnalysis && c.loopModifiedVars[e.Name] {
+			return "" // 循环中会被修改，不能缓存
+		}
+		return fmt.Sprintf("var:%s", e.Name)
+	case *ast.Identifier:
+		// 标识符可能是函数或类，暂时不缓存
+		return ""
+	case *ast.BinaryExpr:
+		leftSig := c.computeExprSignature(e.Left)
+		rightSig := c.computeExprSignature(e.Right)
+		if leftSig == "" || rightSig == "" {
+			return ""
+		}
+		return fmt.Sprintf("bin:%s:%s:%s", e.Operator.Literal, leftSig, rightSig)
+	case *ast.UnaryExpr:
+		// 只处理没有副作用的运算符
+		if e.Operator.Type == token.INCREMENT || e.Operator.Type == token.DECREMENT {
+			return "" // 有副作用
+		}
+		operandSig := c.computeExprSignature(e.Operand)
+		if operandSig == "" {
+			return ""
+		}
+		return fmt.Sprintf("unary:%s:%s", e.Operator.Literal, operandSig)
+	case *ast.IndexExpr:
+		// 索引访问可能是数组或 map，保守策略：不缓存
+		return ""
+	case *ast.PropertyAccess:
+		// 属性访问可能涉及 getter，保守策略：不缓存
+		return ""
+	case *ast.MethodCall:
+		// 方法调用肯定有副作用
+		return ""
+	case *ast.CallExpr:
+		// 函数调用可能有副作用
+		return ""
+	case *ast.AssignExpr:
+		// 赋值有副作用
+		return ""
+	case *ast.NewExpr:
+		// new 表达式有副作用
+		return ""
+	case *ast.ThisExpr:
+		// $this 可能变化，不缓存
+		return ""
+	default:
+		// 其他类型保守处理，不缓存
+		return ""
+	}
+}
+
+// hasSideEffect 检测表达式是否有副作用
+func (c *Compiler) hasSideEffect(expr ast.Expression) bool {
+	if expr == nil {
+		return false
+	}
+
+	switch e := expr.(type) {
+	case *ast.AssignExpr:
+		return true
+	case *ast.MethodCall:
+		return true
+	case *ast.CallExpr:
+		return true // 保守估计，函数调用可能有副作用
+	case *ast.NewExpr:
+		return true
+	case *ast.UnaryExpr:
+		// 自增/自减有副作用
+		if e.Operator.Type == token.INCREMENT || e.Operator.Type == token.DECREMENT {
+			return true
+		}
+		return c.hasSideEffect(e.Operand)
+	case *ast.BinaryExpr:
+		// 二元表达式本身没有副作用，但操作数可能有
+		return c.hasSideEffect(e.Left) || c.hasSideEffect(e.Right)
+	case *ast.IndexExpr:
+		// 索引访问可能调用 getter，保守估计有副作用
+		return true
+	case *ast.PropertyAccess:
+		// 属性访问可能调用 getter，保守估计有副作用
+		return true
+	default:
+		// 字面量、变量等通常没有副作用
+		return false
+	}
 }
 
 // CompileClosure 编译带 use 的闭包（无返回类型检查）
@@ -1029,7 +1163,191 @@ func (c *Compiler) restoreTypes(saved map[string]string) {
 	}
 }
 
+// collectModifiedVars 收集循环体中被修改的变量
+func (c *Compiler) collectModifiedVars(body *ast.BlockStmt) map[string]bool {
+	modified := make(map[string]bool)
+	
+	ast.Walk(body, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.AssignExpr:
+			if v, ok := n.Left.(*ast.Variable); ok {
+				modified[v.Name] = true
+			}
+		case *ast.UnaryExpr:
+			if n.Operator.Type == token.INCREMENT || n.Operator.Type == token.DECREMENT {
+				if v, ok := n.Operand.(*ast.Variable); ok {
+					modified[v.Name] = true
+				}
+			}
+		case *ast.VarDeclStmt:
+			// 变量声明也视为修改
+			modified[n.Name.Name] = true
+		case *ast.MultiVarDeclStmt:
+			// 多变量声明
+			for _, name := range n.Names {
+				modified[name.Name] = true
+			}
+		}
+		return true
+	})
+	
+	return modified
+}
+
+// isLoopInvariant 检测表达式是否为循环不变式
+func (c *Compiler) isLoopInvariant(expr ast.Expression, modifiedVars map[string]bool) bool {
+	if expr == nil {
+		return true
+	}
+
+	switch e := expr.(type) {
+	case *ast.IntegerLiteral, *ast.FloatLiteral, *ast.StringLiteral, *ast.BoolLiteral, *ast.NullLiteral:
+		// 字面量是不变式
+		return true
+	case *ast.Variable:
+		// 变量：不在修改列表中且不在循环中修改
+		return !modifiedVars[e.Name] && !c.loopModifiedVars[e.Name]
+	case *ast.BinaryExpr:
+		// 二元表达式：左右两边都是不变式
+		return c.isLoopInvariant(e.Left, modifiedVars) && c.isLoopInvariant(e.Right, modifiedVars)
+	case *ast.UnaryExpr:
+		// 一元表达式：操作数是不变式且没有副作用
+		if e.Operator.Type == token.INCREMENT || e.Operator.Type == token.DECREMENT {
+			return false
+		}
+		return c.isLoopInvariant(e.Operand, modifiedVars)
+	case *ast.IndexExpr:
+		// 索引访问：对象和索引都是不变式
+		return c.isLoopInvariant(e.Object, modifiedVars) && c.isLoopInvariant(e.Index, modifiedVars)
+	case *ast.PropertyAccess:
+		// 属性访问：对象是不变式
+		return c.isLoopInvariant(e.Object, modifiedVars)
+	default:
+		// 其他类型保守处理，认为不是不变式
+		return false
+	}
+}
+
+// hoistLoopInvariants 从循环体中提取不变式
+func (c *Compiler) hoistLoopInvariants(body *ast.BlockStmt, modifiedVars map[string]bool) []hoistedExpr {
+	hoisted := make([]hoistedExpr, 0)
+	seen := make(map[string]bool) // 避免重复外提相同表达式
+	
+	// 遍历循环体中的所有表达式
+	ast.Walk(body, func(node ast.Node) bool {
+		var expr ast.Expression
+		
+		// 收集需要检查的表达式
+		switch n := node.(type) {
+		case *ast.BinaryExpr:
+			// 检查整个二元表达式
+			if c.isLoopInvariant(n, modifiedVars) {
+				expr = n
+			}
+		case *ast.UnaryExpr:
+			// 检查一元表达式（排除有副作用的）
+			if c.isLoopInvariant(n, modifiedVars) {
+				expr = n
+			}
+		case *ast.AssignExpr:
+			// 检查赋值右侧
+			if c.isLoopInvariant(n.Right, modifiedVars) {
+				expr = n.Right
+			}
+		case *ast.VarDeclStmt:
+			// 检查变量初始值
+			if n.Value != nil && c.isLoopInvariant(n.Value, modifiedVars) {
+				expr = n.Value
+			}
+		}
+		
+		if expr != nil {
+			sig := c.computeExprSignature(expr)
+			if sig != "" && !seen[sig] {
+				// 只外提简单表达式，避免过度复杂
+				if c.isSimpleInvariant(expr) {
+					seen[sig] = true
+					tempVar := fmt.Sprintf("$__licm_%d", len(hoisted))
+					hoisted = append(hoisted, hoistedExpr{
+						Expr:    expr,
+						TempVar: tempVar,
+					})
+				}
+			}
+		}
+		
+		return true
+	})
+	
+	return hoisted
+}
+
+// isSimpleInvariant 检查表达式是否适合外提（避免外提过于复杂的表达式）
+func (c *Compiler) isSimpleInvariant(expr ast.Expression) bool {
+	switch e := expr.(type) {
+	case *ast.BinaryExpr:
+		// 二元表达式：只有操作数都是变量或字面量才外提
+		_, leftIsSimple := e.Left.(*ast.Variable)
+		_, leftIsLiteral := e.Left.(*ast.IntegerLiteral)
+		_, leftIsFloat := e.Left.(*ast.FloatLiteral)
+		_, rightIsSimple := e.Right.(*ast.Variable)
+		_, rightIsLiteral := e.Right.(*ast.IntegerLiteral)
+		_, rightIsFloat := e.Right.(*ast.FloatLiteral)
+		
+		if (leftIsSimple || leftIsLiteral || leftIsFloat) && 
+		   (rightIsSimple || rightIsLiteral || rightIsFloat) {
+			return true
+		}
+		// 也允许嵌套一层
+		if binLeft, ok := e.Left.(*ast.BinaryExpr); ok {
+			return c.isSimpleInvariant(binLeft) && (rightIsSimple || rightIsLiteral || rightIsFloat)
+		}
+		if binRight, ok := e.Right.(*ast.BinaryExpr); ok {
+			return (leftIsSimple || leftIsLiteral || leftIsFloat) && c.isSimpleInvariant(binRight)
+		}
+		return false
+	case *ast.UnaryExpr:
+		// 一元表达式：操作数是变量或字面量
+		_, isSimple := e.Operand.(*ast.Variable)
+		_, isLiteral := e.Operand.(*ast.IntegerLiteral)
+		_, isFloat := e.Operand.(*ast.FloatLiteral)
+		return isSimple || isLiteral || isFloat
+	case *ast.Variable:
+		return true
+	case *ast.IntegerLiteral, *ast.FloatLiteral, *ast.StringLiteral, *ast.BoolLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *Compiler) compileWhileStmt(s *ast.WhileStmt) {
+	// LICM: 分析循环体，收集被修改的变量
+	modifiedVars := c.collectModifiedVars(s.Body)
+	c.loopModifiedVars = modifiedVars
+	c.inLoopAnalysis = true
+	
+	// LICM: 提取循环不变式
+	// 注意：while 循环的条件通常不能外提，因为需要每次迭代检查
+	// 这里主要外提循环体内的不变式
+	hoistedExprs := c.hoistLoopInvariants(s.Body, modifiedVars)
+	
+	c.inLoopAnalysis = false
+	
+	// 编译外提的表达式并添加到 CSE 缓存
+	for _, h := range hoistedExprs {
+		c.compileExpr(h.Expr)
+		c.declareVariableWithType(h.TempVar, "")
+		c.defineVariable()
+		// 将表达式签名添加到 CSE 缓存
+		sig := c.computeExprSignature(h.Expr)
+		if sig != "" {
+			c.exprCache[sig] = c.localCount - 1
+		}
+		// 将临时变量标记为已修改，避免在循环中被优化掉
+		c.loopModifiedVars[h.TempVar] = true
+	}
+	
 	loopStart := c.currentChunk().Len()
 	prevLoopStart := c.loopStart
 	prevBreakJumps := c.breakJumps
@@ -1060,6 +1378,9 @@ func (c *Compiler) compileWhileStmt(s *ast.WhileStmt) {
 	c.loopStart = prevLoopStart
 	c.breakJumps = prevBreakJumps
 	c.loopDepth--
+	
+	// 清理循环修改变量记录
+	c.loopModifiedVars = make(map[string]bool)
 }
 
 func (c *Compiler) compileForStmt(s *ast.ForStmt) {
@@ -1068,6 +1389,30 @@ func (c *Compiler) compileForStmt(s *ast.ForStmt) {
 	// 初始化
 	if s.Init != nil {
 		c.compileStmt(s.Init)
+	}
+
+	// LICM: 分析循环体，收集被修改的变量
+	modifiedVars := c.collectModifiedVars(s.Body)
+	c.loopModifiedVars = modifiedVars
+	c.inLoopAnalysis = true
+	
+	// LICM: 提取循环不变式
+	hoistedExprs := c.hoistLoopInvariants(s.Body, modifiedVars)
+	
+	c.inLoopAnalysis = false
+	
+	// 编译外提的表达式并添加到 CSE 缓存
+	for _, h := range hoistedExprs {
+		c.compileExpr(h.Expr)
+		c.declareVariableWithType(h.TempVar, "")
+		c.defineVariable()
+		// 将表达式签名添加到 CSE 缓存，这样循环体中遇到相同表达式时会自动复用
+		sig := c.computeExprSignature(h.Expr)
+		if sig != "" {
+			c.exprCache[sig] = c.localCount - 1
+		}
+		// 将临时变量标记为已修改，避免在循环中被优化掉
+		c.loopModifiedVars[h.TempVar] = true
 	}
 
 	loopStart := c.currentChunk().Len()
@@ -1085,7 +1430,9 @@ func (c *Compiler) compileForStmt(s *ast.ForStmt) {
 		c.emit(bytecode.OpPop)
 	}
 
-	// 循环体
+	// 编译循环体
+	// 使用 CSE 机制：外提的表达式已经在临时变量中，CSE 会自动识别并复用
+	// 需要在编译时暂时禁用 CSE 缓存新的表达式，只使用已缓存的外提变量
 	c.compileStmt(s.Body)
 
 	// 后置表达式
@@ -1112,10 +1459,29 @@ func (c *Compiler) compileForStmt(s *ast.ForStmt) {
 	c.breakJumps = prevBreakJumps
 	c.loopDepth--
 	c.endScope()
+	
+	// 清理循环修改变量记录
+	c.loopModifiedVars = make(map[string]bool)
 }
+
 
 func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 	c.beginScope()
+
+	// LICM: 分析循环体，收集被修改的变量
+	modifiedVars := c.collectModifiedVars(s.Body)
+	// 添加循环变量到修改列表（它们在每次迭代中都会改变）
+	if s.Key != nil {
+		modifiedVars[s.Key.Name] = true
+	}
+	modifiedVars[s.Value.Name] = true
+	c.loopModifiedVars = modifiedVars
+	c.inLoopAnalysis = true
+	
+	// LICM: 提取循环不变式
+	hoistedExprs := c.hoistLoopInvariants(s.Body, modifiedVars)
+	
+	c.inLoopAnalysis = false
 
 	// 推断迭代对象类型，用于确定 key 和 value 的类型
 	iterableType := c.inferExprType(s.Iterable)
@@ -1157,6 +1523,20 @@ func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 	c.emit(bytecode.OpNull)
 	valueSlot := c.localCount
 	c.addLocalWithType(s.Value.Name, valueType)
+
+	// 编译外提的表达式并添加到 CSE 缓存
+	for _, h := range hoistedExprs {
+		c.compileExpr(h.Expr)
+		c.declareVariableWithType(h.TempVar, "")
+		c.defineVariable()
+		// 将表达式签名添加到 CSE 缓存
+		sig := c.computeExprSignature(h.Expr)
+		if sig != "" {
+			c.exprCache[sig] = c.localCount - 1
+		}
+		// 将临时变量标记为已修改，避免在循环中被优化掉
+		c.loopModifiedVars[h.TempVar] = true
+	}
 
 	// 循环开始
 	loopStart := c.currentChunk().Len()
@@ -1495,6 +1875,28 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	// 更新当前行号
 	c.currentLine = expr.Pos().Line
 	
+	// CSE: 检查是否可以复用已计算的表达式
+	if c.cseEnabled && !c.hasSideEffect(expr) && c.loopDepth == 0 {
+		sig := c.computeExprSignature(expr)
+		if sig != "" {
+			if slot, exists := c.exprCache[sig]; exists {
+				// 复用缓存值
+				c.emitU16(bytecode.OpLoadLocal, uint16(slot))
+				return
+			}
+		}
+	}
+	
+	// 记录是否需要缓存（在表达式编译完成后）
+	var needCache bool
+	var cacheSig string
+	if c.cseEnabled && !c.hasSideEffect(expr) && c.loopDepth == 0 {
+		cacheSig = c.computeExprSignature(expr)
+		if cacheSig != "" {
+			needCache = true
+		}
+	}
+	
 	switch e := expr.(type) {
 	case *ast.IntegerLiteral:
 		c.emitConstant(bytecode.NewInt(e.Value))
@@ -1632,6 +2034,11 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
+	}
+	
+	// CSE: 缓存表达式结果
+	if needCache {
+		c.cacheExprResult(cacheSig)
 	}
 }
 
@@ -2969,16 +3376,66 @@ func (c *Compiler) compileIsExpr(e *ast.IsExpr) {
 
 func (c *Compiler) beginScope() {
 	c.scopeDepth++
+	// CSE: 记录当前作用域深度
+	if c.cseEnabled {
+		c.cseScopeDepth = c.scopeDepth
+	}
 }
 
 func (c *Compiler) endScope() {
 	c.scopeDepth--
+
+	// CSE: 清理当前作用域的缓存条目
+	if c.cseEnabled {
+		c.cleanupCSECache()
+	}
 
 	// 弹出当前作用域的局部变量
 	for c.localCount > 0 && c.locals[c.localCount-1].Depth > c.scopeDepth {
 		c.emit(bytecode.OpPop)
 		c.localCount--
 	}
+}
+
+// cleanupCSECache 清理当前作用域结束时的 CSE 缓存
+func (c *Compiler) cleanupCSECache() {
+	// 移除所有深度大于当前作用域的缓存条目
+	for sig, slot := range c.exprCache {
+		if slot >= c.localCount {
+			delete(c.exprCache, sig)
+			continue
+		}
+		// 检查变量是否在当前作用域
+		if slot > 0 && c.locals[slot].Depth > c.scopeDepth {
+			delete(c.exprCache, sig)
+		}
+	}
+}
+
+// cacheExprResult 缓存表达式结果到临时变量
+// 调用时栈顶应该是表达式的结果值
+func (c *Compiler) cacheExprResult(sig string) {
+	if !c.cseEnabled || sig == "" {
+		return
+	}
+
+	// 检查是否已经缓存
+	if _, exists := c.exprCache[sig]; exists {
+		return
+	}
+
+	// 创建临时变量名
+	tempVarName := fmt.Sprintf("$__cse_%d", len(c.exprCache))
+	
+	// 复制栈顶值（因为要存储也要使用）
+	c.emit(bytecode.OpDup)
+	
+	// 声明并定义临时变量
+	c.declareVariableWithType(tempVarName, "")
+	c.defineVariable()
+	
+	// 记录缓存（此时值已在栈上，defineVariable 已存储）
+	c.exprCache[sig] = c.localCount - 1
 }
 
 func (c *Compiler) declareVariable(name string) {
