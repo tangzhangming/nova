@@ -889,6 +889,7 @@ type Class struct {
 	PropVisibility map[string]Visibility // 属性可见性
 	PropFinal      map[string]bool       // 属性是否 final（不能被重新赋值）
 	PropAnnotations map[string][]*Annotation // 属性注解
+	VTables        map[string]*VTable    // 接口 VTable 映射 (接口名 -> VTable)
 }
 
 // FullName 获取类的完整名称（包括命名空间）
@@ -910,6 +911,7 @@ func NewClass(name string) *Class {
 		PropVisibility:  make(map[string]Visibility),
 		PropFinal:       make(map[string]bool),
 		PropAnnotations: make(map[string][]*Annotation),
+		VTables:         make(map[string]*VTable),
 	}
 }
 

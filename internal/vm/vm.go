@@ -2279,10 +2279,14 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	}
 	
 	obj := receiver.AsObject()
-	// 使用参数数量查找重载方法（考虑默认参数）
-	method := vm.findMethodWithDefaults(obj.Class, name, argCount)
+	// 尝试使用 VTable 优化接口方法查找
+	method := vm.findMethodWithVTable(obj.Class, name, argCount)
 	if method == nil {
-		return vm.runtimeError(i18n.T(i18n.ErrUndefinedMethod, name, argCount))
+		// 回退到传统查找
+		method = vm.findMethodWithDefaults(obj.Class, name, argCount)
+		if method == nil {
+			return vm.runtimeError(i18n.T(i18n.ErrUndefinedMethod, name, argCount))
+		}
 	}
 
 	// 热点检测：记录函数调用
@@ -2308,6 +2312,24 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	}
 
 	return vm.call(closure, argCount)
+}
+
+// findMethodWithVTable 使用 VTable 查找接口方法（O(1) 优化）
+func (vm *VM) findMethodWithVTable(class *bytecode.Class, name string, argCount int) *bytecode.Method {
+	// 遍历类的所有 VTable（为所有实现的接口）
+	for _, vtable := range class.VTables {
+		// 在 VTable 中查找方法名
+		for _, entry := range vtable.Methods {
+			if entry.MethodName == name && entry.ImplMethod != nil {
+				// 检查参数数量是否匹配
+				m := entry.ImplMethod
+				if argCount >= m.MinArity && argCount <= m.Arity {
+					return m
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // findMethodWithDefaults 查找方法，考虑默认参数

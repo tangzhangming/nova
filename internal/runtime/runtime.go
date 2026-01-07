@@ -94,6 +94,9 @@ func (r *Runtime) Run(source, filename string) error {
 		}
 	}
 
+	// 构建 VTable（为所有类构建接口虚表）
+	bytecode.BuildAllVTables(r.classes)
+
 	// 注册编译的枚举
 	enums := c.Enums()
 	for name, enum := range enums {
