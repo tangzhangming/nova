@@ -30,6 +30,7 @@ type Messages struct {
 	CmdRun     string
 	CmdBuild   string
 	CmdCheck   string
+	CmdFormat  string
 	CmdVersion string
 	CmdHelp    string
 
@@ -40,6 +41,13 @@ type Messages struct {
 	OptOutput   string
 	OptVerbose  string
 	OptLang     string
+
+	// 格式化选项
+	OptFormatWrite      string
+	OptFormatCheck      string
+	OptFormatIndent     string
+	OptFormatIndentSize string
+	OptFormatMaxLine    string
 
 	// 错误信息
 	ErrNoInput         string
@@ -53,12 +61,16 @@ type Messages struct {
 	ErrSerializeFailed string
 	ErrWriteFile       string
 	ErrInvalidCompiledFile string
-	ErrDeserializeFailed string
+	ErrDeserializeFailed   string
+	ErrFormatFailed        string
+	ErrFormatNotFormatted  string
 
 	// 成功信息
-	SuccessSyntaxOK    string
-	SuccessBuilding    string
+	SuccessSyntaxOK      string
+	SuccessBuilding      string
 	SuccessBuildComplete string
+	SuccessFormatOK      string
+	SuccessFormatComplete string
 
 	// 其他
 	NotImplemented string
@@ -81,6 +93,7 @@ var messagesEN = Messages{
 	CmdRun:     "Run a Sola source file or compiled bytecode",
 	CmdBuild:   "Compile to bytecode",
 	CmdCheck:   "Check syntax without running",
+	CmdFormat:  "Format source code",
 	CmdVersion: "Show version information",
 	CmdHelp:    "Show this help message",
 
@@ -90,6 +103,12 @@ var messagesEN = Messages{
 	OptOutput:   "Output file path",
 	OptVerbose:  "Verbose output",
 	OptLang:     "Set language (en/zh)",
+
+	OptFormatWrite:      "Write result to file instead of stdout",
+	OptFormatCheck:      "Check if files are formatted (exit code 1 if not)",
+	OptFormatIndent:     "Indent style: tabs or spaces",
+	OptFormatIndentSize: "Indent size (when using spaces)",
+	OptFormatMaxLine:    "Maximum line length",
 
 	ErrNoInput:            "Error: no input file specified",
 	ErrReadFile:           "Error reading file: %v",
@@ -102,11 +121,15 @@ var messagesEN = Messages{
 	ErrSerializeFailed:    "Serialization failed",
 	ErrWriteFile:          "Error writing file",
 	ErrInvalidCompiledFile: "Error: %s is not a valid compiled file (expected %s)",
-	ErrDeserializeFailed:  "Failed to load compiled file",
+	ErrDeserializeFailed:   "Failed to load compiled file",
+	ErrFormatFailed:        "Formatting failed",
+	ErrFormatNotFormatted:  "%s: not formatted",
 
-	SuccessSyntaxOK:      "✓ %s: syntax OK",
-	SuccessBuilding:      "Building %s...",
-	SuccessBuildComplete: "✓ Built %s (%d bytes)",
+	SuccessSyntaxOK:       "✓ %s: syntax OK",
+	SuccessBuilding:       "Building %s...",
+	SuccessBuildComplete:  "✓ Built %s (%d bytes)",
+	SuccessFormatOK:       "✓ %s: already formatted",
+	SuccessFormatComplete: "✓ Formatted: %s",
 
 	NotImplemented: "Note: Build command is not yet implemented. Coming soon!",
 	Namespace:      "Namespace",
@@ -128,6 +151,7 @@ var messagesZH = Messages{
 	CmdRun:     "运行 Sola 源文件或编译后的字节码",
 	CmdBuild:   "编译为字节码",
 	CmdCheck:   "检查语法，不运行",
+	CmdFormat:  "格式化源代码",
 	CmdVersion: "显示版本信息",
 	CmdHelp:    "显示帮助信息",
 
@@ -137,6 +161,12 @@ var messagesZH = Messages{
 	OptOutput:   "输出文件路径",
 	OptVerbose:  "详细输出",
 	OptLang:     "设置语言 (en/zh)",
+
+	OptFormatWrite:      "将结果写入文件而不是标准输出",
+	OptFormatCheck:      "检查文件是否已格式化（未格式化则退出码为 1）",
+	OptFormatIndent:     "缩进风格：tabs 或 spaces",
+	OptFormatIndentSize: "缩进大小（使用 spaces 时）",
+	OptFormatMaxLine:    "最大行长度",
 
 	ErrNoInput:            "错误: 未指定输入文件",
 	ErrReadFile:           "读取文件错误: %v",
@@ -149,11 +179,15 @@ var messagesZH = Messages{
 	ErrSerializeFailed:    "序列化失败",
 	ErrWriteFile:          "写入文件错误",
 	ErrInvalidCompiledFile: "错误: %s 不是有效的编译文件（应为 %s）",
-	ErrDeserializeFailed:  "加载编译文件失败",
+	ErrDeserializeFailed:   "加载编译文件失败",
+	ErrFormatFailed:        "格式化失败",
+	ErrFormatNotFormatted:  "%s: 未格式化",
 
-	SuccessSyntaxOK:      "✓ %s: 语法正确",
-	SuccessBuilding:      "正在编译 %s...",
-	SuccessBuildComplete: "✓ 编译完成 %s (%d 字节)",
+	SuccessSyntaxOK:       "✓ %s: 语法正确",
+	SuccessBuilding:       "正在编译 %s...",
+	SuccessBuildComplete:  "✓ 编译完成 %s (%d 字节)",
+	SuccessFormatOK:       "✓ %s: 已格式化",
+	SuccessFormatComplete: "✓ 已格式化: %s",
 
 	NotImplemented: "提示: 编译功能尚未实现，敬请期待！",
 	Namespace:      "命名空间",

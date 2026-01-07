@@ -9,6 +9,7 @@ import (
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
+	"github.com/tangzhangming/nova/internal/formatter"
 	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/lexer"
 	"github.com/tangzhangming/nova/internal/loader"
@@ -52,6 +53,8 @@ func main() {
 		cmdBuild(args[1:])
 	case "check":
 		cmdCheck(args[1:])
+	case "format", "fmt":
+		cmdFormat(args[1:])
 	case "version", "-v", "--version":
 		cmdVersion()
 	case "help", "-h", "--help":
@@ -105,6 +108,7 @@ func printUsage() {
 	fmt.Printf("  run <file>      %s\n", m.CmdRun)
 	fmt.Printf("  build <file>    %s\n", m.CmdBuild)
 	fmt.Printf("  check <file>    %s\n", m.CmdCheck)
+	fmt.Printf("  format <file>   %s\n", m.CmdFormat)
 	fmt.Printf("  version         %s\n", m.CmdVersion)
 	fmt.Printf("  help            %s\n", m.CmdHelp)
 	fmt.Println()
@@ -118,6 +122,7 @@ func printUsage() {
 	fmt.Printf("  sola run main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola run -ast main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola check main%s\n", loader.SourceFileExtension)
+	fmt.Printf("  sola format -w main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola --lang zh help\n")
 }
 
@@ -332,6 +337,84 @@ func cmdCheck(args []string) {
 	}
 
 	runParser(string(source), filename, *verbose)
+}
+
+// cmdFormat 格式化源代码
+func cmdFormat(args []string) {
+	m := Msg()
+	fs := flag.NewFlagSet("format", flag.ExitOnError)
+	write := fs.Bool("w", false, m.OptFormatWrite)
+	check := fs.Bool("check", false, m.OptFormatCheck)
+	indentStyle := fs.String("indent", "spaces", m.OptFormatIndent)
+	indentSize := fs.Int("indent-size", 4, m.OptFormatIndentSize)
+	maxLine := fs.Int("max-line", 100, m.OptFormatMaxLine)
+
+	fs.Usage = func() {
+		fmt.Println(m.HelpUsage + " sola format [options] <file>")
+		fmt.Println()
+		fmt.Println(m.HelpOptions)
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fs.Usage()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, m.ErrNoInput)
+		os.Exit(1)
+	}
+
+	filename := fs.Arg(0)
+
+	// 读取源文件
+	source, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
+		os.Exit(1)
+	}
+
+	// 设置格式化选项
+	options := formatter.DefaultOptions()
+	if *indentStyle == "tabs" {
+		options.IndentStyle = "tabs"
+	} else {
+		options.IndentStyle = "spaces"
+		options.IndentSize = *indentSize
+	}
+	options.MaxLineLength = *maxLine
+
+	// 格式化
+	formatted, err := formatter.Format(string(source), filename, options)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrFormatFailed+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// check 模式：检查是否已格式化
+	if *check {
+		if string(source) != formatted {
+			fmt.Fprintf(os.Stderr, m.ErrFormatNotFormatted+"\n", filename)
+			os.Exit(1)
+		}
+		fmt.Printf(m.SuccessFormatOK+"\n", filename)
+		return
+	}
+
+	// 写入模式：覆盖原文件
+	if *write {
+		if err := os.WriteFile(filename, []byte(formatted), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, m.ErrWriteFile+": %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf(m.SuccessFormatComplete+"\n", filename)
+		return
+	}
+
+	// 默认：输出到标准输出
+	fmt.Print(formatted)
 }
 
 // cmdVersion 显示版本信息
