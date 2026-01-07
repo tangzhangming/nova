@@ -76,6 +76,10 @@ var messagesZH = map[string]string{
 	ErrGenericTypeRequired:       "泛型类型 '%s' 需要类型参数",
 	ErrDuplicateTypeParam:        "重复的类型参数 '%s'",
 	
+	// 数组类型相关
+	ErrSuperArrayNotCompatible:   "SuperArray（万能数组）与类型化数组 '%s' 不兼容，请使用类型化数组或显式转换",
+	ErrArrayNotCompatible:        "类型化数组 '%s' 与 SuperArray（万能数组）不兼容，请使用 SuperArray 语法 [key => value]",
+	
 	// 穷尽性检查
 	ErrSwitchNotExhaustive: "switch 语句未覆盖枚举 '%s' 的所有值，缺少: %s",
 	

@@ -76,6 +76,10 @@ var messagesEN = map[string]string{
 	ErrGenericTypeRequired:       "generic type '%s' requires type arguments",
 	ErrDuplicateTypeParam:        "duplicate type parameter '%s'",
 	
+	// Array types
+	ErrSuperArrayNotCompatible:   "SuperArray is not compatible with typed array '%s', use typed array or explicit conversion",
+	ErrArrayNotCompatible:        "typed array '%s' is not compatible with SuperArray, use SuperArray syntax [key => value]",
+	
 	// Exhaustiveness checking
 	ErrSwitchNotExhaustive: "switch statement does not cover all values of enum '%s', missing: %s",
 	

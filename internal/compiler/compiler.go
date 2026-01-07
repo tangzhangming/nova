@@ -3336,6 +3336,11 @@ func (c *Compiler) getTypeName(t ast.TypeNode) string {
 	case *ast.ClassType:
 		return typ.Name.Literal
 	case *ast.ArrayType:
+		// 类型化数组：获取元素类型 + []
+		if typ.ElementType != nil {
+			elemType := c.getTypeName(typ.ElementType)
+			return elemType + "[]"
+		}
 		return "array"
 	case *ast.MapType:
 		return "map"
@@ -3510,22 +3515,18 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 		return c.isTypeCompatible(actualElem, expectedElem)
 	}
 	
-	// 通用数组类型
+	// 通用数组类型：T[] 可以赋给 array
 	if expected == "array" && strings.HasSuffix(actual, "[]") {
 		return true
 	}
-	
-	// superarray 和 array 类型兼容
-	if actual == "superarray" && (expected == "array" || strings.HasSuffix(expected, "[]")) {
-		return true
-	}
-	if expected == "superarray" && (actual == "array" || strings.HasSuffix(actual, "[]")) {
-		return true
-	}
-	// 反向：具体数组类型接受通用 array（运行时可能出错，但编译期允许）
+	// 反向：array 可以赋给 T[]（运行时可能出错，但编译期允许）
 	if actual == "array" && strings.HasSuffix(expected, "[]") {
 		return true
 	}
+	
+	// 【严格分离】SuperArray 和类型化数组是完全不同的类型，不兼容
+	// superarray 只能与 superarray 兼容
+	// 不再允许 superarray 与 array/T[] 互相赋值
 	
 	// Map 类型兼容性
 	if expected == "map" && strings.HasPrefix(actual, "map[") {

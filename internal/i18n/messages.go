@@ -77,6 +77,10 @@ const (
 	ErrGenericTypeRequired       = "compiler.generic_type_required"
 	ErrDuplicateTypeParam        = "compiler.duplicate_type_param"
 	
+	// 数组类型相关
+	ErrSuperArrayNotCompatible   = "compiler.superarray_not_compatible"
+	ErrArrayNotCompatible        = "compiler.array_not_compatible"
+	
 	// 穷尽性检查
 	ErrSwitchNotExhaustive = "compiler.switch_not_exhaustive"
 	

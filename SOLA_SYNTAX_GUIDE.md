@@ -151,14 +151,35 @@ $greeting := #"Hello, {$name}!";  // Hello, Sola!
 
 ### 复合类型
 
-#### 数组类型
+Sola 有两种完全不同的数组类型，**不能互相赋值**：
+
+| 类型 | 语法 | 用途 |
+|------|------|------|
+| 类型化数组 `T[]` | `int{1, 2, 3}` | 静态类型安全，推荐使用 |
+| 万能数组 `superarray` | `[1, 2, 3]` 或 `["k" => v]` | 动态类型，JSON/外部数据 |
+
+> ⚠️ **重要**: `int[]` 和 `superarray` 是**完全不同的类型**，不能互相赋值！
+
+#### 类型化数组（推荐）
+
+类型化数组是静态类型安全的数组，元素类型在编译时确定。
+
 ```sola
-// 类型化数组
+// 声明和初始化
 int[] $numbers = int{1, 2, 3};
 string[] $names = string{"Alice", "Bob"};
+User[] $users = User{new User(), new User()};
 
 // 固定大小数组
 int[10] $fixedArray;
+
+// ✅ 正确：类型匹配
+int[] $a = int{1, 2, 3};
+int[] $b = $a;  // OK
+
+// ❌ 错误：类型不兼容
+superarray $arr = [1, 2, 3];
+int[] $c = $arr;  // 编译错误！superarray 不能赋给 int[]
 ```
 
 #### Map 类型
@@ -172,19 +193,35 @@ map[string]int $ages = map[string]int{
 
 #### SuperArray（万能数组）
 
-SuperArray 是 Sola 提供的动态混合类型数组，支持整数和字符串混合键。适用于与动态数据交互的场景（如 JSON 解析）。
+SuperArray 是 Sola 提供的**动态类型**数组，支持整数和字符串混合键。仅适用于与动态数据交互的场景（如 JSON 解析）。
 
 ```sola
 // 自动索引
-$arr := [1, 2, 3];
+superarray $arr = [1, 2, 3];
 
 // 关联数组（键值对）
-$data := [
+superarray $data = [
     "name" => "Sola",
     "version" => 1,
     0 => "first"
 ];
 
+// ✅ 正确：使用 superarray 类型
+superarray $items = ["a", "b", "c"];
+
+// ❌ 错误：不能把 superarray 当作类型化数组
+string[] $names = ["a", "b", "c"];  // 编译错误！应使用 string{"a", "b", "c"}
+```
+
+> **何时使用 SuperArray**：
+> - JSON 解析结果
+> - 需要混合类型键（整数 + 字符串）
+> - 与外部动态 API 交互
+>
+> **何时使用类型化数组**：
+> - 所有其他情况（推荐默认选择）
+
+```sola
 // 访问
 echo $arr[0];        // 1
 echo $data["name"];  // Sola
