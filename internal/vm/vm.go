@@ -190,9 +190,14 @@ func (vm *VM) execute() InterpretResult {
 	maxInstructions := 10000000 // 1000万条指令上限
 	instructionCount := 0
 	
-	// GC 检查间隔（每执行 500 条指令检查一次）
-	const gcCheckInterval = 500
+	// GC 检查间隔（每执行 100 条指令检查一次，降低间隔以更快响应内存暴涨）
+	const gcCheckInterval = 100
 	gcCheckCounter := 0
+	
+	// 内存分配速率保护：记录最近的内存分配次数
+	const memoryCheckInterval = 50 // 每 50 条指令检查一次内存分配速率
+	memoryCheckCounter := 0
+	lastGCHeapSize := vm.gc.HeapSize()
 
 	for {
 		// 安全检查：IP 越界
@@ -211,6 +216,21 @@ func (vm *VM) execute() InterpretResult {
 		if gcCheckCounter >= gcCheckInterval {
 			gcCheckCounter = 0
 			vm.maybeGC()
+		}
+		
+		// 内存分配速率保护：如果内存快速增长，强制触发 GC
+		memoryCheckCounter++
+		if memoryCheckCounter >= memoryCheckInterval {
+			memoryCheckCounter = 0
+			currentHeapSize := vm.gc.HeapSize()
+			// 如果堆大小在短时间内增长超过 100 个对象，强制触发 GC
+			if currentHeapSize > lastGCHeapSize+100 {
+				roots := vm.collectRoots()
+				vm.gc.Collect(roots)
+				lastGCHeapSize = vm.gc.HeapSize()
+			} else {
+				lastGCHeapSize = currentHeapSize
+			}
 		}
 
 		// 读取指令

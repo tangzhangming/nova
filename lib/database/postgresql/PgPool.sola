@@ -1,0 +1,203 @@
+// Sola 标准库 - PostgreSQL 连接池
+namespace sola.database.postgresql
+
+use sola.database.ConnectionPool;
+use sola.database.PoolConfig;
+use sola.database.DatabaseException;
+use sola.net.tcp.TcpClient;
+use sola.time.Time;
+
+/**
+ * PostgreSQL 连接池
+ * 
+ * 管理 PostgreSQL 数据库连接的连接池。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.database.postgresql.{PgPool, PoolConfig};
+ * 
+ * $config := new PoolConfig();
+ * $config->maxSize = 20;
+ * 
+ * $pool := new PgPool($config, "127.0.0.1", 5432, "root", "123456", "solalang");
+ * 
+ * $conn := $pool->get();
+ * try {
+ *     $result := $conn->query("SELECT * FROM users");
+ *     // 使用连接
+ * } finally {
+ *     $pool->put($conn);
+ * }
+ * ```
+ */
+public class PgPool extends ConnectionPool<PgConnection> {
+    
+    /** 数据库主机 */
+    private string $host;
+    
+    /** 数据库端口 */
+    private int $port;
+    
+    /** 用户名 */
+    private string $user;
+    
+    /** 密码 */
+    private string $password;
+    
+    /** 数据库名 */
+    private string $database;
+    
+    /** SSL 模式 */
+    private string $sslmode;
+    
+    /**
+     * 构造函数
+     * 
+     * @param PoolConfig $config 连接池配置
+     * @param string $host 数据库主机
+     * @param int $port 数据库端口
+     * @param string $user 用户名
+     * @param string $password 密码
+     * @param string $database 数据库名
+     * @param string $sslmode SSL 模式，默认 "disable"
+     */
+    public function __construct(
+        PoolConfig $config,
+        string $host,
+        int $port,
+        string $user,
+        string $password,
+        string $database,
+        string $sslmode = "disable"
+    ) {
+        parent::__construct($config);
+        $this->host = $host;
+        $this->port = $port;
+        $this->user = $user;
+        $this->password = $password;
+        $this->database = $database;
+        $this->sslmode = $sslmode;
+    }
+    
+    /**
+     * 创建 PostgreSQL 连接（实现抽象方法）
+     * 
+     * @return PgConnection PostgreSQL 连接对象
+     */
+    protected function createConnection(): PgConnection {
+        $tcp := new TcpClient();
+        $tcp->setConnectTimeout(10000);
+        
+        if (!$tcp->connect($this->host, $this->port)) {
+            throw new DatabaseException("Failed to connect to PostgreSQL: " + $this->host + ":" + $this->port);
+        }
+        
+        return new PgConnection($tcp, $this->user, $this->password, $this->database);
+    }
+    
+    /**
+     * 验证连接是否有效（实现抽象方法）
+     * 
+     * @param PgConnection $conn 连接对象
+     * @return bool 连接是否有效
+     */
+    protected function validateConnection(PgConnection $conn): bool {
+        if ($conn == null || $conn->isClosed()) {
+            return false;
+        }
+        return $conn->ping();
+    }
+    
+    /**
+     * 关闭连接（实现抽象方法）
+     * 
+     * @param PgConnection $conn 连接对象
+     */
+    protected function closeConnection(PgConnection $conn) {
+        if ($conn != null) {
+            $conn->close();
+        }
+    }
+    
+    /**
+     * 获取连接（显式声明以解决泛型问题）
+     * 
+     * @return PgConnection PostgreSQL 连接对象
+     */
+    public function get(): PgConnection {
+        // 由于泛型继承问题，直接访问父类的 protected 成员并重新实现逻辑
+        if ($this->closed) {
+            throw new DatabaseException("Connection pool is closed");
+        }
+        
+        $startTime := Time::now();
+        
+        while (true) {
+            // 检查超时
+            $elapsed := Time::now() - $startTime;
+            if ($elapsed > $this->config->acquireTimeout) {
+                throw new DatabaseException("Failed to acquire connection: timeout");
+            }
+            
+            // 清理过期连接
+            $this->cleanup();
+            
+            // 尝试从空闲池获取
+            if (len($this->idle) > 0) {
+                $pooled := $this->idle[0];
+                // 移除第一个元素
+                $newIdle := [];
+                for ($i := 1; $i < len($this->idle); $i++) {
+                    push($newIdle, $this->idle[$i]);
+                }
+                $this->idle = $newIdle;
+                
+                // 验证连接
+                if ($this->validateConnection($pooled->connection)) {
+                    $pooled->updateLastUsed();
+                    $this->active++;
+                    $this->stats->active = $this->active;
+                    $this->stats->idle = len($this->idle);
+                    return $pooled->connection;
+                } else {
+                    // 连接无效，关闭并创建新连接
+                    $this->closeConnection($pooled->connection);
+                    $this->total--;
+                    $this->stats->closed++;
+                }
+            }
+            
+            // 如果未达到最大连接数，创建新连接
+            if ($this->total < $this->config->maxSize) {
+                $conn := $this->createConnection();
+                if ($conn != null) {
+                    $this->total++;
+                    $this->active++;
+                    $this->stats->created++;
+                    $this->stats->total = $this->total;
+                    $this->stats->active = $this->active;
+                    $this->stats->idle = len($this->idle);
+                    return $conn;
+                }
+            }
+            
+            // 等待一段时间后重试
+            $this->waiting++;
+            $this->stats->waiting = $this->waiting;
+            Time::sleep(10); // 休眠 10 毫秒
+            $this->waiting--;
+            $this->stats->waiting = $this->waiting;
+        }
+    }
+    
+    /**
+     * 获取统计信息（显式声明）
+     * 
+     * @return PoolStats 统计信息
+     */
+    public function stats(): PoolStats {
+        return parent::stats();
+    }
+}
+
+use sola.database.PoolStats;

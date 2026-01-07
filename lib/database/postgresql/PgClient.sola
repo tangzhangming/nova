@@ -1,0 +1,166 @@
+// Sola 标准�?- PostgreSQL 客户端（简�?API�?
+namespace sola.database.postgresql
+
+use sola.lang.Str;
+use sola.lang.Exception;
+use sola.database.PoolConfig;
+use sola.database.PoolStats;
+use sola.database.DatabaseException;
+
+/**
+ * PostgreSQL 客户端（简�?API�?
+ * 
+ * 提供简洁的 API 来操�?PostgreSQL 数据库，自动管理连接池�?
+ * 
+ * 使用示例�?
+ * ```sola
+ * use sola.database.postgresql.PgClient;
+ * 
+ * $client := new PgClient("127.0.0.1", 5432, "root", "123456", "solalang");
+ * 
+ * // 查询
+ * $rows := $client->query("SELECT * FROM users WHERE id = $1", ["1"]);
+ * 
+ * // 执行
+ * $affected := $client->execute("INSERT INTO users (name) VALUES ($1)", ["Alice"]);
+ * ```
+ */
+public class PgClient {
+    
+    /** 连接�?*/
+    private PgPool $pool;
+    
+    /**
+     * 构造函�?
+     * 
+     * @param string $host 数据库主�?
+     * @param int $port 数据库端�?
+     * @param string $user 用户�?
+     * @param string $password 密码
+     * @param string $database 数据库名
+     * @param PoolConfig|null $config 连接池配置，如果�?null 使用默认配置
+     */
+    public function __construct(
+        string $host,
+        int $port,
+        string $user,
+        string $password,
+        string $database,
+        PoolConfig|null $config = null
+    ) {
+        if ($config == null) {
+            $config = new PoolConfig();
+        }
+        
+        $this->pool = new PgPool($config, $host, $port, $user, $password, $database);
+    }
+    
+    /**
+     * 执行查询
+     * 
+     * @param string $sql SQL 语句（支�?$1, $2, ... 占位符）
+     * @param string[] $params 参数数组
+     * @return PgResult 查询结果
+     * @throws DatabaseException 如果查询失败
+     */
+    public function query(string $sql, string[] $params = []): PgResult {
+        $conn := $this->pool->get();
+        try {
+            $preparedSql := $this->prepareSql($sql, $params);
+            return $conn->query($preparedSql);
+        } finally {
+            $this->pool->put($conn);
+        }
+    }
+    
+    /**
+     * 执行 SQL（INSERT/UPDATE/DELETE�?
+     * 
+     * @param string $sql SQL 语句（支�?$1, $2, ... 占位符）
+     * @param string[] $params 参数数组
+     * @return int 受影响的行数
+     * @throws DatabaseException 如果执行失败
+     */
+    public function execute(string $sql, string[] $params = []): int {
+        $conn := $this->pool->get();
+        try {
+            $preparedSql := $this->prepareSql($sql, $params);
+            return $conn->execute($preparedSql);
+        } finally {
+            $this->pool->put($conn);
+        }
+    }
+    
+    /**
+     * 执行事务
+     * 
+     * @param callable $callback 事务回调函数，接�?PgConnection 参数
+     * @return mixed 回调函数的返回�?
+     * @throws DatabaseException 如果事务失败
+     */
+    public function transaction(callable $callback): mixed {
+        $conn := $this->pool->get();
+        try {
+            $conn->begin();
+            try {
+                $result := $callback($conn);
+                $conn->commit();
+                return $result;
+            } catch (DatabaseException $e) {
+                $conn->rollback();
+                throw $e;
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
+            }
+        } finally {
+            $this->pool->put($conn);
+        }
+    }
+    
+    /**
+     * 获取连接池统计信�?
+     * 
+     * @return PoolStats 统计信息
+     */
+    public function stats(): PoolStats {
+        return $this->pool->stats();
+    }
+    
+    /**
+     * 关闭客户端（关闭连接池）
+     */
+    public function close() {
+        $this->pool->close();
+    }
+    
+    /**
+     * 准备 SQL（替换占位符�?
+     * 
+     * PostgreSQL 使用 $1, $2, ... 作为占位�?
+     * 
+     * @param string $sql SQL 语句
+     * @param string[] $params 参数数组
+     * @return string 准备好的 SQL
+     */
+    private function prepareSql(string $sql, string[] $params): string {
+        if (len($params) == 0) {
+            return $sql;
+        }
+        
+        // 替换 $1, $2, ... 占位�?
+        $result := $sql;
+        
+        for ($i := 0; $i < len($params); $i++) {
+            $placeholder := "$" + ($i + 1);
+            $param := $params[$i] as string;
+            // 转义单引�?
+            $escaped := Str::replace($param, "'", "''");
+            // 替换占位�?
+            $result = Str::replace($result, $placeholder, "'" + $escaped + "'");
+        }
+        
+        return $result;
+    }
+}
+

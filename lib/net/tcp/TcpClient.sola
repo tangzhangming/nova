@@ -421,7 +421,8 @@ public class TcpClient {
         $this->keepAlive = $enabled;
         $this->keepAliveInterval = $intervalSeconds;
         if ($this->connId >= 0) {
-            native_tcp_set_keepalive($this->connId, $enabled, $intervalSeconds);
+            // 注意: 当前 native 实现不支持设置间隔，仅启用/禁用
+            native_tcp_set_keepalive($this->connId, $enabled);
         }
         return $this;
     }
@@ -649,7 +650,7 @@ public class TcpClient {
         
         // 应用 Socket 选项
         if ($this->keepAlive) {
-            native_tcp_set_keepalive($this->connId, true, $this->keepAliveInterval);
+            native_tcp_set_keepalive($this->connId, true);
         }
         if ($this->noDelay) {
             native_tcp_set_nodelay($this->connId, true);
@@ -662,6 +663,9 @@ public class TcpClient {
         }
     }
 }
+
+
+
 
 
 

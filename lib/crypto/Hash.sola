@@ -2,7 +2,7 @@
  * Sola Crypto Library - Hash
  * 哈希算法库
  */
-namespace sola.crypto;
+namespace sola.crypto
 
 /**
  * 流式哈希器接口
@@ -39,31 +39,31 @@ class Hasher implements IHasher {
      * @internal
      */
     public function __construct(int $handle) {
-        this->handle = $handle;
+        $this->handle = $handle;
     }
     
     public function update(mixed $data): IHasher {
-        if (this->finalized) {
+        if ($this->finalized) {
             throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
         }
-        native_crypto_hash_update(this->handle, $data);
-        return this;
+        native_crypto_hash_update($this->handle, $data);
+        return $this;
     }
     
     public function finalize(): string {
-        if (this->finalized) {
+        if ($this->finalized) {
             throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
         }
-        this->finalized = true;
-        return native_crypto_hash_finalize(this->handle);
+        $this->finalized = true;
+        return native_crypto_hash_finalize($this->handle);
     }
     
     public function finalizeBytes(): byte[] {
-        if (this->finalized) {
+        if ($this->finalized) {
             throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
         }
-        this->finalized = true;
-        return native_crypto_hash_finalize_bytes(this->handle);
+        $this->finalized = true;
+        return native_crypto_hash_finalize_bytes($this->handle);
     }
 }
 
@@ -308,6 +308,9 @@ class Hash {
         return Str::toLower($actualHash) == Str::toLower($expectedHash);
     }
 }
+
+
+
 
 
 

@@ -6,6 +6,15 @@ import (
 	"github.com/tangzhangming/nova/internal/ast"
 )
 
+// extractBaseTypeName 从泛型类型中提取基类名
+// ConnectionPool<MysqlConnection> -> ConnectionPool
+func extractBaseTypeName(typeName string) string {
+	if idx := strings.Index(typeName, "<"); idx != -1 {
+		return typeName[:idx]
+	}
+	return typeName
+}
+
 // FunctionSignature 函数签名
 type FunctionSignature struct {
 	Name       string   // 函数名
@@ -130,6 +139,7 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 
 	// 时间函数 (native_time_*)
 	st.Functions["native_time_now"] = &FunctionSignature{Name: "native_time_now", ParamTypes: []string{}, ReturnType: "int"}
+	st.Functions["native_time_now_ms"] = &FunctionSignature{Name: "native_time_now_ms", ParamTypes: []string{}, ReturnType: "int"}
 	st.Functions["native_time_now_nano"] = &FunctionSignature{Name: "native_time_now_nano", ParamTypes: []string{}, ReturnType: "int"}
 	st.Functions["native_time_now_milli"] = &FunctionSignature{Name: "native_time_now_milli", ParamTypes: []string{}, ReturnType: "int"}
 	st.Functions["native_time_now_micro"] = &FunctionSignature{Name: "native_time_now_micro", ParamTypes: []string{}, ReturnType: "int"}
@@ -270,26 +280,66 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 
 	// TCP 函数 (native_tcp_*)
 	st.Functions["native_tcp_connect"] = &FunctionSignature{Name: "native_tcp_connect", ParamTypes: []string{"string", "int"}, ReturnType: "int"}
-	st.Functions["native_tcp_close"] = &FunctionSignature{Name: "native_tcp_close", ParamTypes: []string{"int"}, ReturnType: "void"}
-	st.Functions["native_tcp_write"] = &FunctionSignature{Name: "native_tcp_write", ParamTypes: []string{"int", "byte[]"}, ReturnType: "int"}
-	st.Functions["native_tcp_read"] = &FunctionSignature{Name: "native_tcp_read", ParamTypes: []string{"int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_tcp_connect_timeout"] = &FunctionSignature{Name: "native_tcp_connect_timeout", ParamTypes: []string{"string", "int", "int"}, ReturnType: "int"}
+	st.Functions["native_tcp_close"] = &FunctionSignature{Name: "native_tcp_close", ParamTypes: []string{"int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_is_connected"] = &FunctionSignature{Name: "native_tcp_is_connected", ParamTypes: []string{"int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_is_tls"] = &FunctionSignature{Name: "native_tcp_is_tls", ParamTypes: []string{"int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_write"] = &FunctionSignature{Name: "native_tcp_write", ParamTypes: []string{"int", "string"}, ReturnType: "int"}
+	st.Functions["native_tcp_write_bytes"] = &FunctionSignature{Name: "native_tcp_write_bytes", ParamTypes: []string{"int", "byte[]"}, ReturnType: "int"}
+	st.Functions["native_tcp_read"] = &FunctionSignature{Name: "native_tcp_read", ParamTypes: []string{"int", "int"}, ReturnType: "string"}
+	st.Functions["native_tcp_read_bytes"] = &FunctionSignature{Name: "native_tcp_read_bytes", ParamTypes: []string{"int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_tcp_read_exact"] = &FunctionSignature{Name: "native_tcp_read_exact", ParamTypes: []string{"int", "int"}, ReturnType: "byte[]"}
 	st.Functions["native_tcp_read_line"] = &FunctionSignature{Name: "native_tcp_read_line", ParamTypes: []string{"int"}, ReturnType: "string"}
-	st.Functions["native_tcp_set_timeout"] = &FunctionSignature{Name: "native_tcp_set_timeout", ParamTypes: []string{"int", "int"}, ReturnType: "void"}
+	st.Functions["native_tcp_read_until"] = &FunctionSignature{Name: "native_tcp_read_until", ParamTypes: []string{"int", "string"}, ReturnType: "string"}
+	st.Functions["native_tcp_available"] = &FunctionSignature{Name: "native_tcp_available", ParamTypes: []string{"int"}, ReturnType: "int"}
+	st.Functions["native_tcp_flush"] = &FunctionSignature{Name: "native_tcp_flush", ParamTypes: []string{"int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_timeout"] = &FunctionSignature{Name: "native_tcp_set_timeout", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_timeout_ms"] = &FunctionSignature{Name: "native_tcp_set_timeout_ms", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_read_timeout"] = &FunctionSignature{Name: "native_tcp_set_read_timeout", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_write_timeout"] = &FunctionSignature{Name: "native_tcp_set_write_timeout", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_clear_timeout"] = &FunctionSignature{Name: "native_tcp_clear_timeout", ParamTypes: []string{"int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_keepalive"] = &FunctionSignature{Name: "native_tcp_set_keepalive", ParamTypes: []string{"int", "bool"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_nodelay"] = &FunctionSignature{Name: "native_tcp_set_nodelay", ParamTypes: []string{"int", "bool"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_linger"] = &FunctionSignature{Name: "native_tcp_set_linger", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_read_buffer"] = &FunctionSignature{Name: "native_tcp_set_read_buffer", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_set_write_buffer"] = &FunctionSignature{Name: "native_tcp_set_write_buffer", ParamTypes: []string{"int", "int"}, ReturnType: "bool"}
 	st.Functions["native_tcp_listen"] = &FunctionSignature{Name: "native_tcp_listen", ParamTypes: []string{"string", "int"}, ReturnType: "int"}
 	st.Functions["native_tcp_accept"] = &FunctionSignature{Name: "native_tcp_accept", ParamTypes: []string{"int"}, ReturnType: "int"}
+	st.Functions["native_tcp_accept_timeout"] = &FunctionSignature{Name: "native_tcp_accept_timeout", ParamTypes: []string{"int", "int"}, ReturnType: "int"}
+	st.Functions["native_tcp_stop_listen"] = &FunctionSignature{Name: "native_tcp_stop_listen", ParamTypes: []string{"int"}, ReturnType: "bool"}
+	st.Functions["native_tcp_listener_addr"] = &FunctionSignature{Name: "native_tcp_listener_addr", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_tcp_listener_host"] = &FunctionSignature{Name: "native_tcp_listener_host", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_tcp_listener_port"] = &FunctionSignature{Name: "native_tcp_listener_port", ParamTypes: []string{"int"}, ReturnType: "int"}
+	st.Functions["native_tcp_listener_is_listening"] = &FunctionSignature{Name: "native_tcp_listener_is_listening", ParamTypes: []string{"int"}, ReturnType: "bool"}
 	st.Functions["native_tcp_get_remote_addr"] = &FunctionSignature{Name: "native_tcp_get_remote_addr", ParamTypes: []string{"int"}, ReturnType: "string"}
 	st.Functions["native_tcp_get_local_addr"] = &FunctionSignature{Name: "native_tcp_get_local_addr", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_tcp_get_remote_host"] = &FunctionSignature{Name: "native_tcp_get_remote_host", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_tcp_get_remote_port"] = &FunctionSignature{Name: "native_tcp_get_remote_port", ParamTypes: []string{"int"}, ReturnType: "int"}
+	st.Functions["native_tcp_get_local_host"] = &FunctionSignature{Name: "native_tcp_get_local_host", ParamTypes: []string{"int"}, ReturnType: "string"}
+	st.Functions["native_tcp_get_local_port"] = &FunctionSignature{Name: "native_tcp_get_local_port", ParamTypes: []string{"int"}, ReturnType: "int"}
 
 	// Bytes 函数 (native_bytes_*)
 	st.Functions["native_bytes_new"] = &FunctionSignature{Name: "native_bytes_new", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
 	st.Functions["native_bytes_from_string"] = &FunctionSignature{Name: "native_bytes_from_string", ParamTypes: []string{"string"}, ReturnType: "byte[]"}
 	st.Functions["native_bytes_to_string"] = &FunctionSignature{Name: "native_bytes_to_string", ParamTypes: []string{"byte[]"}, ReturnType: "string"}
+	st.Functions["native_bytes_from_hex"] = &FunctionSignature{Name: "native_bytes_from_hex", ParamTypes: []string{"string"}, ReturnType: "byte[]"}
+	st.Functions["native_bytes_to_hex"] = &FunctionSignature{Name: "native_bytes_to_hex", ParamTypes: []string{"byte[]"}, ReturnType: "string"}
+	st.Functions["native_bytes_from_array"] = &FunctionSignature{Name: "native_bytes_from_array", ParamTypes: []string{"int[]"}, ReturnType: "byte[]"}
+	st.Functions["native_bytes_to_array"] = &FunctionSignature{Name: "native_bytes_to_array", ParamTypes: []string{"byte[]"}, ReturnType: "int[]"}
+	st.Functions["native_bytes_len"] = &FunctionSignature{Name: "native_bytes_len", ParamTypes: []string{"byte[]"}, ReturnType: "int"}
 	st.Functions["native_bytes_length"] = &FunctionSignature{Name: "native_bytes_length", ParamTypes: []string{"byte[]"}, ReturnType: "int"}
+	st.Functions["native_bytes_get"] = &FunctionSignature{Name: "native_bytes_get", ParamTypes: []string{"byte[]", "int"}, ReturnType: "int"}
+	st.Functions["native_bytes_set"] = &FunctionSignature{Name: "native_bytes_set", ParamTypes: []string{"byte[]", "int", "int"}, ReturnType: "void"}
 	st.Functions["native_bytes_slice"] = &FunctionSignature{Name: "native_bytes_slice", ParamTypes: []string{"byte[]", "int", "int"}, ReturnType: "byte[]"}
 	st.Functions["native_bytes_concat"] = &FunctionSignature{Name: "native_bytes_concat", ParamTypes: []string{"byte[]", "byte[]"}, ReturnType: "byte[]"}
 	st.Functions["native_bytes_copy"] = &FunctionSignature{Name: "native_bytes_copy", ParamTypes: []string{"byte[]"}, ReturnType: "byte[]"}
 	st.Functions["native_bytes_equal"] = &FunctionSignature{Name: "native_bytes_equal", ParamTypes: []string{"byte[]", "byte[]"}, ReturnType: "bool"}
+	st.Functions["native_bytes_compare"] = &FunctionSignature{Name: "native_bytes_compare", ParamTypes: []string{"byte[]", "byte[]"}, ReturnType: "int"}
+	st.Functions["native_bytes_index"] = &FunctionSignature{Name: "native_bytes_index", ParamTypes: []string{"byte[]", "byte[]"}, ReturnType: "int"}
 	st.Functions["native_bytes_index_of"] = &FunctionSignature{Name: "native_bytes_index_of", ParamTypes: []string{"byte[]", "byte[]"}, ReturnType: "int"}
+	st.Functions["native_bytes_contains"] = &FunctionSignature{Name: "native_bytes_contains", ParamTypes: []string{"byte[]", "byte[]"}, ReturnType: "bool"}
+	st.Functions["native_bytes_fill"] = &FunctionSignature{Name: "native_bytes_fill", ParamTypes: []string{"byte[]", "int"}, ReturnType: "void"}
+	st.Functions["native_bytes_zero"] = &FunctionSignature{Name: "native_bytes_zero", ParamTypes: []string{"byte[]"}, ReturnType: "void"}
 
 	// 流操作函数 (native_stream_*)
 	st.Functions["native_stream_open"] = &FunctionSignature{Name: "native_stream_open", ParamTypes: []string{"string", "string"}, ReturnType: "int"}
@@ -373,7 +423,42 @@ func (st *SymbolTable) GetFunction(name string) *FunctionSignature {
 
 // GetMethod 获取方法签名（按参数数量匹配）
 func (st *SymbolTable) GetMethod(className, methodName string, arity int) *MethodSignature {
-	// 首先在当前类中查找
+	// 提取基类名（去除泛型参数）
+	baseClassName := extractBaseTypeName(className)
+	
+	
+	// 首先尝试直接查找
+	if sig := st.getMethodDirect(baseClassName, methodName, arity); sig != nil {
+		return sig
+	}
+	
+	// 如果类名不包含命名空间分隔符，尝试在所有命名空间中查找
+	if !strings.Contains(baseClassName, "\\") {
+		suffix := "\\" + baseClassName
+		for fullClassName := range st.ClassMethods {
+			if strings.HasSuffix(fullClassName, suffix) || fullClassName == baseClassName {
+				if sig := st.getMethodDirect(fullClassName, methodName, arity); sig != nil {
+					return sig
+				}
+			}
+		}
+		// 同时尝试点分隔符（命名空间可能用点而不是反斜杠）
+		suffix2 := "." + baseClassName
+		for fullClassName := range st.ClassMethods {
+			if strings.HasSuffix(fullClassName, suffix2) {
+				if sig := st.getMethodDirect(fullClassName, methodName, arity); sig != nil {
+					return sig
+				}
+			}
+		}
+	}
+	
+	return nil
+}
+
+// getMethodDirect 直接在指定类中查找方法
+func (st *SymbolTable) getMethodDirect(className, methodName string, arity int) *MethodSignature {
+	// 在当前类中查找
 	if methods, ok := st.ClassMethods[className]; ok {
 		if sigs, ok := methods[methodName]; ok {
 			// 先精确匹配参数数量
@@ -395,9 +480,19 @@ func (st *SymbolTable) GetMethod(className, methodName string, arity int) *Metho
 		}
 	}
 	
-	// 在父类中查找
+	// 在父类中查找 - 先直接查找
 	if parentName, ok := st.ClassParents[className]; ok && parentName != "" {
 		return st.GetMethod(parentName, methodName, arity)
+	}
+	
+	// 如果类名包含命名空间分隔符，也尝试用基类名查找父类
+	if strings.Contains(className, "\\") {
+		// 提取基类名
+		parts := strings.Split(className, "\\")
+		baseName := parts[len(parts)-1]
+		if parentName, ok := st.ClassParents[baseName]; ok && parentName != "" {
+			return st.GetMethod(parentName, methodName, arity)
+		}
 	}
 	
 	return nil
@@ -405,16 +500,50 @@ func (st *SymbolTable) GetMethod(className, methodName string, arity int) *Metho
 
 // GetProperty 获取属性签名
 func (st *SymbolTable) GetProperty(className, propName string) *PropertySignature {
-	// 首先在当前类中查找
+	// 提取基类名（去除泛型参数）
+	baseClassName := extractBaseTypeName(className)
+	
+	// 首先尝试直接查找
+	if sig := st.getPropertyDirect(baseClassName, propName); sig != nil {
+		return sig
+	}
+	
+	// 如果类名不包含命名空间分隔符，尝试在所有命名空间中查找
+	if !strings.Contains(baseClassName, "\\") {
+		suffix := "\\" + baseClassName
+		for fullClassName := range st.ClassProperties {
+			if strings.HasSuffix(fullClassName, suffix) || fullClassName == baseClassName {
+				if sig := st.getPropertyDirect(fullClassName, propName); sig != nil {
+					return sig
+				}
+			}
+		}
+	}
+	
+	return nil
+}
+
+// getPropertyDirect 直接在指定类中查找属性
+func (st *SymbolTable) getPropertyDirect(className, propName string) *PropertySignature {
+	// 在当前类中查找
 	if props, ok := st.ClassProperties[className]; ok {
 		if sig, ok := props[propName]; ok {
 			return sig
 		}
 	}
 	
-	// 在父类中查找
+	// 在父类中查找 - 先直接查找
 	if parentName, ok := st.ClassParents[className]; ok && parentName != "" {
 		return st.GetProperty(parentName, propName)
+	}
+	
+	// 如果类名包含命名空间分隔符，也尝试用基类名查找父类
+	if strings.Contains(className, "\\") {
+		parts := strings.Split(className, "\\")
+		baseName := parts[len(parts)-1]
+		if parentName, ok := st.ClassParents[baseName]; ok && parentName != "" {
+			return st.GetProperty(parentName, propName)
+		}
 	}
 	
 	return nil
@@ -430,19 +559,28 @@ func (st *SymbolTable) GetMethodReturnType(className, methodName string, arity i
 
 // CollectFromFile 从 AST 文件收集符号
 func (st *SymbolTable) CollectFromFile(file *ast.File) {
+	namespace := ""
+	if file.Namespace != nil {
+		namespace = file.Namespace.Name
+	}
+	
 	for _, decl := range file.Declarations {
 		switch d := decl.(type) {
 		case *ast.ClassDecl:
-			st.collectFromClass(d)
+			st.collectFromClass(d, namespace)
 		case *ast.InterfaceDecl:
-			st.collectFromInterface(d)
+			st.collectFromInterface(d, namespace)
 		}
 	}
 }
 
 // collectFromClass 从类声明收集符号
-func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
+func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 	className := decl.Name.Name
+	// 如果有命名空间，添加命名空间前缀
+	if namespace != "" {
+		className = namespace + "\\" + className
+	}
 	
 	// 收集泛型类型参数
 	if len(decl.TypeParams) > 0 {
@@ -465,7 +603,9 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 	
 	// 注册继承关系
 	if decl.Extends != nil {
-		st.RegisterClassParent(className, decl.Extends.Name)
+		// 提取基类名（去除泛型参数）
+		parentBaseName := extractBaseTypeName(decl.Extends.Name)
+		st.RegisterClassParent(className, parentBaseName)
 	}
 	
 	// 收集属性
@@ -526,8 +666,12 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl) {
 }
 
 // collectFromInterface 从接口声明收集符号
-func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl) {
+func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl, namespace string) {
 	interfaceName := decl.Name.Name
+	// 如果有命名空间，添加命名空间前缀
+	if namespace != "" {
+		interfaceName = namespace + "\\" + interfaceName
+	}
 	
 	// 收集泛型类型参数
 	if len(decl.TypeParams) > 0 {

@@ -1,0 +1,315 @@
+// Sola 标准库 - PostgreSQL 连接
+namespace sola.database.postgresql
+
+use sola.database.DatabaseException;
+use sola.net.tcp.TcpClient;
+
+/**
+ * PostgreSQL 数据库连接
+ * 
+ * 表示一个 PostgreSQL 数据库连接，提供查询和执行 SQL 的功能。
+ */
+public class PgConnection {
+    
+    /** TCP 客户端 */
+    private TcpClient $tcp;
+    
+    /** PostgreSQL 协议实现 */
+    private PgProtocol $protocol;
+    
+    /** 是否已关闭 */
+    private bool $closed = false;
+    
+    /**
+     * 构造函数（内部使用，由 PgPool 创建）
+     * 
+     * @param TcpClient $tcp TCP 客户端
+     * @param string $user 用户名
+     * @param string $password 密码
+     * @param string $database 数据库名
+     */
+    public function __construct(TcpClient $tcp, string $user, string $password, string $database) {
+        $this->tcp = $tcp;
+        $this->protocol = new PgProtocol($tcp);
+        
+        // 执行启动和认证
+        $this->protocol->startup($user, $password, $database);
+    }
+    
+    /**
+     * 执行查询 SQL（返回结果集）
+     * 
+     * @param string $sql SQL 语句
+     * @return PgResult 查询结果
+     * @throws DatabaseException 如果查询失败
+     */
+    public function query(string $sql): PgResult {
+        if ($this->closed || !$this->tcp->isConnected()) {
+            throw new DatabaseException("Connection is closed");
+        }
+        
+        return $this->protocol->query($sql);
+    }
+    
+    /**
+     * 执行 SQL（不返回结果集，用于 INSERT/UPDATE/DELETE）
+     * 
+     * @param string $sql SQL 语句
+     * @return int 受影响的行数
+     * @throws DatabaseException 如果执行失败
+     */
+    public function execute(string $sql): int {
+        if ($this->closed || !$this->tcp->isConnected()) {
+            throw new DatabaseException("Connection is closed");
+        }
+        
+        $this->protocol->query($sql);
+        return $this->protocol->getAffectedRows();
+    }
+    
+    /**
+     * 开始事务
+     * 
+     * @throws DatabaseException 如果开始事务失败
+     */
+    public function begin() {
+        $this->execute("BEGIN");
+    }
+    
+    /**
+     * 提交事务
+     * 
+     * @throws DatabaseException 如果提交失败
+     */
+    public function commit() {
+        $this->execute("COMMIT");
+    }
+    
+    /**
+     * 回滚事务
+     * 
+     * @throws DatabaseException 如果回滚失败
+     */
+    public function rollback() {
+        $this->execute("ROLLBACK");
+    }
+    
+    /**
+     * 检查连接是否有效
+     * 
+     * @return bool 连接是否有效
+     */
+    public function ping(): bool {
+        if ($this->closed) {
+            return false;
+        }
+        
+        if (!$this->tcp->isConnected()) {
+            return false;
+        }
+        
+        try {
+            $this->query("SELECT 1");
+            return true;
+        } catch ($e) {
+            return false;
+        }
+    }
+    
+    /**
+     * 关闭连接
+     */
+    public function close() {
+        if ($this->closed) {
+            return;
+        }
+        
+        $this->tcp->close();
+        $this->closed = true;
+    }
+    
+    /**
+     * 检查连接是否已关闭
+     * 
+     * @return bool 是否已关闭
+     */
+    public function isClosed(): bool {
+        return $this->closed;
+    }
+}
+
+/**
+ * PostgreSQL 查询结果
+ */
+public class PgResult {
+    
+    /** 列名数组 */
+    private string[] $columnNames;
+    
+    /** 行数据数组 */
+    private string[][] $rows;
+    
+    /** 当前行索引 */
+    private int $currentRow = -1;
+    
+    /** 行数 */
+    private int $rowCount = 0;
+    
+    /**
+     * 构造函数
+     * 
+     * @param string[] $columnNames 列名数组
+     * @param string[][] $rows 行数据数组
+     * @param int $rowCount 行数
+     */
+    public function __construct(string[] $columnNames, string[][] $rows, int $rowCount) {
+        $this->columnNames = $columnNames;
+        $this->rows = $rows;
+        $this->rowCount = $rowCount;
+    }
+    
+    /**
+     * 获取所有行
+     * 
+     * @return PgRow[] 所有行的数组
+     */
+    public function all(): PgRow[] {
+        $result := [];
+        for ($i := 0; $i < $this->rowCount; $i++) {
+            $result[] = new PgRow($this->columnNames, $this->rows[$i]);
+        }
+        return $result;
+    }
+    
+    /**
+     * 获取第一行
+     * 
+     * @return PgRow|null 第一行，如果没有数据返回 null
+     */
+    public function first(): PgRow|null {
+        if ($this->rowCount == 0) {
+            return null;
+        }
+        return new PgRow($this->columnNames, $this->rows[0]);
+    }
+    
+    /**
+     * 移动到下一行
+     * 
+     * @return bool 是否还有下一行
+     */
+    public function next(): bool {
+        $this->currentRow++;
+        return $this->currentRow < $this->rowCount;
+    }
+    
+    /**
+     * 获取当前行
+     * 
+     * @return PgRow 当前行数据
+     */
+    public function row(): PgRow {
+        if ($this->currentRow < 0 || $this->currentRow >= $this->rowCount) {
+            throw new DatabaseException("Invalid row index");
+        }
+        return new PgRow($this->columnNames, $this->rows[$this->currentRow]);
+    }
+    
+    /**
+     * 获取行数
+     * 
+     * @return int 行数
+     */
+    public function count(): int {
+        return $this->rowCount;
+    }
+    
+    /**
+     * 释放结果集
+     */
+    public function close() {
+        // 纯 Sola 实现，无需释放资源
+    }
+}
+
+/**
+ * PostgreSQL 行数据
+ */
+public class PgRow {
+    
+    /** 列名数组 */
+    private string[] $columnNames;
+    
+    /** 值数组 */
+    private string[] $values;
+    
+    /**
+     * 构造函数
+     * 
+     * @param string[] $columnNames 列名数组
+     * @param string[] $values 值数组
+     */
+    public function __construct(string[] $columnNames, string[] $values) {
+        $this->columnNames = $columnNames;
+        $this->values = $values;
+    }
+    
+    /**
+     * 获取指定列的值
+     * 
+     * @param string $columnName 列名
+     * @return string|null 列值，如果不存在返回 null
+     */
+    public function get(string $columnName): string|null {
+        for ($i := 0; $i < len($this->columnNames); $i++) {
+            if ($this->columnNames[$i] == $columnName) {
+                return $this->values[$i];
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 获取指定索引的值
+     * 
+     * @param int $index 索引
+     * @return string|null 值，如果索引无效返回 null
+     */
+    public function getAt(int $index): string|null {
+        if ($index < 0 || $index >= len($this->values)) {
+            return null;
+        }
+        return $this->values[$index];
+    }
+    
+    /**
+     * 获取所有列名
+     * 
+     * @return string[] 列名数组
+     */
+    public function columns(): string[] {
+        return $this->columnNames;
+    }
+    
+    /**
+     * 获取所有值
+     * 
+     * @return string[] 值数组
+     */
+    public function values(): string[] {
+        return $this->values;
+    }
+    
+    /**
+     * 转为映射（列名 => 值）
+     * 
+     * @return map[string]string 映射
+     */
+    public function toMap(): map[string]string {
+        $result := [];
+        for ($i := 0; $i < len($this->columnNames); $i++) {
+            $result[$this->columnNames[$i]] = $this->values[$i];
+        }
+        return $result;
+    }
+}

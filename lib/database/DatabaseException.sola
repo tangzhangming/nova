@@ -1,0 +1,53 @@
+// Sola 标准库 - 数据库异常
+namespace sola.database
+
+use sola.lang.Exception;
+
+/**
+ * 数据库异常
+ * 
+ * 表示数据库操作过程中发生的错误。
+ */
+public class DatabaseException extends Exception {
+    
+    /** 错误代码 */
+    private int $code = 0;
+    
+    /** SQL 状态码（PostgreSQL 等） */
+    private string $sqlState = "";
+    
+    /**
+     * 构造函数
+     * 
+     * @param string $message 错误消息
+     * @param int $code 错误代码
+     * @param string $sqlState SQL 状态码
+     */
+    public function __construct(string $message, int $code = 0, string $sqlState = "") {
+        parent::__construct($message, $code);
+        $this->code = $code;
+        $this->sqlState = $sqlState;
+    }
+    
+    /**
+     * 获取错误代码
+     * 
+     * @return int 错误代码
+     */
+    public function getCode(): int {
+        return $this->code;
+    }
+    
+    /**
+     * 获取 SQL 状态码
+     * 
+     * @return string SQL 状态码
+     */
+    public function getSqlState(): string {
+        return $this->sqlState;
+    }
+}
+
+
+
+

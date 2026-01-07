@@ -1,0 +1,61 @@
+// Sola 标准库 - 连接池统计信息
+namespace sola.database
+
+/**
+ * 连接池统计信息
+ * 
+ * 提供连接池的运行状态统计。
+ */
+public class PoolStats {
+    
+    /** 总连接数 */
+    public int $total = 0;
+    
+    /** 活跃连接数 */
+    public int $active = 0;
+    
+    /** 空闲连接数 */
+    public int $idle = 0;
+    
+    /** 等待获取连接的请求数 */
+    public int $waiting = 0;
+    
+    /** 已创建的连接总数（累计） */
+    public int $created = 0;
+    
+    /** 已关闭的连接总数（累计） */
+    public int $closed = 0;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+    }
+    
+    /**
+     * 获取连接池使用率（0.0 - 1.0）
+     * 
+     * @return float 使用率
+     */
+    public function usage(): float {
+        if ($this->total == 0) {
+            return 0.0;
+        }
+        return ($this->active * 1.0) / ($this->total * 1.0);
+    }
+    
+    /**
+     * 转为字符串
+     * 
+     * @return string 统计信息字符串
+     */
+    public function toString(): string {
+        return "PoolStats{total=" + $this->total + ", active=" + $this->active + 
+               ", idle=" + $this->idle + ", waiting=" + $this->waiting + 
+               ", created=" + $this->created + ", closed=" + $this->closed + "}";
+    }
+}
+
+
+
+

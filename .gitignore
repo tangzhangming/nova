@@ -3,5 +3,6 @@
 *.toml
 /idea/
 /.cursor/
-/examples/
 /docs/
+/tests/
+/examples/

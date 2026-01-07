@@ -1,0 +1,71 @@
+// Sola 标准库 - 数据库连接池配置
+namespace sola.database
+
+/**
+ * 连接池配置
+ * 
+ * 用于配置数据库连接池的各项参数。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.database.PoolConfig;
+ * 
+ * $config := new PoolConfig();
+ * $config->maxSize = 20;
+ * $config->minSize = 5;
+ * ```
+ */
+public class PoolConfig {
+    
+    /** 最大连接数 */
+    public int $maxSize = 10;
+    
+    /** 最小连接数（连接池初始化时创建） */
+    public int $minSize = 2;
+    
+    /** 连接最大空闲时间（秒），超过此时间的空闲连接将被关闭 */
+    public int $maxIdleTime = 300;
+    
+    /** 连接最大生存时间（秒），超过此时间的连接将被关闭 */
+    public int $maxLifetime = 3600;
+    
+    /** 获取连接超时时间（秒） */
+    public int $acquireTimeout = 30;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+    }
+    
+    /**
+     * 验证配置是否有效
+     * 
+     * @return bool 配置是否有效
+     */
+    public function validate(): bool {
+        if ($this->maxSize <= 0) {
+            return false;
+        }
+        if ($this->minSize < 0) {
+            return false;
+        }
+        if ($this->minSize > $this->maxSize) {
+            return false;
+        }
+        if ($this->maxIdleTime < 0) {
+            return false;
+        }
+        if ($this->maxLifetime < 0) {
+            return false;
+        }
+        if ($this->acquireTimeout < 0) {
+            return false;
+        }
+        return true;
+    }
+}
+
+
+
+

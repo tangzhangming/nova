@@ -19,7 +19,12 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	
 	// 保存并设置当前类名（用于类型推导）
 	prevClassName := c.currentClassName
-	c.currentClassName = decl.Name.Name
+	// 如果有命名空间，添加命名空间前缀
+	if c.currentNamespace != "" {
+		c.currentClassName = c.currentNamespace + "\\" + decl.Name.Name
+	} else {
+		c.currentClassName = decl.Name.Name
+	}
 	defer func() { c.currentClassName = prevClassName }()
 	
 	// 设置命名空间

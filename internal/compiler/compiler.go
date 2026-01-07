@@ -1871,6 +1871,17 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	switch cls := e.Class.(type) {
 	case *ast.Identifier:
 		className = cls.Name
+		// 如果类名不包含命名空间，且当前有命名空间，尝试添加命名空间前缀
+		if !strings.Contains(className, "\\") && c.currentNamespace != "" {
+			// 先尝试带命名空间的完整类名
+			fullName := c.currentNamespace + "\\" + className
+			// 检查符号表中是否存在（通过查找方法或属性）
+			if _, ok := c.symbolTable.ClassMethods[fullName]; ok {
+				className = fullName
+			} else if _, ok := c.symbolTable.ClassProperties[fullName]; ok {
+				className = fullName
+			}
+		}
 	case *ast.SelfExpr:
 		className = c.currentClassName // 使用当前类名
 		if className == "" {
@@ -1879,7 +1890,9 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.ParentExpr:
 		// 获取父类名
 		if c.currentClassName != "" {
-			if parent, ok := c.symbolTable.ClassParents[c.currentClassName]; ok {
+			// 提取基类名
+			baseClassName := c.extractBaseTypeName(c.currentClassName)
+			if parent, ok := c.symbolTable.ClassParents[baseClassName]; ok {
 				className = parent
 			}
 		}
@@ -2724,6 +2737,22 @@ func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 	// 从泛型类型中提取基类名（Box<int> -> Box）
 	baseType := c.extractBaseTypeName(objType)
 	
+	// 如果类型没有命名空间分隔符，尝试加上当前命名空间
+	if !strings.Contains(baseType, "\\") && !strings.Contains(baseType, ".") && c.currentNamespace != "" {
+		// 尝试反斜杠分隔符
+		fullType := c.currentNamespace + "\\" + baseType
+		if sig := c.symbolTable.GetMethod(fullType, e.Method.Name, len(e.Arguments)); sig != nil {
+			return sig.ReturnType
+		}
+		// 尝试点分隔符（如果命名空间用点）
+		fullType2 := strings.ReplaceAll(c.currentNamespace, ".", "\\") + "\\" + baseType
+		if fullType2 != fullType {
+			if sig := c.symbolTable.GetMethod(fullType2, e.Method.Name, len(e.Arguments)); sig != nil {
+				return sig.ReturnType
+			}
+		}
+	}
+	
 	// 获取方法签名
 	if sig := c.symbolTable.GetMethod(baseType, e.Method.Name, len(e.Arguments)); sig != nil {
 		return sig.ReturnType
@@ -2741,11 +2770,24 @@ func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
 	switch cls := e.Class.(type) {
 	case *ast.Identifier:
 		className = cls.Name
+		// 如果类名不包含命名空间，且当前有命名空间，尝试添加命名空间前缀
+		if !strings.Contains(className, "\\") && c.currentNamespace != "" {
+			// 先尝试带命名空间的完整类名
+			fullName := c.currentNamespace + "\\" + className
+			// 检查符号表中是否存在（通过查找方法或属性）
+			if _, ok := c.symbolTable.ClassMethods[fullName]; ok {
+				className = fullName
+			} else if _, ok := c.symbolTable.ClassProperties[fullName]; ok {
+				className = fullName
+			}
+		}
 	case *ast.SelfExpr:
 		className = c.currentClassName
 	case *ast.ParentExpr:
 		if c.currentClassName != "" {
-			if parent, ok := c.symbolTable.ClassParents[c.currentClassName]; ok {
+			// 提取基类名
+			baseClassName := c.extractBaseTypeName(c.currentClassName)
+			if parent, ok := c.symbolTable.ClassParents[baseClassName]; ok {
 				className = parent
 			}
 		}
@@ -2799,6 +2841,11 @@ func (c *Compiler) inferPropertyAccessType(e *ast.PropertyAccess) string {
 	if objType == "" {
 		c.error(e.Object.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
 		return "error"
+	}
+	
+	// any 类型允许任何属性访问
+	if objType == "any" || objType == "mixed" {
+		return "any"
 	}
 	
 	// 特殊属性
@@ -3105,6 +3152,14 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 	if expected == "array" && strings.HasSuffix(actual, "[]") {
 		return true
 	}
+	
+	// superarray 和 array 类型兼容
+	if actual == "superarray" && (expected == "array" || strings.HasSuffix(expected, "[]")) {
+		return true
+	}
+	if expected == "superarray" && (actual == "array" || strings.HasSuffix(actual, "[]")) {
+		return true
+	}
 	// 反向：具体数组类型接受通用 array（运行时可能出错，但编译期允许）
 	if actual == "array" && strings.HasSuffix(expected, "[]") {
 		return true
@@ -3125,6 +3180,20 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 		if _, exists := c.symbolTable.ClassMethods[actual]; exists {
 			return true
 		}
+	}
+	
+	// 命名空间匹配：sola.net.tcp\TcpClient 与 TcpClient 应匹配
+	// 提取基类名进行比较
+	actualBase := actual
+	if idx := strings.LastIndex(actual, "\\"); idx != -1 {
+		actualBase = actual[idx+1:]
+	}
+	expectedBase := expected
+	if idx := strings.LastIndex(expected, "\\"); idx != -1 {
+		expectedBase = expected[idx+1:]
+	}
+	if actualBase == expectedBase && actualBase != "" {
+		return true
 	}
 	
 	return false

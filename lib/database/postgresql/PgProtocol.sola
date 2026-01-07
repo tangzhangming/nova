@@ -1,0 +1,542 @@
+// Sola 标准库 - PostgreSQL Protocol 实现
+namespace sola.database.postgresql
+
+use sola.lang.{Str, Bytes};
+use sola.net.tcp.TcpClient;
+use sola.database.DatabaseException;
+use sola.crypto.Hash;
+use sola.util.Base64;
+
+/**
+ * PostgreSQL Protocol 实现
+ * 
+ * 实现 PostgreSQL 客户端协议，包括启动、认证、查询和结果集解析。
+ */
+public class PgProtocol {
+    
+    private TcpClient $tcp;
+    private int $lastInsertId = 0;
+    private int $affectedRows = 0;
+    
+    public function __construct(TcpClient $tcp) {
+        $this->tcp = $tcp;
+    }
+    
+    /**
+     * 执行启动和认证
+     */
+    public function startup(string $user, string $password, string $database): void {
+        // 构建启动消息
+        $startupMsg := $this->buildStartupMessage($user, $database);
+        $this->writeMessage($startupMsg);
+        
+        // 读取认证请求（第一个消息应该是 AuthenticationRequest，类型 'R'）
+        $authResponse := $this->readMessage();
+        if (len($authResponse) < 5) {
+            throw new DatabaseException("Invalid authentication response");
+        }
+        
+        // 检查消息类型（应该是 'R' = AuthenticationRequest）
+        $msgType := $this->getMessageType($authResponse);
+        if ($msgType != "R") {
+            throw new DatabaseException("Expected AuthenticationRequest, got: " + $msgType);
+        }
+        
+        // 读取认证类型（4字节，大端序，从位置1开始，因为位置0是消息类型）
+        $authType := ($authResponse[1] << 24) | ($authResponse[2] << 16) | 
+                     ($authResponse[3] << 8) | $authResponse[4];
+        
+        // 0 = AuthenticationOk
+        // 2 = KerberosV5
+        // 3 = CleartextPassword
+        // 5 = MD5Password
+        // 6 = SCMCredential
+        // 7 = GSS
+        // 9 = SSPI
+        // 10 = GSSContinue
+        // 11 = SASL
+        // 12 = SASLContinue
+        // 13 = SASLFinal
+        
+        if ($authType == 0) {
+            // AuthenticationOk，无需密码
+            return;
+        } else if ($authType == 3) {
+            // CleartextPassword
+            $passwordBytes := Bytes::fromString($password);
+            $passwordMsg := Bytes::alloc(len($passwordBytes) + 1);
+            for ($i := 0; $i < len($passwordBytes); $i++) {
+                $passwordMsg[$i] = $passwordBytes[$i];
+            }
+            $passwordMsg[len($passwordBytes)] = 0; // null terminator
+            $this->writeMessage($passwordMsg);
+        } else if ($authType == 5) {
+            // MD5Password，需要读取 salt（4字节）
+            if (len($authResponse) < 9) {
+                throw new DatabaseException("Invalid MD5 authentication response");
+            }
+            $salt := Bytes::slice($authResponse, 5, 9);
+            $md5Password := $this->calculateMd5Password($user, $password, $salt);
+            $md5Str := "md5" + $md5Password;
+            $md5Bytes := Bytes::fromString($md5Str);
+            $passwordMsg := Bytes::alloc(len($md5Bytes) + 1);
+            for ($i := 0; $i < len($md5Bytes); $i++) {
+                $passwordMsg[$i] = $md5Bytes[$i];
+            }
+            $passwordMsg[len($md5Bytes)] = 0; // null terminator
+            $this->writeMessage($passwordMsg);
+        } else {
+            throw new DatabaseException("Unsupported authentication type: " + $authType);
+        }
+        
+        // 读取认证结果
+        $authResult := $this->readMessage();
+        $resultType := $this->getMessageType($authResult);
+        
+        if ($resultType == "E") {
+            // ErrorResponse
+            $errorMsg := $this->parseErrorResponse($authResult);
+            throw new DatabaseException("Authentication failed: " + $errorMsg);
+        } else if ($resultType != "R") {
+            throw new DatabaseException("Unexpected message type: " + $resultType);
+        }
+        
+        // 读取认证类型（应该是 0 = AuthenticationOk）
+        // 位置1-4是认证类型（位置0是消息类型 'R'）
+        if (len($authResult) < 5) {
+            throw new DatabaseException("Invalid authentication result");
+        }
+        $finalAuthType := ($authResult[1] << 24) | ($authResult[2] << 16) | 
+                         ($authResult[3] << 8) | $authResult[4];
+        if ($finalAuthType != 0) {
+            throw new DatabaseException("Authentication failed with type: " + $finalAuthType);
+        }
+        
+        // 读取后续消息直到 ReadyForQuery
+        while (true) {
+            $msg := $this->readMessage();
+            $msgType := $this->getMessageType($msg);
+            if ($msgType == "Z") {
+                // ReadyForQuery
+                break;
+            } else if ($msgType == "E") {
+                // ErrorResponse
+                $errorMsg := $this->parseErrorResponse($msg);
+                throw new DatabaseException("Startup error: " + $errorMsg);
+            }
+            // 忽略其他消息（如 ParameterStatus, BackendKeyData 等）
+        }
+    }
+    
+    /**
+     * 执行查询
+     */
+    public function query(string $sql): PgResult {
+        // 发送 Query 消息（类型 'Q'）
+        $queryMsg := Bytes::alloc(1 + Str::length($sql) + 1);
+        $queryMsg[0] = 0x51; // 'Q'
+        $sqlBytes := Bytes::fromString($sql);
+        for ($i := 0; $i < len($sqlBytes); $i++) {
+            $queryMsg[$i + 1] = $sqlBytes[$i];
+        }
+        $queryMsg[len($queryMsg) - 1] = 0; // null terminator
+        $this->writeMessage($queryMsg);
+        
+        // 解析响应
+        return $this->parseQueryResponse();
+    }
+    
+    /**
+     * 获取最后插入的 ID（PostgreSQL 使用 RETURNING 子句）
+     */
+    public function getLastInsertId(): int {
+        return $this->lastInsertId;
+    }
+    
+    /**
+     * 获取受影响的行数
+     */
+    public function getAffectedRows(): int {
+        return $this->affectedRows;
+    }
+    
+    /**
+     * 构建启动消息
+     */
+    private function buildStartupMessage(string $user, string $database): byte[] {
+        // 启动消息格式：4字节长度 + 参数键值对 + null
+        // 参数：user, database, client_encoding, application_name 等
+        
+        // 计算消息长度
+        $length := 4; // 长度字段本身
+        $length = $length + Str::length("user") + 1 + Str::length($user) + 1;
+        $length = $length + Str::length("database") + 1 + Str::length($database) + 1;
+        $length = $length + Str::length("client_encoding") + 1 + Str::length("UTF8") + 1;
+        $length++; // 最后的 null
+        
+        $msg := Bytes::alloc($length);
+        $pos := 0;
+        
+        // 长度（稍后填充）
+        $pos = $pos + 4;
+        
+        // 参数键值对：user
+        $keyBytes := Bytes::fromString("user");
+        $valueBytes := Bytes::fromString($user);
+        for ($i := 0; $i < len($keyBytes); $i++) {
+            $msg[$pos] = $keyBytes[$i];
+            $pos++;
+        }
+        $msg[$pos] = 0; // null
+        $pos++;
+        for ($i := 0; $i < len($valueBytes); $i++) {
+            $msg[$pos] = $valueBytes[$i];
+            $pos++;
+        }
+        $msg[$pos] = 0; // null
+        $pos++;
+        
+        // 参数键值对：database
+        $keyBytes = Bytes::fromString("database");
+        $valueBytes = Bytes::fromString($database);
+        for ($i := 0; $i < len($keyBytes); $i++) {
+            $msg[$pos] = $keyBytes[$i];
+            $pos++;
+        }
+        $msg[$pos] = 0; // null
+        $pos++;
+        for ($i := 0; $i < len($valueBytes); $i++) {
+            $msg[$pos] = $valueBytes[$i];
+            $pos++;
+        }
+        $msg[$pos] = 0; // null
+        $pos++;
+        
+        // 参数键值对：client_encoding
+        $keyBytes = Bytes::fromString("client_encoding");
+        $valueBytes = Bytes::fromString("UTF8");
+        for ($i := 0; $i < len($keyBytes); $i++) {
+            $msg[$pos] = $keyBytes[$i];
+            $pos++;
+        }
+        $msg[$pos] = 0; // null
+        $pos++;
+        for ($i := 0; $i < len($valueBytes); $i++) {
+            $msg[$pos] = $valueBytes[$i];
+            $pos++;
+        }
+        $msg[$pos] = 0; // null
+        $pos++;
+        
+        $msg[$pos] = 0; // 最后的 null
+        $pos++;
+        
+        // 填充长度字段（大端序）
+        $msgLength := $pos;
+        $msg[0] = ($msgLength >> 24) & 0xff;
+        $msg[1] = ($msgLength >> 16) & 0xff;
+        $msg[2] = ($msgLength >> 8) & 0xff;
+        $msg[3] = $msgLength & 0xff;
+        
+        return $msg;
+    }
+    
+    /**
+     * 计算 MD5 密码
+     * md5(md5(password + user) + salt)
+     */
+    private function calculateMd5Password(string $user, string $password, byte[] $salt): string {
+        // md5(password + user)
+        $step1 := Hash::md5($password + $user);
+        $step1Bytes := Bytes::fromHex($step1);
+        
+        // 拼接 salt
+        $combined := Bytes::alloc(len($step1Bytes) + len($salt));
+        for ($i := 0; $i < len($step1Bytes); $i++) {
+            $combined[$i] = $step1Bytes[$i];
+        }
+        for ($i := 0; $i < len($salt); $i++) {
+            $combined[len($step1Bytes) + $i] = $salt[$i];
+        }
+        
+        // md5(combined)
+        $step2 := Hash::md5Bytes($combined);
+        return Bytes::toHex($step2);
+    }
+    
+    /**
+     * 读取一个 PostgreSQL 消息
+     */
+    private function readMessage(): byte[] {
+        // 读取长度（4字节，大端序）
+        $lenBytes := $this->tcp->readExact(4);
+        if (len($lenBytes) < 4) {
+            return Bytes::alloc(0);
+        }
+        
+        $length := ($lenBytes[0] << 24) | ($lenBytes[1] << 16) | 
+                   ($lenBytes[2] << 8) | $lenBytes[3];
+        
+        // 长度包括长度字段本身（4字节），所以实际数据长度是 length - 4
+        if ($length < 4) {
+            return Bytes::alloc(0);
+        }
+        
+        $dataLength := $length - 4;
+        if ($dataLength == 0) {
+            return Bytes::alloc(0);
+        }
+        
+        return $this->tcp->readExact($dataLength);
+    }
+    
+    /**
+     * 写入一个 PostgreSQL 消息
+     */
+    private function writeMessage(byte[] $data): void {
+        $length := len($data) + 4; // 包括长度字段本身
+        
+        $msg := Bytes::alloc($length);
+        
+        // 长度（大端序）
+        $msg[0] = ($length >> 24) & 0xff;
+        $msg[1] = ($length >> 16) & 0xff;
+        $msg[2] = ($length >> 8) & 0xff;
+        $msg[3] = $length & 0xff;
+        
+        // 数据
+        for ($i := 0; $i < len($data); $i++) {
+            $msg[$i + 4] = $data[$i];
+        }
+        
+        $this->tcp->writeBytes($msg);
+        $this->tcp->flush();
+    }
+    
+    /**
+     * 获取消息类型（第一个字节）
+     */
+    private function getMessageType(byte[] $msg): string {
+        if (len($msg) == 0) {
+            return "";
+        }
+        return "" + Str::charAt(Bytes::toString($msg), 0);
+    }
+    
+    /**
+     * 解析查询响应
+     */
+    private function parseQueryResponse(): PgResult {
+        $columnNames := [];
+        $rows := [];
+        
+        while (true) {
+            $msg := $this->readMessage();
+            if (len($msg) == 0) {
+                break;
+            }
+            
+            $msgType := $this->getMessageType($msg);
+            
+            if ($msgType == "T") {
+                // RowDescription
+                $columnNames = $this->parseRowDescription($msg);
+            } else if ($msgType == "D") {
+                // DataRow
+                $rowData := $this->parseDataRow($msg);
+                $rows[] = $rowData;
+            } else if ($msgType == "C") {
+                // CommandComplete
+                $this->parseCommandComplete($msg);
+            } else if ($msgType == "Z") {
+                // ReadyForQuery
+                break;
+            } else if ($msgType == "E") {
+                // ErrorResponse
+                $errorMsg := $this->parseErrorResponse($msg);
+                throw new DatabaseException("Query failed: " + $errorMsg);
+            } else if ($msgType == "I") {
+                // EmptyQueryResponse
+                // 忽略
+            } else {
+                // 其他消息类型，忽略
+            }
+        }
+        
+        return new PgResult($columnNames, $rows, len($rows));
+    }
+    
+    /**
+     * 解析 RowDescription
+     */
+    private function parseRowDescription(byte[] $msg): string[] {
+        $pos := 1; // 跳过类型字节
+        
+        // 读取列数（2字节，大端序）
+        if ($pos + 2 > len($msg)) {
+            return [];
+        }
+        $columnCount := ($msg[$pos] << 8) | $msg[$pos + 1];
+        $pos = $pos + 2;
+        
+        $columnNames := [];
+        
+        for ($i := 0; $i < $columnCount; $i++) {
+            // 跳过字段名（以null结尾）
+            $nameStart := $pos;
+            while ($pos < len($msg) && $msg[$pos] != 0) {
+                $pos++;
+            }
+            $nameLen := $pos - $nameStart;
+            if ($nameLen > 0) {
+                $nameBytes := Bytes::slice($msg, $nameStart, $pos);
+                $columnNames[] = Bytes::toString($nameBytes);
+            } else {
+                $columnNames[] = "column" + $i;
+            }
+            $pos++; // 跳过 null
+            
+            // 跳过其他字段（table OID, column number, data type OID, data type size, type modifier, format code）
+            // 每个字段都是固定长度或长度编码
+            // 简化处理：跳过 4 + 2 + 4 + 2 + 4 + 2 = 18 字节
+            if ($pos + 18 <= len($msg)) {
+                $pos = $pos + 18;
+            } else {
+                break;
+            }
+        }
+        
+        return $columnNames;
+    }
+    
+    /**
+     * 解析 DataRow
+     */
+    private function parseDataRow(byte[] $msg): string[] {
+        $pos := 1; // 跳过类型字节
+        
+        // 读取列数（2字节，大端序）
+        if ($pos + 2 > len($msg)) {
+            return [];
+        }
+        $columnCount := ($msg[$pos] << 8) | $msg[$pos + 1];
+        $pos = $pos + 2;
+        
+        $values := [];
+        
+        for ($i := 0; $i < $columnCount; $i++) {
+            if ($pos + 4 > len($msg)) {
+                $values[] = "";
+                continue;
+            }
+            
+            // 读取列长度（4字节，大端序，-1 表示 NULL）
+            $columnLength := ($msg[$pos] << 24) | ($msg[$pos + 1] << 16) | 
+                            ($msg[$pos + 2] << 8) | $msg[$pos + 3];
+            $pos = $pos + 4;
+            
+            if ($columnLength == -1) {
+                // NULL
+                $values[] = "";
+            } else if ($columnLength > 0 && $pos + $columnLength <= len($msg)) {
+                // 读取列值
+                $valueBytes := Bytes::slice($msg, $pos, $pos + $columnLength);
+                $values[] = Bytes::toString($valueBytes);
+                $pos = $pos + $columnLength;
+            } else {
+                $values[] = "";
+            }
+        }
+        
+        return $values;
+    }
+    
+    /**
+     * 解析 CommandComplete
+     */
+    private function parseCommandComplete(byte[] $msg): void {
+        // CommandComplete 格式：'C' + 长度 + 命令标签（以null结尾）
+        // 命令标签格式：INSERT oid count, UPDATE count, DELETE count, SELECT count 等
+        
+        if (len($msg) < 5) {
+            return;
+        }
+        
+        $tag := Bytes::toString(Bytes::slice($msg, 5, len($msg) - 1)); // 跳过 'C' + 长度 + null
+        
+        // 解析受影响的行数
+        $this->affectedRows = 0;
+        $this->lastInsertId = 0;
+        
+        // 查找数字
+        $words := Str::split($tag, " ");
+        $wordCount := len($words);
+        for ($i := 0; $i < $wordCount; $i++) {
+            $word := $words[$i];
+            if (Str::startsWith($word, "INSERT") && $i + 1 < $wordCount) {
+                // INSERT oid count
+                if ($i + 2 < $wordCount) {
+                    $this->lastInsertId = Str::toInt($words[$i + 1]);
+                    $this->affectedRows = Str::toInt($words[$i + 2]);
+                }
+            } else if (Str::startsWith($word, "UPDATE") || Str::startsWith($word, "DELETE")) {
+                if ($i + 1 < $wordCount) {
+                    $this->affectedRows = Str::toInt($words[$i + 1]);
+                }
+            } else if (Str::startsWith($word, "SELECT")) {
+                // SELECT 不返回受影响行数
+            }
+        }
+    }
+    
+    /**
+     * 解析 ErrorResponse
+     */
+    private function parseErrorResponse(byte[] $msg): string {
+        // ErrorResponse 格式：'E' + 长度 + 字段（类型字节 + 字符串 + null）* + null
+        // 字段类型：S=严重性, C=代码, M=消息, D=详情, H=提示, P=位置, p=内部位置, q=内部查询, W=警告, s=模式, t=表, c=列, F=文件, L=行, R=例程
+        
+        if (len($msg) < 5) {
+            return "Unknown error";
+        }
+        
+        $pos := 5; // 跳过 'E' + 长度
+        $errorMsg := "";
+        
+        while ($pos < len($msg) - 1) {
+            $fieldType := $msg[$pos];
+            $pos++;
+            
+            if ($fieldType == 0) {
+                // 结束
+                break;
+            }
+            
+            // 读取字段值（以null结尾）
+            $valueStart := $pos;
+            while ($pos < len($msg) && $msg[$pos] != 0) {
+                $pos++;
+            }
+            $valueLen := $pos - $valueStart;
+            if ($valueLen > 0) {
+                $valueBytes := Bytes::slice($msg, $valueStart, $pos);
+                $value := Bytes::toString($valueBytes);
+                
+                // M=消息是最重要的
+                if ($fieldType == 0x4d) { // 'M'
+                    $errorMsg = $value;
+                } else if ($errorMsg == "" && $fieldType == 0x53) { // 'S'
+                    $errorMsg = $value;
+                }
+            }
+            $pos++; // 跳过 null
+        }
+        
+        if ($errorMsg == "") {
+            return "Unknown error";
+        }
+        
+        return $errorMsg;
+    }
+}
+

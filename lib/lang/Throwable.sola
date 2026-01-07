@@ -8,7 +8,7 @@ public class Throwable {
     protected string $message = "";
     protected int $code = 0;
     protected ?Throwable $previous = null;
-    protected string[] $stackTrace = {};
+    protected string[] $stackTrace = [];
     protected string $file = "";
     protected int $line = 0;
 
@@ -100,7 +100,8 @@ public class Throwable {
         
         // 添加异常链
         if ($this->previous != null) {
-            $result = $result + "\nCaused by: " + $this->previous->__toString();
+            $prev := $this->previous as Throwable;
+            $result = $result + "\nCaused by: " + $prev->__toString();
         }
         
         return $result;

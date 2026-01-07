@@ -1,0 +1,342 @@
+// Sola 标准�?- 数据库连接池（通用抽象类）
+namespace sola.database
+
+use sola.lang.Str;
+use sola.time.Time;
+use sola.database.PoolConfig;
+use sola.database.PoolStats;
+use sola.database.DatabaseException;
+
+/**
+ * 连接池中的连接包�?
+ */
+public class PooledConnection<T> {
+    public T $connection;
+    public int $createdAt;      // 创建时间戳（秒）
+    public int $lastUsedAt;     // 最后使用时间戳（秒�?
+    
+    public function __construct(T $conn) {
+        $this->connection = $conn;
+        $this->createdAt = Time::now();
+        $this->lastUsedAt = $this->createdAt;
+    }
+    
+    public function updateLastUsed() {
+        $this->lastUsedAt = Time::now();
+    }
+    
+    public function isExpired(int $maxLifetime): bool {
+        $now := Time::now();
+        return ($now - $this->createdAt) > $maxLifetime;
+    }
+    
+    public function isIdleTooLong(int $maxIdleTime): bool {
+        $now := Time::now();
+        return ($now - $this->lastUsedAt) > $maxIdleTime;
+    }
+}
+
+/**
+ * 通用连接池抽象类
+ * 
+ * 提供连接池的核心功能，子类需要实现数据库特定的连接创建和验证逻辑�?
+ * 
+ * 使用示例�?
+ * ```sola
+ * // 子类实现
+ * public class MysqlPool extends ConnectionPool<MysqlConnection> {
+ *     protected function createConnection(): MysqlConnection {
+ *         // MySQL 特定实现
+ *     }
+ * }
+ * ```
+ */
+public abstract class ConnectionPool<T> {
+    
+    /** 连接池配�?*/
+    protected PoolConfig $config;
+    
+    /** 空闲连接列表 */
+    protected array $idle;
+    
+    /** 活跃连接�?*/
+    protected int $active;
+    
+    /** 总连接数 */
+    protected int $total;
+    
+    /** 等待队列（等待获取连接的请求�?*/
+    protected int $waiting;
+    
+    /** 统计信息 */
+    protected PoolStats $stats;
+    
+    /** 是否已关�?*/
+    protected bool $closed;
+    
+    /**
+     * 构造函�?
+     * 
+     * @param PoolConfig $config 连接池配�?
+     */
+    public function __construct(PoolConfig $config) {
+        if (!$config->validate()) {
+            throw new DatabaseException("Invalid pool configuration");
+        }
+        
+        $this->config = $config;
+        $this->idle = [];
+        $this->active = 0;
+        $this->total = 0;
+        $this->waiting = 0;
+        $this->closed = false;
+        
+        $this->stats = new PoolStats();
+        
+        // 初始化最小连接数
+        $this->initialize();
+    }
+    
+    /**
+     * 初始化连接池（创建最小连接数�?
+     */
+    private function initialize() {
+        for ($i := 0; $i < $this->config->minSize; $i++) {
+            $conn := $this->createConnection();
+            if ($conn != null) {
+                $pooled := new PooledConnection($conn);
+                push($this->idle, $pooled);
+                $this->total++;
+                $this->stats->created++;
+            }
+        }
+    }
+    
+    /**
+     * 获取连接（抽象方法，由子类实现）
+     * 
+     * @return T 数据库连接对�?
+     */
+    protected abstract function createConnection(): T;
+    
+    /**
+     * 验证连接是否有效（抽象方法，由子类实现）
+     * 
+     * @param T $conn 连接对象
+     * @return bool 连接是否有效
+     */
+    protected abstract function validateConnection(T $conn): bool;
+    
+    /**
+     * 关闭连接（抽象方法，由子类实现）
+     * 
+     * @param T $conn 连接对象
+     */
+    protected abstract function closeConnection(T $conn);
+    
+    /**
+     * 从连接池获取连接
+     * 
+     * @return T 数据库连接对�?
+     * @throws DatabaseException 如果获取连接失败或超�?
+     */
+    public function get(): T {
+        if ($this->closed) {
+            throw new DatabaseException("Connection pool is closed");
+        }
+        
+        $startTime := Time::now();
+        
+        while (true) {
+            // 检查超�?
+            $elapsed := Time::now() - $startTime;
+            if ($elapsed > $this->config->acquireTimeout) {
+                throw new DatabaseException("Failed to acquire connection: timeout");
+            }
+            
+            // 清理过期连接
+            $this->cleanup();
+            
+            // 尝试从空闲池获取
+            if (len($this->idle) > 0) {
+                $pooled := $this->idle[0];
+                // 移除第一个元�?
+                $newIdle := [];
+                for ($i := 1; $i < len($this->idle); $i++) {
+                    push($newIdle, $this->idle[$i]);
+                }
+                $this->idle = $newIdle;
+                
+                // 验证连接
+                if ($this->validateConnection($pooled->connection)) {
+                    $pooled->updateLastUsed();
+                    $this->active++;
+                    $this->stats->active = $this->active;
+                    $this->stats->idle = len($this->idle);
+                    return $pooled->connection;
+                } else {
+                    // 连接无效，关闭并创建新连�?
+                    $this->closeConnection($pooled->connection);
+                    $this->total--;
+                    $this->stats->closed++;
+                }
+            }
+            
+            // 如果未达到最大连接数，创建新连接
+            if ($this->total < $this->config->maxSize) {
+                $conn := $this->createConnection();
+                if ($conn != null) {
+                    $this->total++;
+                    $this->active++;
+                    $this->stats->created++;
+                    $this->stats->total = $this->total;
+                    $this->stats->active = $this->active;
+                    $this->stats->idle = len($this->idle);
+                    return $conn;
+                }
+            }
+            
+            // 等待一段时间后重试（简化实现，实际应该使用信号量）
+            // 这里使用简单的忙等�?
+            $this->waiting++;
+            $this->stats->waiting = $this->waiting;
+            
+            // 简单延迟（实际应该使用 native 函数�?
+            // 休眠 10 毫秒，避免忙循环导致内存暴涨
+            Time::sleep(10);
+            
+            $this->waiting--;
+            $this->stats->waiting = $this->waiting;
+        }
+    }
+    
+    /**
+     * 归还连接到池�?
+     * 
+     * @param T $conn 连接对象
+     */
+    public function put(T $conn) {
+        if ($this->closed) {
+            $this->closeConnection($conn);
+            return;
+        }
+        
+        if ($conn == null) {
+            return;
+        }
+        
+        // 验证连接
+        if (!$this->validateConnection($conn)) {
+            $this->closeConnection($conn);
+            $this->total--;
+            $this->active--;
+            $this->stats->closed++;
+            $this->stats->total = $this->total;
+            $this->stats->active = $this->active;
+            return;
+        }
+        
+        // 如果空闲池已满，关闭连接
+        if (len($this->idle) >= $this->config->maxSize) {
+            $this->closeConnection($conn);
+            $this->total--;
+            $this->active--;
+            $this->stats->closed++;
+        } else {
+            // 归还到空闲池
+            $pooled := new PooledConnection($conn);
+            $pooled->updateLastUsed();
+            push($this->idle, $pooled);
+            $this->active--;
+            $this->stats->idle = len($this->idle);
+            $this->stats->active = $this->active;
+        }
+    }
+    
+    /**
+     * 清理过期和空闲时间过长的连接
+     */
+    protected function cleanup() {
+        // 先检查是否有需要删除的元素，避免不必要的数组分配
+        $hasExpired := false;
+        for ($i := 0; $i < len($this->idle); $i++) {
+            $pooled := $this->idle[$i];
+            if ($pooled->isExpired($this->config->maxLifetime) || 
+                $pooled->isIdleTooLong($this->config->maxIdleTime)) {
+                $hasExpired = true;
+                break;
+            }
+        }
+        
+        // 如果没有需要删除的元素，直接返回，避免创建新数组
+        if (!$hasExpired) {
+            return;
+        }
+        
+        // 有元素需要删除，创建新数组
+        $newIdle := [];
+        for ($i := 0; $i < len($this->idle); $i++) {
+            $pooled := $this->idle[$i];
+            
+            // 检查是否过�?
+            if ($pooled->isExpired($this->config->maxLifetime)) {
+                $this->closeConnection($pooled->connection);
+                $this->total--;
+                $this->stats->closed++;
+                continue;
+            }
+            
+            // 检查空闲时间是否过�?
+            if ($pooled->isIdleTooLong($this->config->maxIdleTime)) {
+                $this->closeConnection($pooled->connection);
+                $this->total--;
+                $this->stats->closed++;
+                continue;
+            }
+            
+            push($newIdle, $pooled);
+        }
+        
+        $this->idle = $newIdle;
+        $this->stats->idle = len($this->idle);
+        $this->stats->total = $this->total;
+    }
+    
+    /**
+     * 关闭连接�?
+     */
+    public function close() {
+        if ($this->closed) {
+            return;
+        }
+        
+        $this->closed = true;
+        
+        // 关闭所有空闲连�?
+        for ($i := 0; $i < len($this->idle); $i++) {
+            $this->closeConnection($this->idle[$i]->connection);
+            $this->stats->closed++;
+        }
+        
+        $this->idle = [];
+        $this->total = 0;
+        $this->active = 0;
+        $this->stats->total = 0;
+        $this->stats->active = 0;
+        $this->stats->idle = 0;
+    }
+    
+    /**
+     * 获取连接池统计信�?
+     * 
+     * @return PoolStats 统计信息
+     */
+    public function stats(): PoolStats {
+        $this->stats->total = $this->total;
+        $this->stats->active = $this->active;
+        $this->stats->idle = len($this->idle);
+        $this->stats->waiting = $this->waiting;
+        return $this->stats;
+    }
+}
+
