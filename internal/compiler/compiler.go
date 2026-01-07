@@ -2782,12 +2782,17 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) {
 		// 跳转过来时，栈上有 [matched_value, false]，需要弹出 false
 		if len(nextCaseJumps) > 0 {
 			for _, jump := range nextCaseJumps {
-				c.patchJump(jump)
+				if jump >= 0 {
+					c.patchJump(jump)
+				}
 			}
 			c.emit(bytecode.OpPop) // 弹出 false（之前的匹配失败）
 			nextCaseJumps = nil
 		}
-		_ = i
+		
+		// 用于类型模式的变量绑定
+		var boundVarName string
+		var boundVarType string
 		
 		// 编译模式匹配
 		switch p := case_.Pattern.(type) {
@@ -2816,18 +2821,82 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) {
 			nextJump := c.emitJump(bytecode.OpJumpIfFalse)
 			c.emit(bytecode.OpPop) // 弹出 true（匹配成功）
 			nextCaseJumps = append(nextCaseJumps, nextJump)
+			
+			// 如果有变量绑定，记录变量信息
+			if p.Variable != nil {
+				boundVarName = p.Variable.Name
+				boundVarType = typeName
+			}
+		}
+		
+		// 如果有变量绑定，创建局部变量
+		// 栈上现在是 [matched_value]，我们需要复制它并绑定到变量
+		hasBinding := boundVarName != ""
+		var prevLocalCount int
+		if hasBinding {
+			c.emit(bytecode.OpDup) // 复制被匹配的值，栈: [matched_value, matched_value_copy]
+			// 直接添加局部变量（不使用 beginScope/endScope）
+			prevLocalCount = c.localCount
+			c.addLocalWithType(boundVarName, boundVarType)
+			// 栈: [matched_value]，变量 $n 引用栈位置
 		}
 		
 		// 检查守卫条件（如果有）
-		if case_.Guard != nil {
+		// 守卫条件中可以使用绑定的变量
+		hasGuard := case_.Guard != nil
+		if hasGuard {
 			c.compileExpr(case_.Guard)
-			nextJump := c.emitJump(bytecode.OpJumpIfFalse)
-			c.emit(bytecode.OpPop) // 弹出 true
-			nextCaseJumps = append(nextCaseJumps, nextJump)
+			guardJump := c.emitJump(bytecode.OpJumpIfFalse)
+			c.emit(bytecode.OpPop) // 弹出 true（守卫成功）
+			
+			// ====== 守卫成功路径 ======
+			// 编译 body
+			c.compileExpr(case_.Body)
+			
+			// 如果有变量绑定，手动弹出绑定的变量
+			if hasBinding {
+				c.emit(bytecode.OpSwap)
+				c.emit(bytecode.OpPop)
+				c.localCount = prevLocalCount
+			}
+			
+			// 交换并弹出被匹配的值
+			c.emit(bytecode.OpSwap)
+			c.emit(bytecode.OpPop)
+			
+			// 跳转到 match 结束
+			bodyEndJump := c.emitJump(bytecode.OpJump)
+			endJumps = append(endJumps, bodyEndJump)
+			
+			// ====== 守卫失败路径 ======
+			c.patchJump(guardJump)
+			// 注意：此时栈上有 [matched_value, bound_var (如果有), false]
+			// 需要清理到只剩 [matched_value, false]，这样下一个 case 可以统一处理
+			
+			// 如果有变量绑定，需要先交换 false 和 bound_var，然后弹出 bound_var
+			if hasBinding {
+				// 栈: [matched_value, bound_var, false]
+				c.emit(bytecode.OpSwap) // [matched_value, false, bound_var]
+				c.emit(bytecode.OpPop)  // [matched_value, false]
+				c.localCount = prevLocalCount
+			}
+			// 现在栈: [matched_value, false]
+			// 跳转到下一个 case
+			guardFailJump := c.emitJump(bytecode.OpJump)
+			nextCaseJumps = append(nextCaseJumps, guardFailJump)
+			continue
 		}
 		
-		// 匹配成功，编译 body
+		// ====== 没有守卫条件的情况 ======
+		// 编译 body
 		c.compileExpr(case_.Body)
+		
+		// 如果有变量绑定，手动弹出绑定的变量
+		if hasBinding {
+			c.emit(bytecode.OpSwap)
+			c.emit(bytecode.OpPop)
+			c.localCount = prevLocalCount
+		}
 		
 		// 交换栈顶：现在栈上是 [被匹配的值, body结果]
 		// 需要变成 [body结果]
@@ -2843,7 +2912,9 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) {
 	
 	// 修补之前的跳转（处理最后一个 case 失败的情况）
 	for _, jump := range nextCaseJumps {
-		c.patchJump(jump)
+		if jump >= 0 {
+			c.patchJump(jump)
+		}
 	}
 	
 	// 修补所有跳转到结束的跳转
