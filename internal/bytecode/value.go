@@ -15,18 +15,19 @@ const (
 	ValFloat
 	ValString
 	ValArray
-	ValFixedArray  // 定长数组
-	ValBytes       // 字节数组类型
+	ValFixedArray   // 定长数组
+	ValBytes        // 字节数组类型
 	ValMap
-	ValSuperArray  // PHP风格万能数组
+	ValSuperArray   // PHP风格万能数组
 	ValObject
 	ValFunc
 	ValClosure
 	ValClass
 	ValMethod
 	ValIterator
-	ValEnum      // 枚举值
-	ValException // 异常值
+	ValEnum         // 枚举值
+	ValException    // 异常值
+	ValStringBuilder // 字符串构建器（用于高效拼接）
 )
 
 // FixedArray 定长数组
@@ -391,6 +392,63 @@ func NewFloat(f float64) Value {
 // NewString 创建字符串值
 func NewString(s string) Value {
 	return Value{Type: ValString, Data: s}
+}
+
+// StringBuilder 字符串构建器（用于高效拼接）
+type StringBuilder struct {
+	Parts []string // 待拼接的字符串片段
+	Len   int      // 总长度（预计算，用于 strings.Builder 预分配）
+}
+
+// NewStringBuilder 创建字符串构建器
+func NewStringBuilder() *StringBuilder {
+	return &StringBuilder{
+		Parts: make([]string, 0, 4),
+		Len:   0,
+	}
+}
+
+// Append 追加字符串
+func (sb *StringBuilder) Append(s string) {
+	sb.Parts = append(sb.Parts, s)
+	sb.Len += len(s)
+}
+
+// AppendValue 追加值（转换为字符串）
+func (sb *StringBuilder) AppendValue(v Value) {
+	s := v.String()
+	sb.Parts = append(sb.Parts, s)
+	sb.Len += len(s)
+}
+
+// Build 构建最终字符串
+func (sb *StringBuilder) Build() string {
+	if len(sb.Parts) == 0 {
+		return ""
+	}
+	if len(sb.Parts) == 1 {
+		return sb.Parts[0]
+	}
+	// 使用 strings.Builder 高效拼接
+	var builder strings.Builder
+	builder.Grow(sb.Len)
+	for _, part := range sb.Parts {
+		builder.WriteString(part)
+	}
+	return builder.String()
+}
+
+// NewStringBuilderValue 创建字符串构建器值
+func NewStringBuilderValue(sb *StringBuilder) Value {
+	return Value{Type: ValStringBuilder, Data: sb}
+}
+
+// AsStringBuilder 获取字符串构建器
+func (v Value) AsStringBuilder() *StringBuilder {
+	if v.Type == ValStringBuilder {
+		return v.Data.(*StringBuilder)
+	}
+	return nil
 }
 
 // NewArray 创建数组值

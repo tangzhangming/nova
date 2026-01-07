@@ -433,6 +433,32 @@ func (vm *VM) execute() InterpretResult {
 			result := bytecode.NewString(a.AsString() + b.AsString())
 			vm.push(result)
 
+		// 字符串构建器操作（用于高效多字符串拼接）
+		case bytecode.OpStringBuilderNew:
+			sb := bytecode.NewStringBuilder()
+			vm.push(bytecode.NewStringBuilderValue(sb))
+
+		case bytecode.OpStringBuilderAdd:
+			value := vm.pop()
+			sbVal := vm.pop()
+			sb := sbVal.AsStringBuilder()
+			if sb != nil {
+				sb.AppendValue(value)
+				vm.push(sbVal) // 返回构建器自身，支持链式调用
+			} else {
+				return vm.runtimeError("expected StringBuilder")
+			}
+
+		case bytecode.OpStringBuilderBuild:
+			sbVal := vm.pop()
+			sb := sbVal.AsStringBuilder()
+			if sb != nil {
+				result := sb.Build()
+				vm.push(bytecode.NewString(result))
+			} else {
+				return vm.runtimeError("expected StringBuilder")
+			}
+
 		// 跳转
 		case bytecode.OpJump:
 			offset := chunk.ReadI16(frame.IP)

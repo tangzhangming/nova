@@ -58,6 +58,10 @@ type GC struct {
 	leakReports      []LeakReport              // 泄漏报告
 	cycleDetection   bool                      // 是否启用循环引用检测
 	detectedCycles   []CycleInfo               // 检测到的循环引用
+
+	// 对象池 - 减少内存分配和 GC 压力
+	arrayPool        *ObjectPool // 数组对象池
+	stringBuilderPool *ObjectPool // StringBuilder 对象池
 }
 
 // AllocationInfo 分配点信息
@@ -82,9 +86,62 @@ type CycleInfo struct {
 	Path    []uintptr // 循环路径
 }
 
+// ObjectPool 对象池
+type ObjectPool struct {
+	pool      []interface{} // 可复用对象池
+	maxSize   int           // 池最大容量
+	newFunc   func() interface{} // 创建新对象的函数
+	resetFunc func(interface{}) // 重置对象的函数
+	
+	// 统计信息
+	hits   int64 // 命中次数（从池中获取）
+	misses int64 // 未命中次数（需要新创建）
+}
+
+// NewObjectPool 创建对象池
+func NewObjectPool(maxSize int, newFunc func() interface{}, resetFunc func(interface{})) *ObjectPool {
+	return &ObjectPool{
+		pool:      make([]interface{}, 0, maxSize),
+		maxSize:   maxSize,
+		newFunc:   newFunc,
+		resetFunc: resetFunc,
+	}
+}
+
+// Get 从池中获取对象
+func (p *ObjectPool) Get() interface{} {
+	if len(p.pool) > 0 {
+		// 从池尾取出对象
+		obj := p.pool[len(p.pool)-1]
+		p.pool = p.pool[:len(p.pool)-1]
+		p.hits++
+		return obj
+	}
+	// 池为空，创建新对象
+	p.misses++
+	return p.newFunc()
+}
+
+// Put 归还对象到池
+func (p *ObjectPool) Put(obj interface{}) {
+	if len(p.pool) < p.maxSize {
+		// 重置对象状态
+		if p.resetFunc != nil {
+			p.resetFunc(obj)
+		}
+		p.pool = append(p.pool, obj)
+	}
+	// 池满，丢弃对象（让 GC 回收）
+}
+
+// Stats 获取池统计信息
+func (p *ObjectPool) Stats() (hits, misses int64, poolSize int) {
+	return p.hits, p.misses, len(p.pool)
+}
+
 // NewGC 创建垃圾回收器
 func NewGC() *GC {
-	return &GC{
+	gc := &GC{
 		heap:             make([]GCObject, 0, 64),
 		objects:          make(map[uintptr]*GCObjectWrapper, 64),
 		grayList:         make([]GCObject, 0, 32),
@@ -100,6 +157,73 @@ func NewGC() *GC {
 		cycleDetection:   false,
 		detectedCycles:   nil,
 	}
+	
+	// 初始化对象池
+	gc.arrayPool = NewObjectPool(32, 
+		func() interface{} { return make([]bytecode.Value, 0, 8) },
+		func(obj interface{}) {
+			arr := obj.([]bytecode.Value)
+			// 清空数组但保留容量
+			for i := range arr {
+				arr[i] = bytecode.NullValue
+			}
+		},
+	)
+	
+	gc.stringBuilderPool = NewObjectPool(16,
+		func() interface{} { return bytecode.NewStringBuilder() },
+		func(obj interface{}) {
+			sb := obj.(*bytecode.StringBuilder)
+			sb.Parts = sb.Parts[:0]
+			sb.Len = 0
+		},
+	)
+	
+	return gc
+}
+
+// GetArrayFromPool 从池中获取数组
+func (gc *GC) GetArrayFromPool() []bytecode.Value {
+	return gc.arrayPool.Get().([]bytecode.Value)
+}
+
+// ReturnArrayToPool 归还数组到池
+func (gc *GC) ReturnArrayToPool(arr []bytecode.Value) {
+	// 只归还小数组
+	if cap(arr) <= 64 {
+		gc.arrayPool.Put(arr[:0])
+	}
+}
+
+// GetStringBuilderFromPool 从池中获取 StringBuilder
+func (gc *GC) GetStringBuilderFromPool() *bytecode.StringBuilder {
+	return gc.stringBuilderPool.Get().(*bytecode.StringBuilder)
+}
+
+// ReturnStringBuilderToPool 归还 StringBuilder 到池
+func (gc *GC) ReturnStringBuilderToPool(sb *bytecode.StringBuilder) {
+	gc.stringBuilderPool.Put(sb)
+}
+
+// GetPoolStats 获取对象池统计信息
+func (gc *GC) GetPoolStats() map[string]map[string]int64 {
+	stats := make(map[string]map[string]int64)
+	
+	arrayHits, arrayMisses, arraySize := gc.arrayPool.Stats()
+	stats["array"] = map[string]int64{
+		"hits":   arrayHits,
+		"misses": arrayMisses,
+		"size":   int64(arraySize),
+	}
+	
+	sbHits, sbMisses, sbSize := gc.stringBuilderPool.Stats()
+	stats["stringBuilder"] = map[string]int64{
+		"hits":   sbHits,
+		"misses": sbMisses,
+		"size":   int64(sbSize),
+	}
+	
+	return stats
 }
 
 // SetEnabled 启用/禁用 GC

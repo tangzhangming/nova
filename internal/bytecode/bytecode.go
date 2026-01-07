@@ -60,7 +60,10 @@ const (
 	OpShr    // 右移
 
 	// 字符串操作
-	OpConcat // 字符串拼接
+	OpConcat            // 字符串拼接
+	OpStringBuilderNew  // 创建字符串构建器
+	OpStringBuilderAdd  // 向构建器追加字符串
+	OpStringBuilderBuild // 构建最终字符串
 
 	// 跳转指令
 	OpJump        // 无条件跳转 (offset: i16)
@@ -183,9 +186,12 @@ var opNames = map[OpCode]string{
 	OpBitXor:      "BIT_XOR",
 	OpBitNot:      "BIT_NOT",
 	OpShl:         "SHL",
-	OpShr:         "SHR",
-	OpConcat:      "CONCAT",
-	OpJump:        "JUMP",
+	OpShr:                "SHR",
+	OpConcat:             "CONCAT",
+	OpStringBuilderNew:   "STRING_BUILDER_NEW",
+	OpStringBuilderAdd:   "STRING_BUILDER_ADD",
+	OpStringBuilderBuild: "STRING_BUILDER_BUILD",
+	OpJump:               "JUMP",
 	OpJumpIfFalse: "JUMP_IF_FALSE",
 	OpJumpIfTrue:  "JUMP_IF_TRUE",
 	OpLoop:        "LOOP",
