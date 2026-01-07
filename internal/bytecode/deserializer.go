@@ -57,6 +57,24 @@ func (d *Deserializer) Deserialize() (*CompiledFile, error) {
 		return nil, fmt.Errorf("failed to read enums: %w", err)
 	}
 
+	// 字节码验证：验证主函数
+	if err := VerifyFunction(fn); err != nil {
+		return nil, fmt.Errorf("字节码验证失败: %w", err)
+	}
+
+	// 验证所有类的方法
+	for _, class := range classes {
+		for _, methods := range class.Methods {
+			for _, method := range methods {
+				if method.Chunk != nil {
+					if err := VerifyChunk(method.Chunk); err != nil {
+						return nil, fmt.Errorf("类 %s 的方法 %s 字节码验证失败: %w", class.Name, method.Name, err)
+					}
+				}
+			}
+		}
+	}
+
 	return &CompiledFile{
 		MainFunction: fn,
 		Classes:      classes,

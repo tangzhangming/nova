@@ -253,7 +253,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	return fn
 }
 
-// evaluateConstExpr 计算常量表达式的值（用于默认参数）
+// evaluateConstExpr 计算常量表达式的值（用于默认参数和常量折叠）
 func (c *Compiler) evaluateConstExpr(expr ast.Expression) bytecode.Value {
 	switch e := expr.(type) {
 	case *ast.IntegerLiteral:
@@ -272,10 +272,222 @@ func (c *Compiler) evaluateConstExpr(expr ast.Expression) bytecode.Value {
 			arr[i] = c.evaluateConstExpr(elem)
 		}
 		return bytecode.NewArray(arr)
+	case *ast.BinaryExpr:
+		// 尝试折叠二元表达式
+		return c.foldBinaryExpr(e)
+	case *ast.UnaryExpr:
+		// 尝试折叠一元表达式
+		return c.foldUnaryExpr(e)
 	default:
-		// 非常量表达式，返回 null
+		// 非常量表达式，返回 null 标记
 		return bytecode.NullValue
 	}
+}
+
+// isConstExpr 检查表达式是否为常量表达式
+func (c *Compiler) isConstExpr(expr ast.Expression) bool {
+	val := c.evaluateConstExpr(expr)
+	return !val.IsNull() || expr == nil // null 也是常量
+}
+
+// foldBinaryExpr 折叠二元常量表达式
+func (c *Compiler) foldBinaryExpr(e *ast.BinaryExpr) bytecode.Value {
+	leftVal := c.evaluateConstExpr(e.Left)
+	rightVal := c.evaluateConstExpr(e.Right)
+	
+	// 如果任一操作数不是常量，返回 null 标记
+	if leftVal.IsNull() && !isNullLiteral(e.Left) {
+		return bytecode.NullValue
+	}
+	if rightVal.IsNull() && !isNullLiteral(e.Right) {
+		return bytecode.NullValue
+	}
+	
+	// 根据运算符类型进行常量折叠
+	switch e.Operator.Type {
+	case token.PLUS:
+		// 加法：字符串拼接或数值相加
+		if leftVal.Type == bytecode.ValString || rightVal.Type == bytecode.ValString {
+			return bytecode.NewString(leftVal.String() + rightVal.String())
+		}
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() + rightVal.AsInt())
+		}
+		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+			leftFloat := toFloat(leftVal)
+			rightFloat := toFloat(rightVal)
+			return bytecode.NewFloat(leftFloat + rightFloat)
+		}
+	case token.MINUS:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() - rightVal.AsInt())
+		}
+		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+			leftFloat := toFloat(leftVal)
+			rightFloat := toFloat(rightVal)
+			return bytecode.NewFloat(leftFloat - rightFloat)
+		}
+	case token.STAR:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() * rightVal.AsInt())
+		}
+		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+			leftFloat := toFloat(leftVal)
+			rightFloat := toFloat(rightVal)
+			return bytecode.NewFloat(leftFloat * rightFloat)
+		}
+	case token.SLASH:
+		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+			leftFloat := toFloat(leftVal)
+			rightFloat := toFloat(rightVal)
+			if rightFloat == 0 {
+				// 除零错误，不折叠
+				return bytecode.NullValue
+			}
+			return bytecode.NewFloat(leftFloat / rightFloat)
+		}
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			rightInt := rightVal.AsInt()
+			if rightInt == 0 {
+				// 除零错误，不折叠
+				return bytecode.NullValue
+			}
+			// 整数除法
+			return bytecode.NewInt(leftVal.AsInt() / rightInt)
+		}
+	case token.PERCENT:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			rightInt := rightVal.AsInt()
+			if rightInt == 0 {
+				// 模零错误，不折叠
+				return bytecode.NullValue
+			}
+			return bytecode.NewInt(leftVal.AsInt() % rightInt)
+		}
+	case token.EQ:
+		return bytecode.NewBool(leftVal.Equals(rightVal))
+	case token.NE:
+		return bytecode.NewBool(!leftVal.Equals(rightVal))
+	case token.LT:
+		return bytecode.NewBool(compareValues(leftVal, rightVal) < 0)
+	case token.LE:
+		return bytecode.NewBool(compareValues(leftVal, rightVal) <= 0)
+	case token.GT:
+		return bytecode.NewBool(compareValues(leftVal, rightVal) > 0)
+	case token.GE:
+		return bytecode.NewBool(compareValues(leftVal, rightVal) >= 0)
+	case token.BIT_AND:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() & rightVal.AsInt())
+		}
+	case token.BIT_OR:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() | rightVal.AsInt())
+		}
+	case token.BIT_XOR:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() ^ rightVal.AsInt())
+		}
+	case token.LEFT_SHIFT:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() << rightVal.AsInt())
+		}
+	case token.RIGHT_SHIFT:
+		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(leftVal.AsInt() >> rightVal.AsInt())
+		}
+	}
+	
+	// 无法折叠，返回 null 标记
+	return bytecode.NullValue
+}
+
+// foldUnaryExpr 折叠一元常量表达式
+func (c *Compiler) foldUnaryExpr(e *ast.UnaryExpr) bytecode.Value {
+	operandVal := c.evaluateConstExpr(e.Operand)
+	
+	// 如果操作数不是常量，返回 null 标记
+	if operandVal.IsNull() && !isNullLiteral(e.Operand) {
+		return bytecode.NullValue
+	}
+	
+	switch e.Operator.Type {
+	case token.MINUS:
+		// 取负
+		if operandVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(-operandVal.AsInt())
+		}
+		if operandVal.Type == bytecode.ValFloat {
+			return bytecode.NewFloat(-operandVal.AsFloat())
+		}
+	case token.NOT:
+		// 逻辑非
+		return bytecode.NewBool(!operandVal.IsTruthy())
+	case token.BIT_NOT:
+		// 位非
+		if operandVal.Type == bytecode.ValInt {
+			return bytecode.NewInt(^operandVal.AsInt())
+		}
+	}
+	
+	// 无法折叠，返回 null 标记
+	return bytecode.NullValue
+}
+
+// isNullLiteral 检查表达式是否为 null 字面量
+func isNullLiteral(expr ast.Expression) bool {
+	_, ok := expr.(*ast.NullLiteral)
+	return ok
+}
+
+// toFloat 将值转换为浮点数
+func toFloat(v bytecode.Value) float64 {
+	switch v.Type {
+	case bytecode.ValInt:
+		return float64(v.AsInt())
+	case bytecode.ValFloat:
+		return v.AsFloat()
+	default:
+		return 0
+	}
+}
+
+// compareValues 比较两个值，返回 -1, 0, 1
+func compareValues(a, b bytecode.Value) int {
+	if a.Type == bytecode.ValInt && b.Type == bytecode.ValInt {
+		aInt := a.AsInt()
+		bInt := b.AsInt()
+		if aInt < bInt {
+			return -1
+		}
+		if aInt > bInt {
+			return 1
+		}
+		return 0
+	}
+	if a.Type == bytecode.ValFloat || b.Type == bytecode.ValFloat {
+		aFloat := toFloat(a)
+		bFloat := toFloat(b)
+		if aFloat < bFloat {
+			return -1
+		}
+		if aFloat > bFloat {
+			return 1
+		}
+		return 0
+	}
+	if a.Type == bytecode.ValString && b.Type == bytecode.ValString {
+		aStr := a.AsString()
+		bStr := b.AsString()
+		if aStr < bStr {
+			return -1
+		}
+		if aStr > bStr {
+			return 1
+		}
+		return 0
+	}
+	return 0
 }
 
 // CompileClosure 编译带 use 的闭包（无返回类型检查）
@@ -399,8 +611,14 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 
 	case *ast.BlockStmt:
 		c.beginScope()
+		// 死代码消除：如果遇到 return，后续语句不编译
 		for _, inner := range s.Statements {
 			c.compileStmt(inner)
+			// 检查当前语句是否为 return（简单检查，不分析控制流）
+			if retStmt, ok := inner.(*ast.ReturnStmt); ok && retStmt != nil {
+				// return 后的语句是死代码，跳过
+				break
+			}
 		}
 		c.endScope()
 
@@ -593,6 +811,32 @@ func (c *Compiler) compileMultiVarDecl(s *ast.MultiVarDeclStmt) {
 }
 
 func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
+	// 死代码消除：检查条件是否为常量
+	if c.isConstExpr(s.Condition) {
+		condVal := c.evaluateConstExpr(s.Condition)
+		if condVal.Type == bytecode.ValBool {
+			if !condVal.IsTruthy() {
+				// if (false) - 只编译 else 分支
+				if s.Else != nil {
+					reverseNarrowings := c.extractTypeNarrowings(s.Condition, false)
+					savedElseTypes := c.applyTypeNarrowings(reverseNarrowings)
+					c.compileStmt(s.Else)
+					c.restoreTypes(savedElseTypes)
+				}
+				// then 和 elseif 分支都是死代码，不编译
+				return
+			} else {
+				// if (true) - 只编译 then 分支
+				narrowings := c.extractTypeNarrowings(s.Condition, true)
+				savedTypes := c.applyTypeNarrowings(narrowings)
+				c.compileStmt(s.Then)
+				c.restoreTypes(savedTypes)
+				// else 和 elseif 分支都是死代码，不编译
+				return
+			}
+		}
+	}
+	
 	// 类型收窄：分析条件中的 is 表达式
 	narrowings := c.extractTypeNarrowings(s.Condition, true)
 	
@@ -620,6 +864,15 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 
 	// 编译 elseif 分支
 	for _, elseIf := range s.ElseIfs {
+		// 死代码消除：检查 elseif 条件是否为常量
+		if c.isConstExpr(elseIf.Condition) {
+			condVal := c.evaluateConstExpr(elseIf.Condition)
+			if condVal.Type == bytecode.ValBool && !condVal.IsTruthy() {
+				// elseif (false) - 跳过此分支
+				continue
+			}
+		}
+		
 		// 类型收窄：分析 elseif 条件
 		elseIfNarrowings := c.extractTypeNarrowings(elseIf.Condition, true)
 		
@@ -1394,6 +1647,16 @@ func (c *Compiler) compileIdentifier(id *ast.Identifier) {
 }
 
 func (c *Compiler) compileUnaryExpr(e *ast.UnaryExpr) {
+	// 常量折叠优化：尝试折叠常量表达式
+	if c.isConstExpr(e.Operand) {
+		foldedVal := c.foldUnaryExpr(e)
+		if !foldedVal.IsNull() || isNullLiteral(e.Operand) {
+			// 成功折叠，直接输出常量值
+			c.emitConstant(foldedVal)
+			return
+		}
+	}
+	
 	c.compileExpr(e.Operand)
 
 	switch e.Operator.Type {
@@ -1460,6 +1723,16 @@ func (c *Compiler) compileBinaryExpr(e *ast.BinaryExpr) {
 		c.compileExpr(e.Right)
 		c.patchJump(endJump)
 		return
+	}
+
+	// 常量折叠优化：尝试折叠常量表达式
+	if c.isConstExpr(e.Left) && c.isConstExpr(e.Right) {
+		foldedVal := c.foldBinaryExpr(e)
+		if !foldedVal.IsNull() || (isNullLiteral(e.Left) && isNullLiteral(e.Right)) {
+			// 成功折叠，直接输出常量值
+			c.emitConstant(foldedVal)
+			return
+		}
 	}
 
 	// 类型检查：对于算术运算符，检查操作数类型是否兼容
