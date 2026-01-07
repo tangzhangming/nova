@@ -249,13 +249,61 @@ public function process(int|string $value): int|null {
 }
 ```
 
-### 类型别名
+### 类型别名与新类型
+
+Sola 支持两种类型定义方式：
+
+#### 类型别名（Type Alias）
+
+类型别名创建与目标类型完全兼容的新名称，可以互相替换使用：
+
 ```sola
+// 使用 = 符号定义类型别名
 type StringList = string[];
 type UserMap = map[string]User;
+type Callback = func(int): bool;
 
+// 使用类型别名
 StringList $names = string{"Alice", "Bob"};
+UserMap $users = map[string]User{};
+
+// 类型别名与原类型完全兼容
+string[] $arr = string{"a", "b"};
+StringList $list = $arr;  // OK：类型别名与原类型兼容
 ```
+
+#### 新类型（Distinct Type）
+
+新类型创建与基础类型不兼容的独立类型，需要显式转换：
+
+```sola
+// 使用空格（无 = 符号）定义新类型
+type UserID int;
+type OrderID int;
+type EmailAddress string;
+
+// 新类型需要显式转换
+UserID $userId = 1001 as UserID;
+OrderID $orderId = 2001 as OrderID;
+
+// ❌ 错误：新类型之间不能直接赋值
+// $userId = $orderId;  // 编译错误！UserID 和 OrderID 是不同类型
+
+// ✅ 正确：显式转换
+$userId = $orderId as int as UserID;  // 先转为 int，再转为 UserID
+```
+
+#### 类型别名 vs 新类型
+
+| 特性 | 类型别名 (`type X = Y`) | 新类型 (`type X Y`) |
+|------|------------------------|---------------------|
+| 与基础类型兼容 | ✅ 完全兼容 | ❌ 需要显式转换 |
+| 类型安全 | 较低（只是重命名） | 较高（独立类型） |
+| 使用场景 | 简化复杂类型名 | 防止类型混用 |
+
+**使用建议**：
+- 使用**类型别名**简化复杂类型（如 `map[string]func(int): bool`）
+- 使用**新类型**区分语义不同但底层类型相同的值（如 `UserID` 和 `OrderID`）
 
 ---
 
