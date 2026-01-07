@@ -541,15 +541,41 @@ func (vm *VM) execute() InterpretResult {
 			}
 			obj := objVal.AsObject()
 			
-			// 检查访问权限
-			if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
-				return vm.runtimeError("%v", err)
-			}
-			
-			if value, ok := obj.GetField(name); ok {
-				vm.push(value)
+			// 检查是否有 getter 方法（属性访问器）
+			getterName := "get_" + name
+			if getter := vm.lookupMethod(obj.Class, getterName); getter != nil {
+				// 调用 getter 方法
+				closure := &bytecode.Closure{
+					Function: &bytecode.Function{
+						Name:          getter.Name,
+						ClassName:     getter.ClassName,
+						SourceFile:    getter.SourceFile,
+						Arity:         getter.Arity,
+						MinArity:      getter.MinArity,
+						Chunk:         getter.Chunk,
+						LocalCount:    getter.LocalCount,
+						DefaultValues: getter.DefaultValues,
+					},
+				}
+				vm.push(objVal) // 将对象压回栈作为 receiver
+				if result := vm.call(closure, 0); result != InterpretOK {
+					return result
+				}
+				frame = &vm.frames[vm.frameCount-1]
+				chunk = frame.Closure.Function.Chunk
+				continue
 			} else {
-				vm.push(bytecode.NullValue)
+				// 普通字段访问
+				// 检查访问权限
+				if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+					return vm.runtimeError("%v", err)
+				}
+				
+				if value, ok := obj.GetField(name); ok {
+					vm.push(value)
+				} else {
+					vm.push(bytecode.NullValue)
+				}
 			}
 
 		case bytecode.OpSetField:
@@ -565,13 +591,49 @@ func (vm *VM) execute() InterpretResult {
 			}
 			obj := objVal.AsObject()
 			
-			// 检查访问权限
-			if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
-				return vm.runtimeError("%v", err)
+			// 检查是否有 setter 方法（属性访问器）
+			setterName := "set_" + name
+			if setter := vm.lookupMethodByArity(obj.Class, setterName, 1); setter != nil {
+				// 调用 setter 方法
+				closure := &bytecode.Closure{
+					Function: &bytecode.Function{
+						Name:          setter.Name,
+						ClassName:     setter.ClassName,
+						SourceFile:    setter.SourceFile,
+						Arity:         setter.Arity,
+						MinArity:      setter.MinArity,
+						Chunk:         setter.Chunk,
+						LocalCount:    setter.LocalCount,
+						DefaultValues: setter.DefaultValues,
+					},
+				}
+				vm.push(objVal) // 将对象压回栈作为 receiver
+				vm.push(value)  // 将值压入栈作为参数
+				if result := vm.call(closure, 1); result != InterpretOK {
+					return result
+				}
+				frame = &vm.frames[vm.frameCount-1]
+				chunk = frame.Closure.Function.Chunk
+				// setter 可能返回 void，但我们需要返回设置的值
+				vm.push(value)
+			} else {
+				// 普通字段访问
+				// 检查访问权限
+				if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+					return vm.runtimeError("%v", err)
+				}
+				
+				// 检查 final 属性 - 如果属性已有值且为 final，则不允许重新赋值
+				// （第一次赋值在构造函数中是允许的）
+				if obj.Class.PropFinal[name] {
+					if _, exists := obj.GetField(name); exists {
+						return vm.runtimeError(i18n.T(i18n.ErrCannotAssignFinalProperty, name))
+					}
+				}
+				
+				obj.SetField(name, value)
+				vm.push(value)
 			}
-			
-			obj.SetField(name, value)
-			vm.push(value)
 
 		case bytecode.OpCallMethod:
 			nameIdx := chunk.ReadU16(frame.IP)
@@ -615,9 +677,34 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError(i18n.T(i18n.ErrUndefinedEnumCase, className, name))
 			}
 			
+			// 检查是否有静态属性 getter
 			class, err := vm.resolveClassName(className)
 			if err != nil {
 				return vm.runtimeError("%v", err)
+			}
+			
+			getterName := "get_" + name
+			if getter := vm.lookupMethod(class, getterName); getter != nil && getter.IsStatic {
+				// 调用静态 getter 方法
+				closure := &bytecode.Closure{
+					Function: &bytecode.Function{
+						Name:          getter.Name,
+						ClassName:     getter.ClassName,
+						SourceFile:    getter.SourceFile,
+						Arity:         getter.Arity,
+						MinArity:      getter.MinArity,
+						Chunk:         getter.Chunk,
+						LocalCount:    getter.LocalCount,
+						DefaultValues: getter.DefaultValues,
+					},
+				}
+				vm.push(bytecode.NullValue) // 静态方法使用 null 作为占位符
+				if result := vm.call(closure, 0); result != InterpretOK {
+					return result
+				}
+				frame = &vm.frames[vm.frameCount-1]
+				chunk = frame.Closure.Function.Chunk
+				continue
 			}
 			
 			// 先尝试常量
@@ -644,8 +731,35 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("%v", err)
 			}
 			
-			vm.setStaticVar(class, name, value)
-			vm.push(value)
+			// 检查是否有静态属性 setter
+			setterName := "set_" + name
+			if setter := vm.lookupMethodByArity(class, setterName, 1); setter != nil && setter.IsStatic {
+				// 调用静态 setter 方法
+				closure := &bytecode.Closure{
+					Function: &bytecode.Function{
+						Name:          setter.Name,
+						ClassName:     setter.ClassName,
+						SourceFile:    setter.SourceFile,
+						Arity:         setter.Arity,
+						MinArity:      setter.MinArity,
+						Chunk:         setter.Chunk,
+						LocalCount:    setter.LocalCount,
+						DefaultValues: setter.DefaultValues,
+					},
+				}
+				vm.push(bytecode.NullValue) // 静态方法使用 null 作为占位符
+				vm.push(value)              // 将值压入栈作为参数
+				if result := vm.call(closure, 1); result != InterpretOK {
+					return result
+				}
+				frame = &vm.frames[vm.frameCount-1]
+				chunk = frame.Closure.Function.Chunk
+				vm.push(value) // setter 可能返回 void，但我们需要返回设置的值
+			} else {
+				// 普通静态字段访问
+				vm.setStaticVar(class, name, value)
+				vm.push(value)
+			}
 
 		case bytecode.OpCallStatic:
 			classIdx := chunk.ReadU16(frame.IP)

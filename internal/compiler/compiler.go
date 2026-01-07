@@ -149,6 +149,9 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 			c.enums[d.Name.Name] = enum
 		}
 	}
+	
+	// ========== Phase 2.5: Final 约束检查 ==========
+	c.validateFinalConstraints(file)
 
 	// 编译顶层语句
 	for _, stmt := range file.Statements {

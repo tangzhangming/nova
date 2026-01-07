@@ -79,6 +79,12 @@ var messagesEN = map[string]string{
 	// Exhaustiveness checking
 	ErrSwitchNotExhaustive: "switch statement does not cover all values of enum '%s', missing: %s",
 	
+	// Final
+	ErrCannotExtendFinalClass:    "cannot extend final class '%s'",
+	ErrCannotOverrideFinalMethod: "cannot override final method '%s' in class '%s'",
+	ErrFinalAndAbstractConflict:  "a class cannot be both final and abstract",
+	ErrCannotAssignFinalProperty: "cannot reassign final property '%s'",
+	
 	// Class name resolution
 	ErrSelfOutsideClass: "cannot use self::class outside of class",
 

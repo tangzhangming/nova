@@ -60,7 +60,7 @@ func (p *Parser) Parse() *ast.File {
 
 	// 解析声明和语句
 	for !p.isAtEnd() {
-		if p.checkAny(token.CLASS, token.INTERFACE, token.ENUM, token.ABSTRACT, token.PUBLIC,
+		if p.checkAny(token.CLASS, token.INTERFACE, token.ENUM, token.ABSTRACT, token.FINAL, token.PUBLIC,
 			token.PROTECTED, token.PRIVATE, token.AT) {
 			decl := p.parseDeclaration()
 			if decl != nil {
@@ -2030,12 +2030,17 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 		visibility = ast.VisibilityPrivate
 	}
 
-	// 检查是否是抽象类
+	// 检查是否是抽象类或 final 类
+	// abstract 和 final 互斥
 	isAbstract := p.match(token.ABSTRACT)
+	isFinal := false
+	if !isAbstract {
+		isFinal = p.match(token.FINAL)
+	}
 
 	switch p.peek().Type {
 	case token.CLASS:
-		return p.parseClass(annotations, visibility, isAbstract)
+		return p.parseClass(annotations, visibility, isAbstract, isFinal)
 	case token.INTERFACE:
 		return p.parseInterface(annotations, visibility)
 	case token.ENUM:
@@ -2076,7 +2081,7 @@ func (p *Parser) parseAnnotation() *ast.Annotation {
 	}
 }
 
-func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibility, isAbstract bool) *ast.ClassDecl {
+func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibility, isAbstract, isFinal bool) *ast.ClassDecl {
 	classToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected class name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
@@ -2145,6 +2150,7 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 		Annotations: annotations,
 		Visibility:  visibility,
 		Abstract:    isAbstract,
+		Final:       isFinal,
 		ClassToken:  classToken,
 		Name:        name,
 		TypeParams:  typeParams,
@@ -2176,12 +2182,20 @@ func (p *Parser) parseClassMember() ast.Declaration {
 		visibility = ast.VisibilityPrivate
 	}
 
-	isAbstract := p.match(token.ABSTRACT)
-	isStatic := p.match(token.STATIC)
+	// 修饰符可以按任意顺序出现: abstract, static, final
+	// 但 abstract 和 final 互斥
+	isAbstract := false
+	isStatic := false
+	isFinal := false
 
-	// 如果之前匹配了 static，再检查 abstract
-	if !isAbstract {
-		isAbstract = p.match(token.ABSTRACT)
+	for p.checkAny(token.ABSTRACT, token.STATIC, token.FINAL) {
+		if p.match(token.ABSTRACT) {
+			isAbstract = true
+		} else if p.match(token.STATIC) {
+			isStatic = true
+		} else if p.match(token.FINAL) {
+			isFinal = true
+		}
 	}
 
 	// const
@@ -2191,11 +2205,11 @@ func (p *Parser) parseClassMember() ast.Declaration {
 
 	// function
 	if p.check(token.FUNCTION) {
-		return p.parseMethodDecl(annotations, visibility, isStatic, isAbstract)
+		return p.parseMethodDecl(annotations, visibility, isStatic, isAbstract, isFinal)
 	}
 
 	// property (类型 $变量名)
-	return p.parsePropertyDecl(annotations, visibility, isStatic)
+	return p.parsePropertyDecl(annotations, visibility, isStatic, isFinal)
 }
 
 func (p *Parser) parseConstDecl(annotations []*ast.Annotation, visibility ast.Visibility) *ast.ConstDecl {
@@ -2219,7 +2233,7 @@ func (p *Parser) parseConstDecl(annotations []*ast.Annotation, visibility ast.Vi
 	}
 }
 
-func (p *Parser) parsePropertyDecl(annotations []*ast.Annotation, visibility ast.Visibility, isStatic bool) *ast.PropertyDecl {
+func (p *Parser) parsePropertyDecl(annotations []*ast.Annotation, visibility ast.Visibility, isStatic, isFinal bool) *ast.PropertyDecl {
 	varType := p.parseType()
 	varToken := p.consume(token.VARIABLE, "expected variable name")
 	// 安全检查：防止空 token 导致 panic
@@ -2229,28 +2243,151 @@ func (p *Parser) parsePropertyDecl(annotations []*ast.Annotation, visibility ast
 	}
 	name := &ast.Variable{Token: varToken, Name: nameStr}
 
-	var assign token.Token
-	var value ast.Expression
-	if p.check(token.ASSIGN) {
-		assign = p.advance()
-		value = p.parseExpression()
-	}
+	// 检查属性类型：
+	// 1. { get; set; } 或 { get { ... } set { ... } } - 访问器属性
+	// 2. => expression - 表达式体属性
+	// 3. = expression; - 普通字段带初始值
+	// 4. ; - 普通字段
 
-	semicolon := p.consume(token.SEMICOLON, "expected ';'")
+	if p.check(token.LBRACE) {
+		// 访问器属性
+		accessor := p.parsePropertyAccessor(visibility)
+		semicolon := p.consume(token.SEMICOLON, "expected ';' after property accessor")
+		return &ast.PropertyDecl{
+			Annotations: annotations,
+			Visibility:  visibility,
+			Static:      isStatic,
+			Final:       isFinal,
+			Type:        varType,
+			Name:        name,
+			Accessor:    accessor,
+			Semicolon:   semicolon,
+		}
+	} else if p.check(token.DOUBLE_ARROW) {
+		// 表达式体属性
+		arrow := p.advance()
+		exprBody := p.parseExpression()
+		semicolon := p.consume(token.SEMICOLON, "expected ';' after expression-bodied property")
+		return &ast.PropertyDecl{
+			Annotations: annotations,
+			Visibility:  visibility,
+			Static:      isStatic,
+			Final:       isFinal,
+			Type:        varType,
+			Name:        name,
+			ExprBody:    exprBody,
+			Arrow:       arrow,
+			Semicolon:   semicolon,
+		}
+	} else {
+		// 普通字段（可能带初始值）
+		var assign token.Token
+		var value ast.Expression
+		if p.check(token.ASSIGN) {
+			assign = p.advance()
+			value = p.parseExpression()
+		}
 
-	return &ast.PropertyDecl{
-		Annotations: annotations,
-		Visibility:  visibility,
-		Static:      isStatic,
-		Type:        varType,
-		Name:        name,
-		Assign:      assign,
-		Value:       value,
-		Semicolon:   semicolon,
+		semicolon := p.consume(token.SEMICOLON, "expected ';'")
+
+		return &ast.PropertyDecl{
+			Annotations: annotations,
+			Visibility:  visibility,
+			Static:      isStatic,
+			Final:       isFinal,
+			Type:        varType,
+			Name:        name,
+			Assign:      assign,
+			Value:       value,
+			Semicolon:   semicolon,
+		}
 	}
 }
 
-func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.Visibility, isStatic, isAbstract bool) *ast.MethodDecl {
+// parsePropertyAccessor 解析属性访问器 { get; set; } 或 { get { ... } set { ... } }
+func (p *Parser) parsePropertyAccessor(defaultVis ast.Visibility) *ast.PropertyAccessor {
+	lbrace := p.consume(token.LBRACE, "expected '{' after property name")
+	
+	var getToken, setToken token.Token
+	var getVis, setVis ast.Visibility = defaultVis, defaultVis
+	var getBody, setBody *ast.BlockStmt
+	var getExpr, setExpr ast.Expression
+
+	// 解析 get 和 set
+	for !p.check(token.RBRACE) && !p.isAtEnd() {
+		if p.match(token.GET) {
+			getToken = p.previous()
+			
+			// 检查是否有可见性修饰符
+			if p.match(token.PUBLIC) {
+				getVis = ast.VisibilityPublic
+			} else if p.match(token.PROTECTED) {
+				getVis = ast.VisibilityProtected
+			} else if p.match(token.PRIVATE) {
+				getVis = ast.VisibilityPrivate
+			}
+			
+			// 检查是表达式体还是方法体
+			if p.check(token.DOUBLE_ARROW) {
+				// 表达式体 getter: get => expr;
+				p.advance() // 消费 =>
+				getExpr = p.parseExpression()
+				p.consume(token.SEMICOLON, "expected ';' after getter expression")
+			} else if p.check(token.LBRACE) {
+				// 方法体 getter: get { ... }
+				getBody = p.parseBlock()
+			} else {
+				// 自动属性: get;
+				p.consume(token.SEMICOLON, "expected ';' after 'get'")
+			}
+		} else if p.match(token.SET) {
+			setToken = p.previous()
+			
+			// 检查是否有可见性修饰符
+			if p.match(token.PUBLIC) {
+				setVis = ast.VisibilityPublic
+			} else if p.match(token.PROTECTED) {
+				setVis = ast.VisibilityProtected
+			} else if p.match(token.PRIVATE) {
+				setVis = ast.VisibilityPrivate
+			}
+			
+			// 检查是表达式体还是方法体
+			if p.check(token.DOUBLE_ARROW) {
+				// 表达式体 setter: set => expr;
+				p.advance() // 消费 =>
+				setExpr = p.parseExpression()
+				p.consume(token.SEMICOLON, "expected ';' after setter expression")
+			} else if p.check(token.LBRACE) {
+				// 方法体 setter: set { ... }
+				setBody = p.parseBlock()
+			} else {
+				// 自动属性: set;
+				p.consume(token.SEMICOLON, "expected ';' after 'set'")
+			}
+		} else {
+			p.error("expected 'get' or 'set' in property accessor")
+			break
+		}
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}' after property accessor")
+
+	return &ast.PropertyAccessor{
+		GetToken: getToken,
+		SetToken: setToken,
+		GetVis:   getVis,
+		SetVis:   setVis,
+		GetBody:  getBody,
+		SetBody:  setBody,
+		GetExpr:  getExpr,
+		SetExpr:  setExpr,
+		LBrace:   lbrace,
+		RBrace:   rbrace,
+	}
+}
+
+func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.Visibility, isStatic, isAbstract, isFinal bool) *ast.MethodDecl {
 	funcToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected method name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
@@ -2285,6 +2422,7 @@ func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.V
 		Visibility:  visibility,
 		Static:      isStatic,
 		Abstract:    isAbstract,
+		Final:       isFinal,
 		FuncToken:   funcToken,
 		Name:        name,
 		TypeParams:  typeParams,

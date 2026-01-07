@@ -1119,20 +1119,81 @@ func (d *ConstDecl) End() token.Position { return d.Semicolon.Pos }
 func (d *ConstDecl) String() string      { return "const " + d.Name.String() }
 func (d *ConstDecl) declNode()           {}
 
+// PropertyAccessor 属性访问器（getter/setter）
+type PropertyAccessor struct {
+	GetToken    token.Token  // get 关键字
+	SetToken    token.Token  // set 关键字（可选）
+	GetVis      Visibility   // getter 可见性（默认与属性相同）
+	SetVis      Visibility   // setter 可见性（默认与属性相同）
+	GetBody     *BlockStmt   // getter 方法体（可选，用于完整属性）
+	SetBody     *BlockStmt   // setter 方法体（可选，用于完整属性）
+	GetExpr     Expression   // getter 表达式体（可选，用于表达式体属性）
+	SetExpr     Expression   // setter 表达式体（可选，用于表达式体属性）
+	LBrace      token.Token  // { token（访问器块）
+	RBrace      token.Token  // } token（访问器块）
+}
+
+func (a *PropertyAccessor) Pos() token.Position {
+	if a.LBrace.Type != 0 {
+		return a.LBrace.Pos
+	}
+	if a.GetToken.Type != 0 {
+		return a.GetToken.Pos
+	}
+	return a.SetToken.Pos
+}
+
+func (a *PropertyAccessor) End() token.Position {
+	if a.RBrace.Type != 0 {
+		return a.RBrace.Pos
+	}
+	if a.SetBody != nil {
+		return a.SetBody.End()
+	}
+	if a.GetBody != nil {
+		return a.GetBody.End()
+	}
+	if a.SetExpr != nil {
+		return a.SetExpr.End()
+	}
+	if a.GetExpr != nil {
+		return a.GetExpr.End()
+	}
+	if a.SetToken.Type != 0 {
+		return a.SetToken.Pos
+	}
+	return a.GetToken.Pos
+}
+
 // PropertyDecl 属性声明
 type PropertyDecl struct {
 	Annotations []*Annotation
 	Visibility  Visibility
 	Static      bool
+	Final       bool // final 属性不能被重新赋值（类似 readonly）
 	Type        TypeNode
 	Name        *Variable
-	Assign      token.Token // 可选
-	Value       Expression  // 可选
+	Assign      token.Token        // 可选（用于普通字段初始值）
+	Value       Expression         // 可选（用于普通字段初始值）
+	Accessor    *PropertyAccessor  // 可选（用于自动属性或完整属性）
+	ExprBody    Expression         // 可选（用于表达式体只读属性）
+	Arrow       token.Token        // => token（用于表达式体属性）
 	Semicolon   token.Token
 }
 
 func (d *PropertyDecl) Pos() token.Position { return d.Type.Pos() }
-func (d *PropertyDecl) End() token.Position { return d.Semicolon.Pos }
+func (d *PropertyDecl) End() token.Position {
+	if d.Semicolon.Type != 0 {
+		return d.Semicolon.Pos
+	}
+	if d.Accessor != nil {
+		return d.Accessor.End()
+	}
+	if d.ExprBody != nil {
+		return d.ExprBody.End()
+	}
+	return d.Name.End()
+}
 func (d *PropertyDecl) String() string      { return d.Name.String() }
 func (d *PropertyDecl) declNode()           {}
 
@@ -1142,6 +1203,7 @@ type MethodDecl struct {
 	Visibility  Visibility
 	Static      bool
 	Abstract    bool
+	Final       bool // final 方法不能被重写
 	FuncToken   token.Token
 	Name        *Identifier
 	TypeParams  []*TypeParameter // 泛型类型参数 <T, K extends Comparable>
@@ -1170,6 +1232,7 @@ type ClassDecl struct {
 	Annotations []*Annotation
 	Visibility  Visibility
 	Abstract    bool
+	Final       bool // final 类不能被继承
 	ClassToken  token.Token
 	Name        *Identifier
 	TypeParams  []*TypeParameter // 泛型类型参数 <T, K extends Comparable>

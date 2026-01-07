@@ -810,6 +810,7 @@ type Class struct {
 	Parent         *Class
 	Implements     []string // 实现的接口名
 	IsAbstract     bool     // 是否是抽象类
+	IsFinal        bool     // 是否是 final 类（不能被继承）
 	IsInterface    bool     // 是否是接口
 	Annotations    []*Annotation         // 类注解
 	Constants      map[string]Value
@@ -817,6 +818,7 @@ type Class struct {
 	Methods        map[string][]*Method  // 方法重载：同名不同参数数量
 	Properties     map[string]Value      // 属性默认值
 	PropVisibility map[string]Visibility // 属性可见性
+	PropFinal      map[string]bool       // 属性是否 final（不能被重新赋值）
 	PropAnnotations map[string][]*Annotation // 属性注解
 }
 
@@ -837,6 +839,7 @@ func NewClass(name string) *Class {
 		Methods:         make(map[string][]*Method),
 		Properties:      make(map[string]Value),
 		PropVisibility:  make(map[string]Visibility),
+		PropFinal:       make(map[string]bool),
 		PropAnnotations: make(map[string][]*Annotation),
 	}
 }
@@ -904,6 +907,7 @@ type Method struct {
 	Arity         int      // 参数数量
 	MinArity      int      // 最小参数数量（考虑默认参数后）
 	IsStatic      bool
+	IsFinal       bool       // 是否是 final 方法（不能被重写）
 	Visibility    Visibility // 访问修饰符
 	Annotations   []*Annotation
 	Chunk         *Chunk

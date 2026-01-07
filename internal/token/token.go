@@ -111,6 +111,7 @@ const (
 	FUNCTION  // function
 	CONST     // const
 	STATIC    // static
+	FINAL     // final
 	ENUM      // enum
 
 	// 关键字 - 访问控制
@@ -153,6 +154,9 @@ const (
 	ECHO      // echo
 	WHERE     // where (泛型约束)
 	TYPE      // type (类型别名)
+	GET       // get (属性访问器)
+	SET       // set (属性访问器)
+	VALUE     // value (setter参数)
 	keyword_end
 )
 
@@ -242,6 +246,7 @@ var tokenNames = map[TokenType]string{
 	FUNCTION:       "function",
 	CONST:          "const",
 	STATIC:         "static",
+	FINAL:          "final",
 	ENUM:           "enum",
 	PUBLIC:         "public",
 	PROTECTED:      "protected",
@@ -276,6 +281,9 @@ var tokenNames = map[TokenType]string{
 	ECHO:           "echo",
 	WHERE:          "where",
 	TYPE:           "type",
+	GET:            "get",
+	SET:            "set",
+	VALUE:          "value",
 }
 
 var keywords = map[string]TokenType{
@@ -309,6 +317,7 @@ var keywords = map[string]TokenType{
 	"function":   FUNCTION,
 	"const":      CONST,
 	"static":     STATIC,
+	"final":      FINAL,
 	"enum":       ENUM,
 	"public":     PUBLIC,
 	"protected":  PROTECTED,
@@ -341,6 +350,9 @@ var keywords = map[string]TokenType{
 	"echo":       ECHO,
 	"where":      WHERE,
 	"type":       TYPE,
+	"get":        GET,
+	"set":        SET,
+	"value":      VALUE,
 }
 
 // LookupIdent 查找标识符是否为关键字

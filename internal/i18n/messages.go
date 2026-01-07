@@ -80,6 +80,12 @@ const (
 	// 穷尽性检查
 	ErrSwitchNotExhaustive = "compiler.switch_not_exhaustive"
 	
+	// final 相关
+	ErrCannotExtendFinalClass     = "compiler.cannot_extend_final_class"
+	ErrCannotOverrideFinalMethod  = "compiler.cannot_override_final_method"
+	ErrFinalAndAbstractConflict   = "compiler.final_and_abstract_conflict"
+	ErrCannotAssignFinalProperty  = "compiler.cannot_assign_final_property"
+	
 	// 类名解析相关
 	ErrSelfOutsideClass = "compiler.self_outside_class"
 

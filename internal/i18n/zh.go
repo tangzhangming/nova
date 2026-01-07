@@ -79,6 +79,12 @@ var messagesZH = map[string]string{
 	// 穷尽性检查
 	ErrSwitchNotExhaustive: "switch 语句未覆盖枚举 '%s' 的所有值，缺少: %s",
 	
+	// final 相关
+	ErrCannotExtendFinalClass:    "不能继承 final 类 '%s'",
+	ErrCannotOverrideFinalMethod: "不能重写类 '%s' 的 final 方法 '%s'",
+	ErrFinalAndAbstractConflict:  "类不能同时是 final 和 abstract",
+	ErrCannotAssignFinalProperty: "不能重新赋值 final 属性 '%s'",
+	
 	// 类名解析相关
 	ErrSelfOutsideClass: "不能在类外使用 self::class",
 

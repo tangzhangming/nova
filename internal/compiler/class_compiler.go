@@ -3,6 +3,7 @@ package compiler
 import (
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/token"
 )
 
@@ -71,6 +72,14 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	
 	// 抽象类标记
 	class.IsAbstract = decl.Abstract
+	
+	// final 类标记
+	class.IsFinal = decl.Final
+	
+	// final 和 abstract 不能同时存在
+	if decl.Abstract && decl.Final {
+		c.error(decl.ClassToken.Pos, i18n.T(i18n.ErrFinalAndAbstractConflict))
+	}
 
 	// 编译常量
 	for _, constDecl := range decl.Constants {
@@ -80,26 +89,41 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 
 	// 编译属性
 	for _, prop := range decl.Properties {
-		var value bytecode.Value
-		if prop.Value != nil {
-			value = c.evaluateConstant(prop.Value)
+		// 处理有访问器的属性（自动属性、完整属性、表达式体属性）
+		if prop.Accessor != nil {
+			// 自动属性或完整属性
+			c.compilePropertyWithAccessor(class, prop)
+		} else if prop.ExprBody != nil {
+			// 表达式体只读属性
+			c.compileExpressionBodiedProperty(class, prop)
 		} else {
-			value = bytecode.NullValue
-		}
-		
-		// 保存属性可见性
-		vis := toByteVisibility(prop.Visibility)
-		
-		if prop.Static {
-			class.StaticVars[prop.Name.Name] = value
-		} else {
-			class.Properties[prop.Name.Name] = value
-			class.PropVisibility[prop.Name.Name] = vis
-		}
-		
-		// 保存属性注解
-		if len(prop.Annotations) > 0 {
-			class.PropAnnotations[prop.Name.Name] = c.compileAnnotations(prop.Annotations)
+			// 普通字段
+			var value bytecode.Value
+			if prop.Value != nil {
+				value = c.evaluateConstant(prop.Value)
+			} else {
+				value = bytecode.NullValue
+			}
+			
+			// 保存属性可见性
+			vis := toByteVisibility(prop.Visibility)
+			
+			if prop.Static {
+				class.StaticVars[prop.Name.Name] = value
+			} else {
+				class.Properties[prop.Name.Name] = value
+				class.PropVisibility[prop.Name.Name] = vis
+			}
+			
+			// 保存属性 final 标记
+			if prop.Final {
+				class.PropFinal[prop.Name.Name] = true
+			}
+			
+			// 保存属性注解
+			if len(prop.Annotations) > 0 {
+				class.PropAnnotations[prop.Name.Name] = c.compileAnnotations(prop.Annotations)
+			}
 		}
 	}
 
@@ -173,6 +197,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 		Arity:       len(decl.Parameters),
 		MinArity:    minArity,
 		IsStatic:    decl.Static,
+		IsFinal:     decl.Final,
 		Visibility:  toByteVisibility(decl.Visibility),
 		Annotations: c.compileAnnotations(decl.Annotations),
 		Chunk:       bytecode.NewChunk(),
@@ -404,5 +429,349 @@ func (c *Compiler) CompileEnum(decl *ast.EnumDecl) *bytecode.Enum {
 	}
 	
 	return enum
+}
+
+// validateFinalConstraints 验证 final 约束
+// - final 类不能被继承
+// - final 方法不能被重写
+func (c *Compiler) validateFinalConstraints(file *ast.File) {
+	for _, decl := range file.Declarations {
+		classDecl, ok := decl.(*ast.ClassDecl)
+		if !ok {
+			continue
+		}
+		
+		// 检查是否继承了 final 类
+		if classDecl.Extends != nil {
+			parentName := classDecl.Extends.Name
+			if parent, ok := c.classes[parentName]; ok {
+				if parent.IsFinal {
+					c.error(classDecl.Extends.Token.Pos, i18n.T(i18n.ErrCannotExtendFinalClass, parentName))
+				}
+				
+				// 检查是否重写了 final 方法
+				for _, method := range classDecl.Methods {
+					if parentMethods, ok := parent.Methods[method.Name.Name]; ok {
+						for _, parentMethod := range parentMethods {
+							if parentMethod.IsFinal {
+								c.error(method.FuncToken.Pos, i18n.T(i18n.ErrCannotOverrideFinalMethod, method.Name.Name, parentName))
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// compilePropertyWithAccessor 编译带访问器的属性（自动属性或完整属性）
+func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.PropertyDecl) {
+	propName := prop.Name.Name
+	backingFieldName := "__prop_" + propName // 自动属性的后备字段
+	
+	// 保存属性信息（用于标记这是一个属性而不是普通字段）
+	vis := toByteVisibility(prop.Visibility)
+	class.PropVisibility[propName] = vis
+	if prop.Final {
+		class.PropFinal[propName] = true
+	}
+	if len(prop.Annotations) > 0 {
+		class.PropAnnotations[propName] = c.compileAnnotations(prop.Annotations)
+	}
+	
+	// 创建后备字段（用于自动属性）
+	backingFieldValue := bytecode.NullValue
+	if prop.Value != nil {
+		backingFieldValue = c.evaluateConstant(prop.Value)
+	}
+	if prop.Static {
+		class.StaticVars[backingFieldName] = backingFieldValue
+	} else {
+		class.Properties[backingFieldName] = backingFieldValue
+	}
+	
+	// 编译 getter
+	if prop.Accessor.GetToken.Type != 0 {
+		getterMethod := c.compilePropertyGetter(class, prop, backingFieldName)
+		class.AddMethod(getterMethod)
+	}
+	
+	// 编译 setter
+	if prop.Accessor.SetToken.Type != 0 {
+		setterMethod := c.compilePropertySetter(class, prop, backingFieldName)
+		class.AddMethod(setterMethod)
+	}
+}
+
+// compileExpressionBodiedProperty 编译表达式体属性
+func (c *Compiler) compileExpressionBodiedProperty(class *bytecode.Class, prop *ast.PropertyDecl) {
+	propName := prop.Name.Name
+	
+	// 保存属性信息
+	vis := toByteVisibility(prop.Visibility)
+	class.PropVisibility[propName] = vis
+	if prop.Final {
+		class.PropFinal[propName] = true
+	}
+	if len(prop.Annotations) > 0 {
+		class.PropAnnotations[propName] = c.compileAnnotations(prop.Annotations)
+	}
+	
+	// 表达式体属性只有 getter
+	getterMethod := c.compileExpressionBodiedGetter(class, prop)
+	class.AddMethod(getterMethod)
+}
+
+// compilePropertyGetter 编译属性 getter 方法
+func (c *Compiler) compilePropertyGetter(class *bytecode.Class, prop *ast.PropertyDecl, backingFieldName string) *bytecode.Method {
+	propName := prop.Name.Name
+	getterName := "get_" + propName
+	
+	method := &bytecode.Method{
+		Name:        getterName,
+		ClassName:   class.Name,
+		SourceFile:  c.sourceFile,
+		Arity:       0,
+		MinArity:    0,
+		IsStatic:    prop.Static,
+		IsFinal:     false,
+		Visibility:  toByteVisibility(prop.Accessor.GetVis),
+		Annotations: c.compileAnnotations(prop.Annotations),
+		Chunk:       bytecode.NewChunk(),
+	}
+	
+	// 保存当前状态
+	prevFn := c.function
+	prevLocals := c.locals
+	prevLocalCount := c.localCount
+	prevScopeDepth := c.scopeDepth
+	prevReturnType := c.returnType
+	prevExpectedReturns := c.expectedReturns
+	
+	// 创建方法的编译环境
+	c.function = &bytecode.Function{
+		Name:       getterName,
+		ClassName:  class.Name,
+		Arity:      0,
+		Chunk:      method.Chunk,
+		SourceFile: c.sourceFile,
+	}
+	c.locals = make([]Local, 256)
+	c.localCount = 0
+	c.scopeDepth = 0
+	c.returnType = prop.Type
+	c.expectedReturns = 1
+	
+	// 添加隐式 this 参数（非静态方法）
+	if !prop.Static {
+		c.addLocal("this")
+	} else {
+		c.addLocal("") // 静态方法 slot 0 占位符
+	}
+	
+	// 编译 getter 体
+	c.beginScope()
+	if prop.Accessor.GetBody != nil {
+		// 完整属性：编译方法体
+		for _, stmt := range prop.Accessor.GetBody.Statements {
+			c.compileStmt(stmt)
+		}
+	} else if prop.Accessor.GetExpr != nil {
+		// 表达式体 getter
+		c.compileExpr(prop.Accessor.GetExpr)
+		c.emit(bytecode.OpReturn)
+	} else {
+		// 自动属性：返回后备字段
+		if prop.Static {
+			// 静态属性
+			classIdx := c.makeConstant(bytecode.NewString(class.Name))
+			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
+			c.emitU16(bytecode.OpGetStatic, classIdx)
+			c.currentChunk().WriteU16(fieldIndex, c.currentLine)
+		} else {
+			// 实例属性
+			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
+			c.emitU16(bytecode.OpGetField, fieldIndex)
+		}
+		c.emit(bytecode.OpReturn)
+	}
+	c.endScope()
+	
+	method.LocalCount = c.localCount
+	method.Chunk = c.function.Chunk
+	
+	// 恢复状态
+	c.function = prevFn
+	c.locals = prevLocals
+	c.localCount = prevLocalCount
+	c.scopeDepth = prevScopeDepth
+	c.returnType = prevReturnType
+	c.expectedReturns = prevExpectedReturns
+	
+	return method
+}
+
+// compilePropertySetter 编译属性 setter 方法
+func (c *Compiler) compilePropertySetter(class *bytecode.Class, prop *ast.PropertyDecl, backingFieldName string) *bytecode.Method {
+	propName := prop.Name.Name
+	setterName := "set_" + propName
+	
+	method := &bytecode.Method{
+		Name:        setterName,
+		ClassName:   class.Name,
+		SourceFile:  c.sourceFile,
+		Arity:       1,
+		MinArity:    1,
+		IsStatic:    prop.Static,
+		IsFinal:     false,
+		Visibility:  toByteVisibility(prop.Accessor.SetVis),
+		Annotations: c.compileAnnotations(prop.Annotations),
+		Chunk:       bytecode.NewChunk(),
+	}
+	
+	// 保存当前状态
+	prevFn := c.function
+	prevLocals := c.locals
+	prevLocalCount := c.localCount
+	prevScopeDepth := c.scopeDepth
+	prevReturnType := c.returnType
+	prevExpectedReturns := c.expectedReturns
+	
+	// 创建方法的编译环境
+	c.function = &bytecode.Function{
+		Name:       setterName,
+		ClassName:  class.Name,
+		Arity:      1,
+		Chunk:      method.Chunk,
+		SourceFile: c.sourceFile,
+	}
+	c.locals = make([]Local, 256)
+	c.localCount = 0
+	c.scopeDepth = 0
+	c.returnType = nil // setter 无返回值
+	c.expectedReturns = 0
+	
+	// 添加隐式 this 参数（非静态方法）
+	if !prop.Static {
+		c.addLocal("this")
+	} else {
+		c.addLocal("") // 静态方法 slot 0 占位符
+	}
+	
+	// 添加 $value 参数
+	c.addLocalWithType("value", c.getTypeName(prop.Type))
+	
+	// 编译 setter 体
+	c.beginScope()
+	if prop.Accessor.SetBody != nil {
+		// 完整属性：编译方法体
+		for _, stmt := range prop.Accessor.SetBody.Statements {
+			c.compileStmt(stmt)
+		}
+	} else if prop.Accessor.SetExpr != nil {
+		// 表达式体 setter
+		c.compileExpr(prop.Accessor.SetExpr)
+		c.emit(bytecode.OpPop) // 表达式体 setter 的返回值被丢弃
+	} else {
+		// 自动属性：设置后备字段
+		if prop.Static {
+			// 静态属性
+			classIdx := c.makeConstant(bytecode.NewString(class.Name))
+			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
+			c.emitU16(bytecode.OpLoadLocal, 1) // 加载 $value
+			c.emitU16(bytecode.OpSetStatic, classIdx)
+			c.currentChunk().WriteU16(fieldIndex, c.currentLine)
+		} else {
+			// 实例属性
+			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
+			c.emitU16(bytecode.OpLoadLocal, 1) // 加载 $value
+			c.emitU16(bytecode.OpSetField, fieldIndex)
+		}
+	}
+	c.endScope()
+	
+	// 添加默认返回
+	c.emit(bytecode.OpReturnNull)
+	
+	method.LocalCount = c.localCount
+	method.Chunk = c.function.Chunk
+	
+	// 恢复状态
+	c.function = prevFn
+	c.locals = prevLocals
+	c.localCount = prevLocalCount
+	c.scopeDepth = prevScopeDepth
+	c.returnType = prevReturnType
+	c.expectedReturns = prevExpectedReturns
+	
+	return method
+}
+
+// compileExpressionBodiedGetter 编译表达式体属性的 getter
+func (c *Compiler) compileExpressionBodiedGetter(class *bytecode.Class, prop *ast.PropertyDecl) *bytecode.Method {
+	propName := prop.Name.Name
+	getterName := "get_" + propName
+	
+	method := &bytecode.Method{
+		Name:        getterName,
+		ClassName:   class.Name,
+		SourceFile:  c.sourceFile,
+		Arity:       0,
+		MinArity:    0,
+		IsStatic:    prop.Static,
+		IsFinal:     false,
+		Visibility:  toByteVisibility(prop.Visibility),
+		Annotations: c.compileAnnotations(prop.Annotations),
+		Chunk:       bytecode.NewChunk(),
+	}
+	
+	// 保存当前状态
+	prevFn := c.function
+	prevLocals := c.locals
+	prevLocalCount := c.localCount
+	prevScopeDepth := c.scopeDepth
+	prevReturnType := c.returnType
+	prevExpectedReturns := c.expectedReturns
+	
+	// 创建方法的编译环境
+	c.function = &bytecode.Function{
+		Name:       getterName,
+		ClassName:  class.Name,
+		Arity:      0,
+		Chunk:      method.Chunk,
+		SourceFile: c.sourceFile,
+	}
+	c.locals = make([]Local, 256)
+	c.localCount = 0
+	c.scopeDepth = 0
+	c.returnType = prop.Type
+	c.expectedReturns = 1
+	
+	// 添加隐式 this 参数（非静态方法）
+	if !prop.Static {
+		c.addLocal("this")
+	} else {
+		c.addLocal("") // 静态方法 slot 0 占位符
+	}
+	
+	// 编译表达式体
+	c.beginScope()
+	c.compileExpr(prop.ExprBody)
+	c.emit(bytecode.OpReturn)
+	c.endScope()
+	
+	method.LocalCount = c.localCount
+	method.Chunk = c.function.Chunk
+	
+	// 恢复状态
+	c.function = prevFn
+	c.locals = prevLocals
+	c.localCount = prevLocalCount
+	c.scopeDepth = prevScopeDepth
+	c.returnType = prevReturnType
+	c.expectedReturns = prevExpectedReturns
+	
+	return method
 }
 
