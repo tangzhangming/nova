@@ -86,6 +86,13 @@ const (
 	ErrFinalAndAbstractConflict   = "compiler.final_and_abstract_conflict"
 	ErrCannotAssignFinalProperty  = "compiler.cannot_assign_final_property"
 	
+	// 接口相关
+	ErrInterfaceNotImplemented      = "compiler.interface_not_implemented"
+	ErrInterfaceMethodMissing       = "compiler.interface_method_missing"
+	ErrInterfaceMethodParamMismatch = "compiler.interface_method_param_mismatch"
+	ErrInterfaceMethodReturnMismatch = "compiler.interface_method_return_mismatch"
+	ErrInterfaceMethodStaticMismatch = "compiler.interface_method_static_mismatch"
+	
 	// 类名解析相关
 	ErrSelfOutsideClass = "compiler.self_outside_class"
 

@@ -279,6 +279,93 @@ func (vm *VM) validateClass(class *bytecode.Class) error {
 	return nil
 }
 
+// validateGenericConstraints 验证泛型类型参数是否满足约束
+func (vm *VM) validateGenericConstraints(actualTypes []string, typeParams []*bytecode.TypeParamDef) error {
+	if len(actualTypes) != len(typeParams) {
+		return vm.makeError("generic type argument count mismatch: expected %d type arguments, got %d",
+			len(typeParams), len(actualTypes))
+	}
+	
+	for i, actualType := range actualTypes {
+		typeParam := typeParams[i]
+		
+		// 检查 extends 约束（继承关系）
+		if typeParam.Constraint != "" {
+			if !vm.isSubtypeOf(actualType, typeParam.Constraint) {
+				return vm.makeError("generic type argument '%s' does not satisfy constraint '%s' (must extend %s)",
+					actualType, typeParam.Name, typeParam.Constraint)
+			}
+		}
+		
+		// 检查 implements 约束（接口实现）
+		for _, requiredInterface := range typeParam.ImplementsTypes {
+			if !vm.implementsInterface(actualType, requiredInterface) {
+				return vm.makeError("generic type argument '%s' does not implement required interface '%s'",
+					actualType, requiredInterface)
+			}
+		}
+	}
+	
+	return nil
+}
+
+// isSubtypeOf 检查 actualType 是否是 constraintType 的子类型
+func (vm *VM) isSubtypeOf(actualType, constraintType string) bool {
+	// 提取基类名
+	actualClass := vm.classes[actualType]
+	if actualClass == nil {
+		return false
+	}
+	
+	// 检查直接继承
+	if actualClass.ParentName == constraintType {
+		return true
+	}
+	
+	// 检查继承链
+	current := actualClass
+	for current != nil && current.Parent != nil {
+		if current.Parent.Name == constraintType {
+			return true
+		}
+		current = current.Parent
+	}
+	
+	return false
+}
+
+// implementsInterface 检查 actualType 是否实现了 requiredInterface
+func (vm *VM) implementsInterface(actualType, requiredInterface string) bool {
+	actualClass := vm.classes[actualType]
+	if actualClass == nil {
+		return false
+	}
+	
+	// 检查类声明的接口
+	for _, ifaceName := range actualClass.Implements {
+		if ifaceName == requiredInterface {
+			return true
+		}
+	}
+	
+	// 检查继承链中的接口
+	current := actualClass
+	for current != nil {
+		for _, ifaceName := range current.Implements {
+			if ifaceName == requiredInterface {
+				return true
+			}
+		}
+		if current.Parent != nil {
+			current = current.Parent
+		} else {
+			break
+		}
+	}
+	
+	return false
+}
+
 // getCurrentClass 获取当前上下文的类（如果在方法中）
 func (vm *VM) getCurrentClass() *bytecode.Class {
 	if vm.frameCount == 0 {

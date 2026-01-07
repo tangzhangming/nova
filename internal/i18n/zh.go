@@ -85,6 +85,13 @@ var messagesZH = map[string]string{
 	ErrFinalAndAbstractConflict:  "类不能同时是 final 和 abstract",
 	ErrCannotAssignFinalProperty: "不能重新赋值 final 属性 '%s'",
 	
+	// 接口相关
+	ErrInterfaceNotImplemented:      "类 '%s' 未实现接口 '%s'",
+	ErrInterfaceMethodMissing:       "类 '%s' 未实现接口 '%s' 的方法 '%s'",
+	ErrInterfaceMethodParamMismatch: "类 '%s' 的方法 '%s' 参数类型与接口 '%s' 不匹配（期望 %s，实际 %s）",
+	ErrInterfaceMethodReturnMismatch: "类 '%s' 的方法 '%s' 返回类型与接口 '%s' 不兼容（期望 %s，实际 %s）",
+	ErrInterfaceMethodStaticMismatch: "类 '%s' 的方法 '%s' 与接口 '%s' 的静态/实例属性不匹配",
+	
 	// 类名解析相关
 	ErrSelfOutsideClass: "不能在类外使用 self::class",
 

@@ -641,7 +641,7 @@ func (v Value) String() string {
 		return fmt.Sprintf("<bytes len=%d>", len(b))
 	case ValObject:
 		obj := v.Data.(*Object)
-		return fmt.Sprintf("<%s instance>", obj.Class.Name)
+		return fmt.Sprintf("<%s instance>", obj.Class.FullName())
 	case ValFunc:
 		fn := v.Data.(*Function)
 		return fmt.Sprintf("<fn %s>", fn.Name)
@@ -765,15 +765,26 @@ func (v Value) Hash() uint64 {
 
 // Object 对象实例
 type Object struct {
-	Class  *Class
-	Fields map[string]Value
+	Class   *Class
+	Fields  map[string]Value
+	TypeArgs []string // 泛型类型参数（用于运行时类型验证）
 }
 
 // NewObjectInstance 创建对象实例
 func NewObjectInstance(class *Class) *Object {
 	return &Object{
-		Class:  class,
-		Fields: make(map[string]Value),
+		Class:    class,
+		Fields:   make(map[string]Value),
+		TypeArgs: nil,
+	}
+}
+
+// NewObjectInstanceWithTypes 创建带泛型类型参数的对象实例
+func NewObjectInstanceWithTypes(class *Class, typeArgs []string) *Object {
+	return &Object{
+		Class:    class,
+		Fields:   make(map[string]Value),
+		TypeArgs: typeArgs,
 	}
 }
 

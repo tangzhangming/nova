@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
@@ -910,8 +911,14 @@ func (st *SymbolTable) ValidateTypeConstraint(typeArg, constraint string) bool {
 	return false
 }
 
-// CheckImplements 检查类型是否实现了指定接口
+// CheckImplements 检查类型是否实现了指定接口（向后兼容方法）
 func (st *SymbolTable) CheckImplements(typeName, interfaceName string) bool {
+	err := st.ValidateImplements(typeName, interfaceName)
+	return err == nil
+}
+
+// ValidateImplements 验证类型是否实现了指定接口，返回详细错误信息
+func (st *SymbolTable) ValidateImplements(typeName, interfaceName string) error {
 	// 提取基类名
 	baseTypeName := extractBaseTypeName(typeName)
 	baseInterfaceName := extractBaseTypeName(interfaceName)
@@ -920,27 +927,103 @@ func (st *SymbolTable) CheckImplements(typeName, interfaceName string) bool {
 	if interfaces, ok := st.ClassInterfaces[baseTypeName]; ok {
 		for _, iface := range interfaces {
 			if iface == baseInterfaceName {
-				return true
+				// 即使声明了实现，也要验证方法签名
+				// 继续执行验证逻辑
+				break
 			}
 		}
 	}
 	
-	// 检查类的方法签名中是否有该接口的方法
-	// 简化实现：检查是否有该接口的方法
-	methods, ok := st.ClassMethods[baseTypeName]
-	if !ok {
-		return false
-	}
-	
-	// 检查接口的所有方法是否都在类中实现
+	// 获取接口的所有方法签名
 	interfaceMethods, ok := st.ClassMethods[baseInterfaceName]
 	if !ok {
+		// 接口不存在，返回错误
+		return fmt.Errorf("interface '%s' not found", baseInterfaceName)
+	}
+	
+	// 获取类的方法签名
+	classMethods, ok := st.ClassMethods[baseTypeName]
+	if !ok {
+		return fmt.Errorf("class '%s' has no methods", baseTypeName)
+	}
+	
+	// 验证接口的每个方法是否在类中都有实现，且签名匹配
+	for methodName, interfaceMethodSigs := range interfaceMethods {
+		classMethodSigs, hasMethod := classMethods[methodName]
+		if !hasMethod || len(classMethodSigs) == 0 {
+			return fmt.Errorf("method '%s' not implemented", methodName)
+		}
+		
+		// 对每个接口方法签名，查找匹配的类方法签名
+		for _, interfaceSig := range interfaceMethodSigs {
+			matchFound := false
+			for _, classSig := range classMethodSigs {
+				if st.compareMethodSignatures(interfaceSig, classSig) {
+					matchFound = true
+					break
+				}
+			}
+			if !matchFound {
+				// 没有找到匹配的方法，返回详细错误
+				return fmt.Errorf("method '%s' signature mismatch", methodName)
+			}
+		}
+	}
+	
+	return nil
+}
+
+// compareMethodSignatures 比较两个方法签名是否兼容
+// 用于验证类方法是否满足接口方法的签名要求
+func (st *SymbolTable) compareMethodSignatures(interfaceMethod, classMethod *MethodSignature) bool {
+	// 1. 检查静态/实例方法匹配
+	if interfaceMethod.IsStatic != classMethod.IsStatic {
 		return false
 	}
 	
-	// 检查接口的每个方法是否在类中都有实现
-	for methodName := range interfaceMethods {
-		if _, hasMethod := methods[methodName]; !hasMethod {
+	// 2. 检查参数数量
+	if len(interfaceMethod.ParamTypes) != len(classMethod.ParamTypes) {
+		// 如果接口方法有默认参数，允许类的参数数量在 MinArity 到 ParamTypes 长度之间
+		if interfaceMethod.MinArity > 0 {
+			classArity := len(classMethod.ParamTypes)
+			if classArity < interfaceMethod.MinArity || classArity > len(interfaceMethod.ParamTypes) {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	
+	// 3. 检查参数类型匹配
+	// 类的参数类型必须与接口兼容（协变）
+	minParams := len(interfaceMethod.ParamTypes)
+	if len(classMethod.ParamTypes) < minParams {
+		minParams = len(classMethod.ParamTypes)
+	}
+	for i := 0; i < minParams; i++ {
+		// 接口参数类型应该是类参数类型的超类型（逆变）
+		// 即：类方法参数应该可以接受接口方法参数
+		if !st.IsTypeCompatible(interfaceMethod.ParamTypes[i], classMethod.ParamTypes[i]) {
+			// 对于基本类型，需要严格匹配
+			if interfaceMethod.ParamTypes[i] != classMethod.ParamTypes[i] {
+				return false
+			}
+		}
+	}
+	
+	// 4. 检查返回类型匹配（协变）
+	// 类方法的返回类型必须是接口方法返回类型的子类型
+	if interfaceMethod.ReturnType != "void" {
+		if classMethod.ReturnType == "void" {
+			return false
+		}
+		// 返回类型协变：类方法返回类型必须是接口方法返回类型的子类型
+		if !st.IsTypeCompatible(classMethod.ReturnType, interfaceMethod.ReturnType) {
+			return false
+		}
+	} else {
+		// 接口方法返回 void，类方法也必须返回 void
+		if classMethod.ReturnType != "void" {
 			return false
 		}
 	}

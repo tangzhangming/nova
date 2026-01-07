@@ -1,10 +1,11 @@
 package compiler
 
 import (
+	"strings"
+
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/i18n"
-	"github.com/tangzhangming/nova/internal/token"
 )
 
 // ClassCompiler 类编译器
@@ -133,6 +134,11 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 		class.AddMethod(m)
 	}
 
+	// 验证接口实现
+	if len(decl.Implements) > 0 {
+		c.validateInterfaceImplementations(decl)
+	}
+
 	return class
 }
 
@@ -225,15 +231,12 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	prevScopeDepth := c.scopeDepth
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
+	prevCurrentClassName := c.currentClassName
 
-	// 创建方法的编译环境
-	c.function = &bytecode.Function{
-		Name:       decl.Name.Name,
-		ClassName:  class.Name, // 设置所属类名
-		Arity:      len(decl.Parameters),
-		Chunk:      method.Chunk,
-		SourceFile: c.sourceFile, // 继承源文件信息
-	}
+	// 创建新函数
+	c.function = bytecode.NewFunction(decl.Name.Name)
+	c.function.Arity = len(decl.Parameters)
+	c.function.SourceFile = c.sourceFile
 	c.locals = make([]Local, 256)
 	c.localCount = 0
 	c.scopeDepth = 0
@@ -241,16 +244,27 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	// 设置返回类型检查
 	c.returnType = decl.ReturnType
 	c.expectedReturns = c.countExpectedReturns(decl.ReturnType)
-
-	// 添加隐式 this 参数 (slot 0)
-	// 非静态方法有 $this，静态方法用空字符串占位
-	if !decl.Static {
-		c.addLocal("this")
-	} else {
-		c.addLocal("") // 静态方法 slot 0 占位符
+	
+	// 计算最小参数数量（考虑默认参数和可变参数）
+	minArity = len(decl.Parameters)
+	isVariadic := false
+	for i, param := range decl.Parameters {
+		if param.Variadic {
+			isVariadic = true
+			minArity = i
+			break
+		}
+		if param.Default != nil && minArity == len(decl.Parameters) {
+			minArity = i
+		}
 	}
+	c.function.MinArity = minArity
+	c.function.IsVariadic = isVariadic
 
-	// 添加参数作为局部变量 (直接使用 addLocal，因为方法参数始终是局部的)
+	// 预留 slot 0 给 $this
+	c.addLocal("")
+	
+	// 添加参数作为局部变量
 	for _, param := range decl.Parameters {
 		typeName := ""
 		if param.Type != nil {
@@ -258,8 +272,6 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 		}
 		c.addLocalWithType(param.Name.Name, typeName)
 	}
-	
-	// 静态类型检查：参数类型在调用点检查，方法体内不需要运行时检查
 
 	// 编译方法体
 	c.beginScope()
@@ -269,17 +281,11 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.endScope()
 
 	// 添加默认返回
-	if decl.Name.Name == "__construct" {
-		// 构造函数返回 this
-		c.emitU16(bytecode.OpLoadLocal, 0) // 加载 this
-		c.emit(bytecode.OpReturn)
-	} else {
-		c.emit(bytecode.OpReturnNull)
-	}
+	c.emit(bytecode.OpReturnNull)
 
 	method.LocalCount = c.localCount
 	method.Chunk = c.function.Chunk
-
+	
 	// 恢复状态
 	c.function = prevFn
 	c.locals = prevLocals
@@ -287,473 +293,198 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.scopeDepth = prevScopeDepth
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns
-
+	c.currentClassName = prevCurrentClassName
+	
 	return method
-}
-
-// countExpectedReturns 计算预期返回值数量
-func (c *Compiler) countExpectedReturns(returnType ast.TypeNode) int {
-	if returnType == nil {
-		return 0 // 无返回类型 = void
-	}
-	
-	// 检查是否是 void 类型
-	if simple, ok := returnType.(*ast.SimpleType); ok {
-		if simple.Name == "void" {
-			return 0
-		}
-	}
-	
-	// 检查是否是多返回值类型 (TupleType)
-	if tuple, ok := returnType.(*ast.TupleType); ok {
-		return len(tuple.Types)
-	}
-	
-	// 单返回值
-	return 1
-}
-
-// evaluateConstant 编译时求值常量表达式
-func (c *Compiler) evaluateConstant(expr ast.Expression) bytecode.Value {
-	switch e := expr.(type) {
-	case *ast.IntegerLiteral:
-		return bytecode.NewInt(e.Value)
-	case *ast.FloatLiteral:
-		return bytecode.NewFloat(e.Value)
-	case *ast.StringLiteral:
-		return bytecode.NewString(e.Value)
-	case *ast.BoolLiteral:
-		return bytecode.NewBool(e.Value)
-	case *ast.NullLiteral:
-		return bytecode.NullValue
-	case *ast.UnaryExpr:
-		if e.Operator.Type == token.MINUS {
-			inner := c.evaluateConstant(e.Operand)
-			if inner.Type == bytecode.ValInt {
-				return bytecode.NewInt(-inner.AsInt())
-			}
-			if inner.Type == bytecode.ValFloat {
-				return bytecode.NewFloat(-inner.AsFloat())
-			}
-		}
-	case *ast.BinaryExpr:
-		left := c.evaluateConstant(e.Left)
-		right := c.evaluateConstant(e.Right)
-		return c.evalBinaryConstant(e.Operator.Type, left, right)
-	}
-	return bytecode.NullValue
-}
-
-func (c *Compiler) evalBinaryConstant(op token.TokenType, left, right bytecode.Value) bytecode.Value {
-	// 字符串拼接
-	if op == token.PLUS && (left.Type == bytecode.ValString || right.Type == bytecode.ValString) {
-		return bytecode.NewString(left.AsString() + right.AsString())
-	}
-
-	// 整数运算
-	if left.Type == bytecode.ValInt && right.Type == bytecode.ValInt {
-		l, r := left.AsInt(), right.AsInt()
-		switch op {
-		case token.PLUS:
-			return bytecode.NewInt(l + r)
-		case token.MINUS:
-			return bytecode.NewInt(l - r)
-		case token.STAR:
-			return bytecode.NewInt(l * r)
-		case token.SLASH:
-			if r != 0 {
-				return bytecode.NewInt(l / r)
-			}
-		case token.PERCENT:
-			if r != 0 {
-				return bytecode.NewInt(l % r)
-			}
-		}
-	}
-
-	// 浮点运算
-	if (left.Type == bytecode.ValInt || left.Type == bytecode.ValFloat) &&
-		(right.Type == bytecode.ValInt || right.Type == bytecode.ValFloat) {
-		l, r := left.AsFloat(), right.AsFloat()
-		switch op {
-		case token.PLUS:
-			return bytecode.NewFloat(l + r)
-		case token.MINUS:
-			return bytecode.NewFloat(l - r)
-		case token.STAR:
-			return bytecode.NewFloat(l * r)
-		case token.SLASH:
-			if r != 0 {
-				return bytecode.NewFloat(l / r)
-			}
-		}
-	}
-
-	return bytecode.NullValue
-}
-
-// CompileInterface 编译接口声明
-func (c *Compiler) CompileInterface(decl *ast.InterfaceDecl) *bytecode.Class {
-	// 接口在 Sola 中作为特殊的类处理
-	class := bytecode.NewClass(decl.Name.Name)
-	class.IsInterface = true
-	
-	// 接口的方法都是抽象的
-	for _, method := range decl.Methods {
-		m := &bytecode.Method{
-			Name:     method.Name.Name,
-			Arity:    len(method.Parameters),
-			IsStatic: false,
-		}
-		class.AddMethod(m)
-	}
-
-	return class
-}
-
-// CompileEnum 编译枚举声明
-func (c *Compiler) CompileEnum(decl *ast.EnumDecl) *bytecode.Enum {
-	enum := bytecode.NewEnum(decl.Name.Name)
-	
-	// 编译每个枚举成员
-	for i, enumCase := range decl.Cases {
-		var value bytecode.Value
-		if enumCase.Value != nil {
-			// 有显式值
-			value = c.evaluateConstant(enumCase.Value)
-		} else {
-			// 默认值为索引
-			value = bytecode.NewInt(int64(i))
-		}
-		enum.Cases[enumCase.Name.Name] = value
-	}
-	
-	return enum
-}
-
-// validateFinalConstraints 验证 final 约束
-// - final 类不能被继承
-// - final 方法不能被重写
-func (c *Compiler) validateFinalConstraints(file *ast.File) {
-	for _, decl := range file.Declarations {
-		classDecl, ok := decl.(*ast.ClassDecl)
-		if !ok {
-			continue
-		}
-		
-		// 检查是否继承了 final 类
-		if classDecl.Extends != nil {
-			parentName := classDecl.Extends.Name
-			if parent, ok := c.classes[parentName]; ok {
-				if parent.IsFinal {
-					c.error(classDecl.Extends.Token.Pos, i18n.T(i18n.ErrCannotExtendFinalClass, parentName))
-				}
-				
-				// 检查是否重写了 final 方法
-				for _, method := range classDecl.Methods {
-					if parentMethods, ok := parent.Methods[method.Name.Name]; ok {
-						for _, parentMethod := range parentMethods {
-							if parentMethod.IsFinal {
-								c.error(method.FuncToken.Pos, i18n.T(i18n.ErrCannotOverrideFinalMethod, method.Name.Name, parentName))
-								break
-							}
-						}
-					}
-				}
-			}
-		}
-	}
 }
 
 // compilePropertyWithAccessor 编译带访问器的属性（自动属性或完整属性）
 func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.PropertyDecl) {
-	propName := prop.Name.Name
-	backingFieldName := "__prop_" + propName // 自动属性的后备字段
-	
-	// 保存属性信息（用于标记这是一个属性而不是普通字段）
+	// 保存属性可见性
 	vis := toByteVisibility(prop.Visibility)
-	class.PropVisibility[propName] = vis
-	if prop.Final {
-		class.PropFinal[propName] = true
-	}
-	if len(prop.Annotations) > 0 {
-		class.PropAnnotations[propName] = c.compileAnnotations(prop.Annotations)
+	
+	// 如果有 getter 访问器
+	if prop.Accessor.Getter != nil {
+		// 创建 getter 方法
+		getterName := "get_" + prop.Name.Name
+		getter := &bytecode.Method{
+			Name:        getterName,
+			ClassName:   class.Name,
+			SourceFile:  c.sourceFile,
+			Arity:       0,
+			MinArity:    0,
+			IsStatic:    prop.Static,
+			Visibility:  vis,
+			Chunk:       bytecode.NewChunk(),
+		}
+		
+		// 编译 getter 方法体
+		prevFn := c.function
+		prevLocals := c.locals
+		prevLocalCount := c.localCount
+		prevScopeDepth := c.scopeDepth
+		prevReturnType := c.returnType
+		prevExpectedReturns := c.expectedReturns
+		prevCurrentClassName := c.currentClassName
+		
+		c.function = bytecode.NewFunction(getterName)
+		c.function.SourceFile = c.sourceFile
+		c.locals = make([]Local, 256)
+		c.localCount = 0
+		c.scopeDepth = 0
+		
+		// 设置返回类型
+		if prop.Type != nil {
+			c.returnType = prop.Type
+			c.expectedReturns = c.countExpectedReturns(prop.Type)
+		} else {
+			c.returnType = nil
+			c.expectedReturns = 0
+		}
+		
+		// 预留 slot 0 给 $this
+		c.addLocal("")
+		
+		// 编译 getter 体
+		c.beginScope()
+		for _, stmt := range prop.Accessor.Getter.Statements {
+			c.compileStmt(stmt)
+		}
+		c.endScope()
+		
+		// 如果没有显式返回，添加默认返回
+		c.emit(bytecode.OpReturnNull)
+		
+		getter.LocalCount = c.localCount
+		getter.Chunk = c.function.Chunk
+		
+		// 恢复状态
+		c.function = prevFn
+		c.locals = prevLocals
+		c.localCount = prevLocalCount
+		c.scopeDepth = prevScopeDepth
+		c.returnType = prevReturnType
+		c.expectedReturns = prevExpectedReturns
+		c.currentClassName = prevCurrentClassName
+		
+		class.AddMethod(getter)
 	}
 	
-	// 创建后备字段（用于自动属性）
-	backingFieldValue := bytecode.NullValue
-	if prop.Value != nil {
-		backingFieldValue = c.evaluateConstant(prop.Value)
-	}
-	if prop.Static {
-		class.StaticVars[backingFieldName] = backingFieldValue
-	} else {
-		class.Properties[backingFieldName] = backingFieldValue
-	}
-	
-	// 编译 getter
-	if prop.Accessor.GetToken.Type != 0 {
-		getterMethod := c.compilePropertyGetter(class, prop, backingFieldName)
-		class.AddMethod(getterMethod)
-	}
-	
-	// 编译 setter
-	if prop.Accessor.SetToken.Type != 0 {
-		setterMethod := c.compilePropertySetter(class, prop, backingFieldName)
-		class.AddMethod(setterMethod)
+	// 如果有 setter 访问器
+	if prop.Accessor.Setter != nil {
+		// 创建 setter 方法
+		setterName := "set_" + prop.Name.Name
+		setter := &bytecode.Method{
+			Name:        setterName,
+			ClassName:   class.Name,
+			SourceFile:  c.sourceFile,
+			Arity:       1,
+			MinArity:    1,
+			IsStatic:    prop.Static,
+			Visibility:  vis,
+			Chunk:       bytecode.NewChunk(),
+		}
+		
+		// 编译 setter 方法体
+		prevFn := c.function
+		prevLocals := c.locals
+		prevLocalCount := c.localCount
+		prevScopeDepth := c.scopeDepth
+		prevReturnType := c.returnType
+		prevExpectedReturns := c.expectedReturns
+		prevCurrentClassName := c.currentClassName
+		
+		c.function = bytecode.NewFunction(setterName)
+		c.function.SourceFile = c.sourceFile
+		c.locals = make([]Local, 256)
+		c.localCount = 0
+		c.scopeDepth = 0
+		c.returnType = nil
+		c.expectedReturns = 0
+		
+		// 预留 slot 0 给 $this
+		c.addLocal("")
+		
+		// 添加参数作为局部变量
+		if len(prop.Accessor.Setter.Parameters) > 0 {
+			param := prop.Accessor.Setter.Parameters[0]
+			typeName := ""
+			if prop.Type != nil {
+				typeName = c.getTypeName(prop.Type)
+			}
+			c.addLocalWithType(param.Name.Name, typeName)
+		}
+		
+		// 编译 setter 体
+		c.beginScope()
+		for _, stmt := range prop.Accessor.Setter.Body.Statements {
+			c.compileStmt(stmt)
+		}
+		c.endScope()
+		
+		// 添加默认返回
+		c.emit(bytecode.OpReturnNull)
+		
+		setter.LocalCount = c.localCount
+		setter.Chunk = c.function.Chunk
+		
+		// 恢复状态
+		c.function = prevFn
+		c.locals = prevLocals
+		c.localCount = prevLocalCount
+		c.scopeDepth = prevScopeDepth
+		c.returnType = prevReturnType
+		c.expectedReturns = prevExpectedReturns
+		c.currentClassName = prevCurrentClassName
+		
+		class.AddMethod(setter)
 	}
 }
 
 // compileExpressionBodiedProperty 编译表达式体属性
 func (c *Compiler) compileExpressionBodiedProperty(class *bytecode.Class, prop *ast.PropertyDecl) {
-	propName := prop.Name.Name
-	
-	// 保存属性信息
+	// 保存属性可见性
 	vis := toByteVisibility(prop.Visibility)
-	class.PropVisibility[propName] = vis
-	if prop.Final {
-		class.PropFinal[propName] = true
-	}
-	if len(prop.Annotations) > 0 {
-		class.PropAnnotations[propName] = c.compileAnnotations(prop.Annotations)
-	}
 	
-	// 表达式体属性只有 getter
-	getterMethod := c.compileExpressionBodiedGetter(class, prop)
-	class.AddMethod(getterMethod)
-}
-
-// compilePropertyGetter 编译属性 getter 方法
-func (c *Compiler) compilePropertyGetter(class *bytecode.Class, prop *ast.PropertyDecl, backingFieldName string) *bytecode.Method {
-	propName := prop.Name.Name
-	getterName := "get_" + propName
-	
-	method := &bytecode.Method{
+	// 创建 getter 方法
+	getterName := "get_" + prop.Name.Name
+	getter := &bytecode.Method{
 		Name:        getterName,
 		ClassName:   class.Name,
 		SourceFile:  c.sourceFile,
 		Arity:       0,
 		MinArity:    0,
 		IsStatic:    prop.Static,
-		IsFinal:     false,
-		Visibility:  toByteVisibility(prop.Accessor.GetVis),
-		Annotations: c.compileAnnotations(prop.Annotations),
+		Visibility:  vis,
 		Chunk:       bytecode.NewChunk(),
 	}
 	
-	// 保存当前状态
+	// 编译 getter 方法体
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
 	prevScopeDepth := c.scopeDepth
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
+	prevCurrentClassName := c.currentClassName
 	
-	// 创建方法的编译环境
-	c.function = &bytecode.Function{
-		Name:       getterName,
-		ClassName:  class.Name,
-		Arity:      0,
-		Chunk:      method.Chunk,
-		SourceFile: c.sourceFile,
-	}
+	c.function = bytecode.NewFunction(getterName)
+	c.function.SourceFile = c.sourceFile
 	c.locals = make([]Local, 256)
 	c.localCount = 0
 	c.scopeDepth = 0
-	c.returnType = prop.Type
-	c.expectedReturns = 1
 	
-	// 添加隐式 this 参数（非静态方法）
-	if !prop.Static {
-		c.addLocal("this")
+	// 设置返回类型
+	if prop.Type != nil {
+		c.returnType = prop.Type
+		c.expectedReturns = c.countExpectedReturns(prop.Type)
 	} else {
-		c.addLocal("") // 静态方法 slot 0 占位符
+		c.returnType = nil
+		c.expectedReturns = 0
 	}
 	
-	// 编译 getter 体
-	c.beginScope()
-	if prop.Accessor.GetBody != nil {
-		// 完整属性：编译方法体
-		for _, stmt := range prop.Accessor.GetBody.Statements {
-			c.compileStmt(stmt)
-		}
-	} else if prop.Accessor.GetExpr != nil {
-		// 表达式体 getter
-		c.compileExpr(prop.Accessor.GetExpr)
-		c.emit(bytecode.OpReturn)
-	} else {
-		// 自动属性：返回后备字段
-		if prop.Static {
-			// 静态属性
-			classIdx := c.makeConstant(bytecode.NewString(class.Name))
-			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
-			c.emitU16(bytecode.OpGetStatic, classIdx)
-			c.currentChunk().WriteU16(fieldIndex, c.currentLine)
-		} else {
-			// 实例属性
-			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
-			c.emitU16(bytecode.OpGetField, fieldIndex)
-		}
-		c.emit(bytecode.OpReturn)
-	}
-	c.endScope()
-	
-	method.LocalCount = c.localCount
-	method.Chunk = c.function.Chunk
-	
-	// 恢复状态
-	c.function = prevFn
-	c.locals = prevLocals
-	c.localCount = prevLocalCount
-	c.scopeDepth = prevScopeDepth
-	c.returnType = prevReturnType
-	c.expectedReturns = prevExpectedReturns
-	
-	return method
-}
-
-// compilePropertySetter 编译属性 setter 方法
-func (c *Compiler) compilePropertySetter(class *bytecode.Class, prop *ast.PropertyDecl, backingFieldName string) *bytecode.Method {
-	propName := prop.Name.Name
-	setterName := "set_" + propName
-	
-	method := &bytecode.Method{
-		Name:        setterName,
-		ClassName:   class.Name,
-		SourceFile:  c.sourceFile,
-		Arity:       1,
-		MinArity:    1,
-		IsStatic:    prop.Static,
-		IsFinal:     false,
-		Visibility:  toByteVisibility(prop.Accessor.SetVis),
-		Annotations: c.compileAnnotations(prop.Annotations),
-		Chunk:       bytecode.NewChunk(),
-	}
-	
-	// 保存当前状态
-	prevFn := c.function
-	prevLocals := c.locals
-	prevLocalCount := c.localCount
-	prevScopeDepth := c.scopeDepth
-	prevReturnType := c.returnType
-	prevExpectedReturns := c.expectedReturns
-	
-	// 创建方法的编译环境
-	c.function = &bytecode.Function{
-		Name:       setterName,
-		ClassName:  class.Name,
-		Arity:      1,
-		Chunk:      method.Chunk,
-		SourceFile: c.sourceFile,
-	}
-	c.locals = make([]Local, 256)
-	c.localCount = 0
-	c.scopeDepth = 0
-	c.returnType = nil // setter 无返回值
-	c.expectedReturns = 0
-	
-	// 添加隐式 this 参数（非静态方法）
-	if !prop.Static {
-		c.addLocal("this")
-	} else {
-		c.addLocal("") // 静态方法 slot 0 占位符
-	}
-	
-	// 添加 $value 参数
-	c.addLocalWithType("value", c.getTypeName(prop.Type))
-	
-	// 编译 setter 体
-	c.beginScope()
-	if prop.Accessor.SetBody != nil {
-		// 完整属性：编译方法体
-		for _, stmt := range prop.Accessor.SetBody.Statements {
-			c.compileStmt(stmt)
-		}
-	} else if prop.Accessor.SetExpr != nil {
-		// 表达式体 setter
-		c.compileExpr(prop.Accessor.SetExpr)
-		c.emit(bytecode.OpPop) // 表达式体 setter 的返回值被丢弃
-	} else {
-		// 自动属性：设置后备字段
-		if prop.Static {
-			// 静态属性
-			classIdx := c.makeConstant(bytecode.NewString(class.Name))
-			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
-			c.emitU16(bytecode.OpLoadLocal, 1) // 加载 $value
-			c.emitU16(bytecode.OpSetStatic, classIdx)
-			c.currentChunk().WriteU16(fieldIndex, c.currentLine)
-		} else {
-			// 实例属性
-			fieldIndex := c.makeConstant(bytecode.NewString(backingFieldName))
-			c.emitU16(bytecode.OpLoadLocal, 1) // 加载 $value
-			c.emitU16(bytecode.OpSetField, fieldIndex)
-		}
-	}
-	c.endScope()
-	
-	// 添加默认返回
-	c.emit(bytecode.OpReturnNull)
-	
-	method.LocalCount = c.localCount
-	method.Chunk = c.function.Chunk
-	
-	// 恢复状态
-	c.function = prevFn
-	c.locals = prevLocals
-	c.localCount = prevLocalCount
-	c.scopeDepth = prevScopeDepth
-	c.returnType = prevReturnType
-	c.expectedReturns = prevExpectedReturns
-	
-	return method
-}
-
-// compileExpressionBodiedGetter 编译表达式体属性的 getter
-func (c *Compiler) compileExpressionBodiedGetter(class *bytecode.Class, prop *ast.PropertyDecl) *bytecode.Method {
-	propName := prop.Name.Name
-	getterName := "get_" + propName
-	
-	method := &bytecode.Method{
-		Name:        getterName,
-		ClassName:   class.Name,
-		SourceFile:  c.sourceFile,
-		Arity:       0,
-		MinArity:    0,
-		IsStatic:    prop.Static,
-		IsFinal:     false,
-		Visibility:  toByteVisibility(prop.Visibility),
-		Annotations: c.compileAnnotations(prop.Annotations),
-		Chunk:       bytecode.NewChunk(),
-	}
-	
-	// 保存当前状态
-	prevFn := c.function
-	prevLocals := c.locals
-	prevLocalCount := c.localCount
-	prevScopeDepth := c.scopeDepth
-	prevReturnType := c.returnType
-	prevExpectedReturns := c.expectedReturns
-	
-	// 创建方法的编译环境
-	c.function = &bytecode.Function{
-		Name:       getterName,
-		ClassName:  class.Name,
-		Arity:      0,
-		Chunk:      method.Chunk,
-		SourceFile: c.sourceFile,
-	}
-	c.locals = make([]Local, 256)
-	c.localCount = 0
-	c.scopeDepth = 0
-	c.returnType = prop.Type
-	c.expectedReturns = 1
-	
-	// 添加隐式 this 参数（非静态方法）
-	if !prop.Static {
-		c.addLocal("this")
-	} else {
-		c.addLocal("") // 静态方法 slot 0 占位符
-	}
+	// 预留 slot 0 给 $this
+	c.addLocal("")
 	
 	// 编译表达式体
 	c.beginScope()
@@ -761,8 +492,8 @@ func (c *Compiler) compileExpressionBodiedGetter(class *bytecode.Class, prop *as
 	c.emit(bytecode.OpReturn)
 	c.endScope()
 	
-	method.LocalCount = c.localCount
-	method.Chunk = c.function.Chunk
+	getter.LocalCount = c.localCount
+	getter.Chunk = c.function.Chunk
 	
 	// 恢复状态
 	c.function = prevFn
@@ -771,7 +502,117 @@ func (c *Compiler) compileExpressionBodiedGetter(class *bytecode.Class, prop *as
 	c.scopeDepth = prevScopeDepth
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns
+	c.currentClassName = prevCurrentClassName
 	
-	return method
+	class.AddMethod(getter)
 }
 
+// validateInterfaceImplementations 验证类是否实现了所有声明的接口
+func (c *Compiler) validateInterfaceImplementations(decl *ast.ClassDecl) {
+	className := c.currentClassName
+	if className == "" {
+		className = decl.Name.Name
+	}
+	
+	for _, iface := range decl.Implements {
+		fullName := c.getTypeName(iface)
+		baseName := c.extractBaseTypeName(fullName)
+		
+		// 验证接口实现
+		err := c.symbolTable.ValidateImplements(className, baseName)
+		if err != nil {
+			// 构造详细的错误信息
+			c.error(iface.Pos(), i18n.T(i18n.ErrInterfaceNotImplemented, className, baseName)+": "+err.Error())
+			continue
+		}
+		
+		// 进一步验证：检查所有接口方法是否都有正确的签名
+		interfaceMethods, ok := c.symbolTable.ClassMethods[baseName]
+		if !ok {
+			continue
+		}
+		
+		classMethods, ok := c.symbolTable.ClassMethods[className]
+		if !ok {
+			c.error(iface.Pos(), i18n.T(i18n.ErrInterfaceNotImplemented, className, baseName))
+			continue
+		}
+		
+		// 对每个接口方法，验证类中有匹配的实现
+		for methodName, interfaceMethodSigs := range interfaceMethods {
+			classMethodSigs, hasMethod := classMethods[methodName]
+			if !hasMethod || len(classMethodSigs) == 0 {
+				c.error(iface.Pos(), i18n.T(i18n.ErrInterfaceMethodMissing, className, baseName, methodName))
+				continue
+			}
+			
+			// 检查是否有匹配的方法签名
+			for _, interfaceSig := range interfaceMethodSigs {
+				matchFound := false
+				for _, classSig := range classMethodSigs {
+					if c.symbolTable.compareMethodSignatures(interfaceSig, classSig) {
+						matchFound = true
+						break
+					}
+				}
+				
+				if !matchFound {
+					// 构造详细的错误信息
+					interfaceSig := interfaceMethodSigs[0]
+					classSig := classMethodSigs[0]
+					
+					// 检查参数类型不匹配
+					if len(interfaceSig.ParamTypes) != len(classSig.ParamTypes) ||
+						!c.paramsMatch(interfaceSig.ParamTypes, classSig.ParamTypes) {
+						c.error(iface.Pos(), i18n.T(i18n.ErrInterfaceMethodParamMismatch,
+							className, methodName, baseName,
+							c.formatParamTypes(interfaceSig.ParamTypes),
+							c.formatParamTypes(classSig.ParamTypes)))
+						continue
+					}
+					
+					// 检查返回类型不匹配
+					if interfaceSig.ReturnType != classSig.ReturnType &&
+						!c.symbolTable.IsTypeCompatible(classSig.ReturnType, interfaceSig.ReturnType) {
+						c.error(iface.Pos(), i18n.T(i18n.ErrInterfaceMethodReturnMismatch,
+							className, methodName, baseName,
+							interfaceSig.ReturnType, classSig.ReturnType))
+						continue
+					}
+					
+					// 检查静态/实例不匹配
+					if interfaceSig.IsStatic != classSig.IsStatic {
+						c.error(iface.Pos(), i18n.T(i18n.ErrInterfaceMethodStaticMismatch,
+							className, methodName, baseName))
+						continue
+					}
+				}
+			}
+		}
+	}
+}
+
+// paramsMatch 检查参数类型是否匹配
+func (c *Compiler) paramsMatch(interfaceParams, classParams []string) bool {
+	if len(interfaceParams) != len(classParams) {
+		return false
+	}
+	for i := 0; i < len(interfaceParams); i++ {
+		// 接口参数类型应该是类参数类型的超类型（逆变）
+		if !c.symbolTable.IsTypeCompatible(interfaceParams[i], classParams[i]) {
+			// 对于基本类型，需要严格匹配
+			if interfaceParams[i] != classParams[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// formatParamTypes 格式化参数类型列表为字符串
+func (c *Compiler) formatParamTypes(paramTypes []string) string {
+	if len(paramTypes) == 0 {
+		return "()"
+	}
+	return "(" + strings.Join(paramTypes, ", ") + ")"
+}

@@ -85,6 +85,13 @@ var messagesEN = map[string]string{
 	ErrFinalAndAbstractConflict:  "a class cannot be both final and abstract",
 	ErrCannotAssignFinalProperty: "cannot reassign final property '%s'",
 	
+	// Interface
+	ErrInterfaceNotImplemented:      "class '%s' does not implement interface '%s'",
+	ErrInterfaceMethodMissing:       "class '%s' does not implement method '%s' from interface '%s'",
+	ErrInterfaceMethodParamMismatch: "method '%s' in class '%s' has parameter type mismatch with interface '%s' (expected %s, got %s)",
+	ErrInterfaceMethodReturnMismatch: "method '%s' in class '%s' has return type incompatible with interface '%s' (expected %s, got %s)",
+	ErrInterfaceMethodStaticMismatch: "method '%s' in class '%s' has static/instance mismatch with interface '%s'",
+	
 	// Class name resolution
 	ErrSelfOutsideClass: "cannot use self::class outside of class",
 

@@ -525,7 +525,30 @@ func (vm *VM) execute() InterpretResult {
 			if err := vm.validateClass(class); err != nil {
 				return vm.runtimeError("%v", err)
 			}
-			obj := bytecode.NewObjectInstance(class)
+			
+			// 如果有泛型类型参数定义，检查是否有类型参数传入
+			// 注意：由于类型擦除，运行时通常没有泛型类型参数信息
+			// 这里主要是为未来的扩展做准备，当前实现基本验证框架
+			var typeArgs []string = nil
+			if len(class.TypeParams) > 0 {
+				// 如果有类型参数定义但运行时没有传入，这是正常的（类型擦除）
+				// 未来如果需要运行时类型验证，可以在这里扩展
+				// 目前仅验证编译时已有的类型信息
+			}
+			
+			var obj *bytecode.Object
+			if typeArgs != nil {
+				// 使用带类型参数的对象创建（如果有）
+				obj = bytecode.NewObjectInstanceWithTypes(class, typeArgs)
+				// 验证泛型约束
+				if err := vm.validateGenericConstraints(typeArgs, class.TypeParams); err != nil {
+					return vm.runtimeError("%v", err)
+				}
+			} else {
+				// 普通对象创建
+				obj = bytecode.NewObjectInstance(class)
+			}
+			
 			// 初始化属性默认值
 			vm.initObjectProperties(obj, class)
 			vm.push(vm.trackAllocation(bytecode.NewObject(obj)))
