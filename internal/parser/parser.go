@@ -2048,7 +2048,7 @@ func (p *Parser) parseDeclaration() ast.Declaration {
 	case token.ENUM:
 		return p.parseEnum()
 	case token.TYPE:
-		return p.parseTypeAlias()
+		return p.parseTypeDeclaration()
 	default:
 		p.error(i18n.T(i18n.ErrExpectedToken, "'class', 'interface', 'enum' or 'type'"))
 		return nil
@@ -2583,21 +2583,49 @@ func (p *Parser) parseEnum() *ast.EnumDecl {
 	}
 }
 
-// parseTypeAlias 解析类型别名声明 (type StringList = string[])
-func (p *Parser) parseTypeAlias() *ast.TypeAliasDecl {
+// parseTypeDeclaration 解析类型声明
+// 支持两种语法：
+// 1. 类型别名: type StringList = string[]  (与目标类型完全兼容)
+// 2. 新类型:   type UserID int             (独立类型，需要显式转换)
+func (p *Parser) parseTypeDeclaration() ast.Declaration {
 	typeToken := p.advance() // 消费 type
-	nameToken := p.consume(token.IDENT, "expected type alias name")
+	nameToken := p.consume(token.IDENT, "expected type name")
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 	
-	equals := p.consume(token.ASSIGN, "expected '=' in type alias")
-	aliasType := p.parseType()
-	
-	return &ast.TypeAliasDecl{
-		TypeToken: typeToken,
-		Name:      name,
-		Equals:    equals,
-		AliasType: aliasType,
+	// 检查是否有 = 符号来区分别名和新类型
+	if p.match(token.ASSIGN) {
+		// 类型别名: type StringList = string[]
+		equals := p.previous()
+		aliasType := p.parseType()
+		
+		return &ast.TypeAliasDecl{
+			TypeToken: typeToken,
+			Name:      name,
+			Equals:    equals,
+			AliasType: aliasType,
+		}
+	} else {
+		// 新类型: type UserID int
+		baseType := p.parseType()
+		
+		return &ast.NewTypeDecl{
+			TypeToken: typeToken,
+			Name:      name,
+			BaseType:  baseType,
+		}
 	}
+}
+
+// parseTypeAlias 解析类型别名声明 (保留向后兼容，内部调用 parseTypeDeclaration)
+// 已废弃：请使用 parseTypeDeclaration
+func (p *Parser) parseTypeAlias() *ast.TypeAliasDecl {
+	decl := p.parseTypeDeclaration()
+	if alias, ok := decl.(*ast.TypeAliasDecl); ok {
+		return alias
+	}
+	// 如果不是类型别名，报错
+	p.error("expected type alias (with '=')")
+	return nil
 }
 
 func (p *Parser) parseNamespace() *ast.NamespaceDecl {

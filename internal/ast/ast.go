@@ -1296,6 +1296,7 @@ func (c *EnumCase) End() token.Position { return c.Name.End() }
 func (c *EnumCase) String() string      { return c.Name.String() }
 
 // TypeAliasDecl 类型别名声明 (type StringList = string[])
+// 类型别名创建与目标类型完全兼容的新名称
 type TypeAliasDecl struct {
 	TypeToken token.Token // type 关键字
 	Name      *Identifier // 别名名称
@@ -1309,6 +1310,21 @@ func (d *TypeAliasDecl) String() string {
 	return "type " + d.Name.Name + " = " + d.AliasType.String()
 }
 func (d *TypeAliasDecl) declNode() {}
+
+// NewTypeDecl 新类型声明 (type UserID int)
+// 新类型创建与基础类型不兼容的独立类型，需要显式转换
+type NewTypeDecl struct {
+	TypeToken token.Token // type 关键字
+	Name      *Identifier // 新类型名称
+	BaseType  TypeNode    // 基础类型
+}
+
+func (d *NewTypeDecl) Pos() token.Position { return d.TypeToken.Pos }
+func (d *NewTypeDecl) End() token.Position { return d.BaseType.End() }
+func (d *NewTypeDecl) String() string {
+	return "type " + d.Name.Name + " " + d.BaseType.String()
+}
+func (d *NewTypeDecl) declNode() {}
 
 // NamespaceDecl 命名空间声明
 type NamespaceDecl struct {

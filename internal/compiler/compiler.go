@@ -160,6 +160,8 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 
 	// ========== Phase 2: 编译 ==========
 	// 编译类、接口和枚举声明
+	// 注意：类型别名和新类型声明已在符号收集阶段处理（CollectFromFile），
+	// 它们不产生运行时字节码，只需要在符号表中注册即可
 	for _, decl := range file.Declarations {
 		switch d := decl.(type) {
 		case *ast.ClassDecl:
@@ -171,6 +173,10 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 		case *ast.EnumDecl:
 			enum := c.CompileEnum(d)
 			c.enums[d.Name.Name] = enum
+		case *ast.TypeAliasDecl, *ast.NewTypeDecl:
+			// 类型别名和新类型声明已在符号收集阶段处理（CollectFromFile）
+			// 它们不产生运行时字节码，只是类型系统的声明
+			// 在这里可以添加验证逻辑，但目前不需要额外处理
 		}
 	}
 	
@@ -3671,30 +3677,100 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.NullLiteral:
 		return "null"
 	case *ast.ArrayLiteral:
-		// 尝试推断数组元素类型
-		if len(e.Elements) > 0 {
-			elemType := c.inferExprType(e.Elements[0])
-			if elemType != "" && elemType != "any" && elemType != "error" {
-				return elemType + "[]"
-			}
+		// 增强数组类型推导：支持嵌套数组和更复杂的元素类型推导
+		// 例如：[[1, 2], [3, 4]] 应该推导为 int[][]
+		if len(e.Elements) == 0 {
+			return "array" // 空数组无法推断元素类型
+		}
+		
+		// 收集所有元素的类型
+		var elemTypes []string
+		for _, elem := range e.Elements {
+			elemType := c.inferExprType(elem)
 			if elemType == "error" {
 				return "error"
 			}
+			if elemType != "" && elemType != "any" {
+				elemTypes = append(elemTypes, elemType)
+			}
 		}
-		return "array"
+		
+		if len(elemTypes) == 0 {
+			return "array" // 无法推断元素类型
+		}
+		
+		// 查找所有元素类型的公共类型
+		commonType := c.findCommonArrayElementType(elemTypes)
+		if commonType != "" {
+			return commonType + "[]"
+		}
+		
+		// 如果第一个元素是数组，尝试推断嵌套数组类型
+		firstElemType := elemTypes[0]
+		if strings.HasSuffix(firstElemType, "[]") {
+			// 嵌套数组：检查所有元素是否都是数组
+			allArrays := true
+			for _, t := range elemTypes {
+				if !strings.HasSuffix(t, "[]") {
+					allArrays = false
+					break
+				}
+			}
+			if allArrays {
+				// 递归推断嵌套数组的元素类型
+				nestedElemTypes := make([]string, len(elemTypes))
+				for i, t := range elemTypes {
+					nestedElemTypes[i] = strings.TrimSuffix(t, "[]")
+				}
+				nestedCommonType := c.findCommonArrayElementType(nestedElemTypes)
+				if nestedCommonType != "" {
+					return nestedCommonType + "[][]"
+				}
+			}
+		}
+		
+		// 使用第一个元素的类型
+		return elemTypes[0] + "[]"
+		
 	case *ast.MapLiteral:
-		// 尝试推断 Map 键值类型
-		if len(e.Pairs) > 0 {
-			keyType := c.inferExprType(e.Pairs[0].Key)
-			valueType := c.inferExprType(e.Pairs[0].Value)
+		// 增强 Map 类型推导：支持更准确的键值类型推断
+		// 例如：["a" => 1, "b" => 2] 应该推导为 map[string]int
+		if len(e.Pairs) == 0 {
+			return "map" // 空 Map 无法推断类型
+		}
+		
+		// 收集所有键和值的类型
+		var keyTypes, valueTypes []string
+		for _, pair := range e.Pairs {
+			keyType := c.inferExprType(pair.Key)
+			valueType := c.inferExprType(pair.Value)
+			
 			if keyType == "error" || valueType == "error" {
 				return "error"
 			}
-			if keyType != "" && valueType != "" {
-				return "map[" + keyType + "]" + valueType
+			
+			if keyType != "" && keyType != "any" {
+				keyTypes = append(keyTypes, keyType)
+			}
+			if valueType != "" && valueType != "any" {
+				valueTypes = append(valueTypes, valueType)
 			}
 		}
-		return "map"
+		
+		if len(keyTypes) == 0 || len(valueTypes) == 0 {
+			return "map" // 无法推断类型
+		}
+		
+		// 查找公共类型
+		commonKeyType := c.findCommonArrayElementType(keyTypes)
+		commonValueType := c.findCommonArrayElementType(valueTypes)
+		
+		if commonKeyType != "" && commonValueType != "" {
+			return "map[" + commonKeyType + "]" + commonValueType
+		}
+		
+		// 使用第一个键值对的类型
+		return "map[" + keyTypes[0] + "]" + valueTypes[0]
 	case *ast.SuperArrayLiteral:
 		// PHP 风格万能数组，类型固定为 superarray
 		return "superarray"
@@ -3812,15 +3888,48 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		return "bool"
 	case *ast.ClosureExpr:
 		// 闭包表达式
+		// 如果有显式返回类型，使用显式类型
 		if e.ReturnType != nil {
-			return "func(): " + c.getTypeName(e.ReturnType)
+			returnType := c.getTypeName(e.ReturnType)
+			// 构建参数类型字符串
+			paramTypes := c.inferClosureParamTypes(e.Parameters)
+			return "func(" + paramTypes + "): " + returnType
+		}
+		
+		// 如果没有显式返回类型，尝试从函数体推断
+		// 注意：闭包可能有多个 return 语句，这里只处理简单情况
+		// 复杂的多返回语句情况需要控制流分析，这里暂时返回 func 类型
+		if len(e.Body.Statements) > 0 {
+			// 检查最后一个语句是否是 return 语句
+			lastStmt := e.Body.Statements[len(e.Body.Statements)-1]
+			if retStmt, ok := lastStmt.(*ast.ReturnStmt); ok && retStmt != nil {
+				if len(retStmt.Values) > 0 && retStmt.Values[0] != nil {
+					returnType := c.inferExprType(retStmt.Values[0])
+					if returnType != "error" && returnType != "" {
+						paramTypes := c.inferClosureParamTypes(e.Parameters)
+						return "func(" + paramTypes + "): " + returnType
+					}
+				}
+			}
+		}
+		
+		paramTypes := c.inferClosureParamTypes(e.Parameters)
+		if paramTypes != "" {
+			return "func(" + paramTypes + ")"
 		}
 		return "func"
+		
 	case *ast.ArrowFuncExpr:
-		// 箭头函数
+		// 箭头函数：从函数体表达式推断返回类型
 		bodyType := c.inferExprType(e.Body)
 		if bodyType == "error" {
 			return "error"
+		}
+		
+		// 构建参数类型字符串
+		paramTypes := c.inferClosureParamTypes(e.Parameters)
+		if paramTypes != "" {
+			return "func(" + paramTypes + "): " + bodyType
 		}
 		return "func(): " + bodyType
 	case *ast.MatchExpr:
@@ -3926,11 +4035,22 @@ func (c *Compiler) restoreVariableType(name, oldType string) {
 
 // inferCallExprType 推断函数调用的返回类型
 // 静态类型系统：函数必须在符号表中有签名
+// inferCallExprType 推断函数调用的返回类型
+// 增强：支持泛型函数类型参数推导
 func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
 	switch fn := e.Function.(type) {
 	case *ast.Identifier:
 		// 普通函数调用
 		if sig := c.symbolTable.GetFunction(fn.Name); sig != nil {
+			// 检查是否是泛型函数
+			if len(sig.TypeParams) > 0 {
+				// 尝试从参数推导泛型类型参数
+				typeArgs := c.inferGenericTypeArgs(sig, e.Arguments)
+				if len(typeArgs) > 0 {
+					// 替换返回类型中的类型参数
+					return c.substituteTypeParamsInString(sig.ReturnType, sig.TypeParams, typeArgs)
+				}
+			}
 			return sig.ReturnType
 		}
 		// 可能是变量保存的闭包
@@ -3966,6 +4086,263 @@ func (c *Compiler) inferCallExprType(e *ast.CallExpr) string {
 		c.error(e.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
 		return "error"
 	}
+}
+
+// inferGenericTypeArgs 从函数调用参数推导泛型类型参数
+// 例如：first<T>(T[] $arr) 被调用为 first([1, 2, 3]) 时，推导 T = int
+func (c *Compiler) inferGenericTypeArgs(sig *FunctionSignature, args []ast.Expression) []string {
+	if len(sig.TypeParams) == 0 {
+		return nil
+	}
+	
+	typeArgs := make([]string, len(sig.TypeParams))
+	typeArgMap := make(map[string]string) // 类型参数名 -> 推导出的类型
+	
+	// 从参数类型推导类型参数
+	for i, paramType := range sig.ParamTypes {
+		if i >= len(args) {
+			break
+		}
+		
+		// 推断参数的实际类型
+		argType := c.inferExprType(args[i])
+		if argType == "error" || argType == "" {
+			continue
+		}
+		
+		// 尝试从参数类型匹配推导类型参数
+		c.inferTypeParamFromArg(paramType, argType, sig.TypeParams, typeArgMap)
+	}
+	
+	// 将推导结果转换为数组
+	for i, paramName := range sig.TypeParams {
+		if inferred, ok := typeArgMap[paramName]; ok {
+			typeArgs[i] = inferred
+		} else {
+			// 无法推导，返回空数组（表示推导失败）
+			return nil
+		}
+	}
+	
+	return typeArgs
+}
+
+// inferTypeParamFromArg 从参数类型推导类型参数
+// 例如：从 T[] 和 int[] 推导 T = int
+func (c *Compiler) inferTypeParamFromArg(paramType, argType string, typeParams []string, typeArgMap map[string]string) {
+	// 检查参数类型中是否包含类型参数
+	for _, typeParam := range typeParams {
+		// 直接匹配：T 和 int
+		if paramType == typeParam {
+			if argType != "" && argType != "any" && argType != "error" {
+				typeArgMap[typeParam] = argType
+			}
+			continue
+		}
+		
+		// 数组类型匹配：T[] 和 int[]
+		if strings.HasSuffix(paramType, "[]") && strings.HasSuffix(argType, "[]") {
+			paramElemType := strings.TrimSuffix(paramType, "[]")
+			argElemType := strings.TrimSuffix(argType, "[]")
+			if paramElemType == typeParam {
+				if argElemType != "" && argElemType != "any" && argElemType != "error" {
+					typeArgMap[typeParam] = argElemType
+				}
+			}
+		}
+		
+		// Map 类型匹配：map[K]V 和 map[string]int
+		if strings.HasPrefix(paramType, "map[") && strings.HasPrefix(argType, "map[") {
+			paramKeyType, paramValueType := c.parseMapType(paramType)
+			argKeyType, argValueType := c.parseMapType(argType)
+			
+			if paramKeyType == typeParam && argKeyType != "" && argKeyType != "any" {
+				typeArgMap[typeParam] = argKeyType
+			}
+			if paramValueType == typeParam && argValueType != "" && argValueType != "any" {
+				typeArgMap[typeParam] = argValueType
+			}
+		}
+		
+		// 泛型类型匹配：List<T> 和 List<int>
+		if strings.Contains(paramType, "<") && strings.Contains(argType, "<") {
+			paramBase := strings.Split(paramType, "<")[0]
+			argBase := strings.Split(argType, "<")[0]
+			if paramBase == argBase {
+				// 提取类型参数部分并递归推导
+				paramArgs := c.extractGenericArgs(paramType)
+				argArgs := c.extractGenericArgs(argType)
+				if len(paramArgs) == len(argArgs) {
+					for i, paramArg := range paramArgs {
+						if i < len(argArgs) {
+							c.inferTypeParamFromArg(paramArg, argArgs[i], typeParams, typeArgMap)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// parseMapType 解析 Map 类型字符串，返回键类型和值类型
+// 例如：map[string]int -> (string, int)
+func (c *Compiler) parseMapType(mapType string) (keyType, valueType string) {
+	if !strings.HasPrefix(mapType, "map[") {
+		return "", ""
+	}
+	
+	// 找到第一个 ]
+	idx := strings.Index(mapType, "]")
+	if idx == -1 {
+		return "", ""
+	}
+	
+	keyType = mapType[4:idx] // map[ 后面到 ]
+	valueType = mapType[idx+1:] // ] 后面
+	
+	return keyType, valueType
+}
+
+// extractGenericArgs 提取泛型类型参数
+// 例如：List<int, string> -> [int, string]
+func (c *Compiler) extractGenericArgs(genericType string) []string {
+	if !strings.Contains(genericType, "<") {
+		return nil
+	}
+	
+	start := strings.Index(genericType, "<")
+	end := strings.LastIndex(genericType, ">")
+	if start == -1 || end == -1 || start >= end {
+		return nil
+	}
+	
+	argsStr := genericType[start+1 : end]
+	args := strings.Split(argsStr, ",")
+	
+	// 清理空白
+	for i, arg := range args {
+		args[i] = strings.TrimSpace(arg)
+	}
+	
+	return args
+}
+
+// substituteTypeParamsInString 在字符串中替换类型参数
+// 例如：将 T[] 中的 T 替换为 int，得到 int[]
+func (c *Compiler) substituteTypeParamsInString(typeStr string, typeParams []string, typeArgs []string) string {
+	if len(typeParams) != len(typeArgs) {
+		return typeStr
+	}
+	
+	result := typeStr
+	for i, param := range typeParams {
+		if i < len(typeArgs) && typeArgs[i] != "" {
+			// 替换完整的类型参数名（避免部分匹配）
+			// 使用单词边界匹配，但考虑到类型参数可能是类型名的一部分
+			// 我们进行简单的字符串替换
+			result = strings.ReplaceAll(result, param, typeArgs[i])
+		}
+	}
+	
+	return result
+}
+
+// findCommonArrayElementType 查找数组元素的公共类型
+// 如果所有元素类型相同，返回该类型
+// 如果类型不同但兼容（如 int 和 float），返回更通用的类型
+// 否则返回第一个类型（或空字符串表示无法确定）
+func (c *Compiler) findCommonArrayElementType(elemTypes []string) string {
+	if len(elemTypes) == 0 {
+		return ""
+	}
+	
+	if len(elemTypes) == 1 {
+		return elemTypes[0]
+	}
+	
+	// 检查所有类型是否相同
+	firstType := elemTypes[0]
+	allSame := true
+	for _, t := range elemTypes[1:] {
+		if t != firstType {
+			allSame = false
+			break
+		}
+	}
+	if allSame {
+		return firstType
+	}
+	
+	// 检查类型兼容性：int 和 float 的混合应返回 float
+	hasInt := false
+	hasFloat := false
+	hasString := false
+	hasBool := false
+	
+	for _, t := range elemTypes {
+		switch t {
+		case "int", "i8", "i16", "i32", "i64", "byte", "u8", "u16", "u32", "u64", "uint":
+			hasInt = true
+		case "float", "f32", "f64":
+			hasFloat = true
+		case "string":
+			hasString = true
+		case "bool":
+			hasBool = true
+		}
+	}
+	
+	// 如果包含 int 和 float，返回 float（更通用）
+	if hasInt && hasFloat {
+		return "float"
+	}
+	
+	// 如果只有数字类型，返回 int（简化处理）
+	if hasInt && !hasFloat && !hasString && !hasBool {
+		return "int"
+	}
+	
+	// 如果只有字符串
+	if hasString && !hasInt && !hasFloat && !hasBool {
+		return "string"
+	}
+	
+	// 如果只有布尔
+	if hasBool && !hasInt && !hasFloat && !hasString {
+		return "bool"
+	}
+	
+	// 类型差异太大，返回第一个类型（让调用者决定）
+	return firstType
+}
+
+// inferClosureParamTypes 从闭包参数推断参数类型字符串
+// 例如：参数列表 [int $x, string $y] -> "int, string"
+func (c *Compiler) inferClosureParamTypes(params []*ast.Parameter) string {
+	if len(params) == 0 {
+		return ""
+	}
+	
+	var paramTypes []string
+	for _, param := range params {
+		if param.Type != nil {
+			paramTypes = append(paramTypes, c.getTypeName(param.Type))
+		} else {
+			// 如果没有显式类型，尝试从默认值推断（如果存在）
+			if param.Default != nil {
+				defaultType := c.inferExprType(param.Default)
+				if defaultType != "error" && defaultType != "" {
+					paramTypes = append(paramTypes, defaultType)
+				} else {
+					paramTypes = append(paramTypes, "any")
+				}
+			} else {
+				paramTypes = append(paramTypes, "any")
+			}
+		}
+	}
+	
+	return strings.Join(paramTypes, ", ")
 }
 
 // inferMethodCallType 推断方法调用的返回类型
@@ -4346,9 +4723,13 @@ func (c *Compiler) checkReturnType(pos token.Position, expr ast.Expression, expe
 }
 
 // getTypeName 从 TypeNode 获取类型名
+// 注意：这里返回的是类型名称，不会自动解析类型别名
+// 如果需要解析别名，应调用 symbolTable.ResolveTypeAlias
 func (c *Compiler) getTypeName(t ast.TypeNode) string {
 	switch typ := t.(type) {
 	case *ast.SimpleType:
+		// 简单类型名（如 int, string）可能已经被解析为类型别名
+		// 但这里我们返回原始名称，由调用者决定是否需要解析
 		return typ.Name
 	case *ast.ClassType:
 		return typ.Name.Literal
@@ -4360,7 +4741,9 @@ func (c *Compiler) getTypeName(t ast.TypeNode) string {
 		}
 		return "array"
 	case *ast.MapType:
-		return "map"
+		keyType := c.getTypeName(typ.KeyType)
+		valueType := c.getTypeName(typ.ValueType)
+		return "map[" + keyType + "]" + valueType
 	case *ast.NullableType:
 		return c.getTypeName(typ.Inner)
 	case *ast.TupleType:
@@ -4414,6 +4797,33 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 	if actual == "" || expected == "" {
 		return false
 	}
+	
+	// 解析类型别名：类型别名会解析到底层类型，但新类型保持独立
+	resolvedActual := c.symbolTable.ResolveTypeAlias(actual)
+	resolvedExpected := c.symbolTable.ResolveTypeAlias(expected)
+	
+	// 检查是否是新类型（新类型需要显式转换，不能隐式转换）
+	if c.symbolTable.IsNewType(actual) && actual != expected {
+		// 新类型只能与自身兼容，或者与基础类型兼容（需要显式转换）
+		// 这里我们先实现基本检查，显式转换在类型转换表达式处处理
+		newTypeInfo := c.symbolTable.GetNewTypeInfo(actual)
+		if newTypeInfo != nil {
+			// 检查是否可以转换为基础类型（显式转换）
+			// 这里我们先不处理，等待类型转换表达式处理
+		}
+		return false
+	}
+	if c.symbolTable.IsNewType(expected) && actual != expected {
+		return false
+	}
+	
+	if resolvedActual == resolvedExpected {
+		return true
+	}
+	
+	// 更新 actual 和 expected 为解析后的类型（用于后续兼容性检查）
+	actual = resolvedActual
+	expected = resolvedExpected
 	
 	if actual == expected {
 		return true

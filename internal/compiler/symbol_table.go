@@ -54,6 +54,14 @@ type TypeParamInfo struct {
 	ImplementsTypes []string // implements 约束接口列表
 }
 
+// NewTypeInfo 新类型信息
+// 新类型是与基础类型不兼容的独立类型，需要显式转换
+type NewTypeInfo struct {
+	Name     string // 新类型名
+	BaseType string // 基础类型
+	Distinct bool   // 是否是独立类型（不能隐式转换），总是 true
+}
+
 // ClassSignature 类签名 (用于泛型类)
 type ClassSignature struct {
 	Name       string           // 类名
@@ -76,6 +84,7 @@ type SymbolTable struct {
 	ClassSignatures map[string]*ClassSignature               // 泛型类签名: 类名 -> 签名
 	InterfaceSigs   map[string]*InterfaceSignature           // 泛型接口签名: 接口名 -> 签名
 	TypeAliases     map[string]string                        // 类型别名: 别名 -> 目标类型
+	NewTypes        map[string]*NewTypeInfo                  // 新类型: 类型名 -> 信息
 	EnumValues      map[string][]string                      // 枚举值: 枚举名 -> 枚举值列表
 	ClassInterfaces map[string][]string                      // 类实现的接口: 类名 -> 接口列表
 }
@@ -91,6 +100,7 @@ func NewSymbolTable() *SymbolTable {
 		ClassSignatures: make(map[string]*ClassSignature),
 		InterfaceSigs:   make(map[string]*InterfaceSignature),
 		TypeAliases:     make(map[string]string),
+		NewTypes:        make(map[string]*NewTypeInfo),
 		EnumValues:      make(map[string][]string),
 		ClassInterfaces: make(map[string][]string),
 	}
@@ -582,6 +592,8 @@ func (st *SymbolTable) CollectFromFile(file *ast.File) {
 			st.collectFromEnum(d, namespace)
 		case *ast.TypeAliasDecl:
 			st.collectFromTypeAlias(d, namespace)
+		case *ast.NewTypeDecl:
+			st.collectFromNewType(d, namespace)
 		}
 	}
 }
@@ -602,6 +614,7 @@ func (st *SymbolTable) collectFromEnum(decl *ast.EnumDecl, namespace string) {
 }
 
 // collectFromTypeAlias 从类型别名声明收集符号
+// 类型别名创建与目标类型完全兼容的新名称，可以互相替换使用
 func (st *SymbolTable) collectFromTypeAlias(decl *ast.TypeAliasDecl, namespace string) {
 	aliasName := decl.Name.Name
 	if namespace != "" {
@@ -612,8 +625,30 @@ func (st *SymbolTable) collectFromTypeAlias(decl *ast.TypeAliasDecl, namespace s
 	st.TypeAliases[aliasName] = targetType
 }
 
+// collectFromNewType 从新类型声明收集符号
+// 新类型创建与基础类型不兼容的独立类型，需要显式转换
+func (st *SymbolTable) collectFromNewType(decl *ast.NewTypeDecl, namespace string) {
+	typeName := decl.Name.Name
+	if namespace != "" {
+		typeName = namespace + "\\" + typeName
+	}
+	
+	baseType := typeNodeToString(decl.BaseType)
+	st.NewTypes[typeName] = &NewTypeInfo{
+		Name:     typeName,
+		BaseType: baseType,
+		Distinct: true, // 新类型总是独立的
+	}
+}
+
 // ResolveTypeAlias 解析类型别名，返回实际类型
+// 类型别名会递归解析到底层类型，但不会解析新类型（新类型保持独立）
 func (st *SymbolTable) ResolveTypeAlias(typeName string) string {
+	// 如果是新类型，不解析（新类型保持独立）
+	if _, isNewType := st.NewTypes[typeName]; isNewType {
+		return typeName
+	}
+	
 	// 递归解析类型别名，防止循环引用（最多解析10层）
 	for i := 0; i < 10; i++ {
 		if resolved, ok := st.TypeAliases[typeName]; ok {
@@ -623,6 +658,30 @@ func (st *SymbolTable) ResolveTypeAlias(typeName string) string {
 		}
 	}
 	return typeName
+}
+
+// GetNewTypeInfo 获取新类型信息
+func (st *SymbolTable) GetNewTypeInfo(typeName string) *NewTypeInfo {
+	return st.NewTypes[typeName]
+}
+
+// IsNewType 判断类型是否是新类型（需要显式转换）
+func (st *SymbolTable) IsNewType(typeName string) bool {
+	_, ok := st.NewTypes[typeName]
+	return ok
+}
+
+// ResolveToBaseType 解析新类型到底层基础类型（用于类型兼容性检查）
+// 如果是新类型，返回其基础类型；如果是别名，递归解析；否则返回原类型
+func (st *SymbolTable) ResolveToBaseType(typeName string) string {
+	// 首先检查是否是新类型
+	if newType, ok := st.NewTypes[typeName]; ok {
+		// 新类型的基础类型可能也是别名，需要递归解析
+		return st.ResolveTypeAlias(newType.BaseType)
+	}
+	
+	// 否则解析别名
+	return st.ResolveTypeAlias(typeName)
 }
 
 // GetEnumValues 获取枚举的所有值
