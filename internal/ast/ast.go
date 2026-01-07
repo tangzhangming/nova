@@ -501,7 +501,7 @@ func (n *NamedArgument) String() string {
 
 // CallExpr 函数/方法调用
 type CallExpr struct {
-	Function       Expression       // 被调用的函数
+	Function       Expression // 被调用的函数
 	LParen         token.Token
 	Arguments      []Expression     // 位置参数
 	NamedArguments []*NamedArgument // 命名参数
@@ -614,7 +614,7 @@ func (e *ParentExpr) exprNode()           {}
 type NewExpr struct {
 	NewToken       token.Token
 	ClassName      *Identifier
-	TypeArgs       []TypeNode       // 泛型类型参数 <int, string>
+	TypeArgs       []TypeNode // 泛型类型参数 <int, string>
 	LParen         token.Token
 	Arguments      []Expression     // 位置参数
 	NamedArguments []*NamedArgument // 命名参数

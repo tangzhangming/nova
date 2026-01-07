@@ -1,0 +1,326 @@
+namespace sola.net.url
+
+use sola.lang.Str;
+
+/**
+ * URL 查询参数值集合
+ * 
+ * 用于处理 URL 查询字符串，支持多值参数。
+ * 
+ * 使用示例：
+ * ```sola
+ * // 从查询字符串解析
+ * $values := UrlValues::parse("name=Alice&age=25&tags=web&tags=api");
+ * echo $values->get("name");        // "Alice"
+ * echo $values->getInt("age");      // 25
+ * echo $values->getAll("tags");     // ["web", "api"]
+ * 
+ * // 构建查询参数
+ * $values := new UrlValues();
+ * $values->set("page", "1")->set("limit", "10");
+ * echo $values->encode();  // "limit=10&page=1"
+ * ```
+ */
+public class UrlValues {
+    
+    private map[string][]string $values;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+        $this->values = [];
+    }
+    
+    /**
+     * 从查询字符串解析
+     */
+    public static function parse(string $query): UrlValues {
+        $result := new UrlValues();
+        
+        if ($query == "" || $query == null) {
+            return $result;
+        }
+        
+        // 分割参数对
+        $pairs := Str::split($query, "&");
+        
+        for ($i := 0; $i < len($pairs); $i++) {
+            $pair := $pairs[$i];
+            if ($pair == "") {
+                continue;
+            }
+            
+            // 查找等号
+            $eqPos := Str::indexOf($pair, "=");
+            
+            if ($eqPos < 0) {
+                // 没有等号，作为键，值为空
+                $key := UrlValues::unescape($pair);
+                $result->add($key, "");
+            } else {
+                $key := UrlValues::unescape(Str::substring($pair, 0, $eqPos));
+                $value := UrlValues::unescape(Str::substring($pair, $eqPos + 1));
+                $result->add($key, $value);
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 获取值（第一个）
+     */
+    public function get(string $key): string|null {
+        if (!$this->has($key)) {
+            return null;
+        }
+        $vals := $this->values[$key];
+        if (len($vals) == 0) {
+            return null;
+        }
+        return $vals[0];
+    }
+    
+    /**
+     * 获取值（带默认值）
+     */
+    public function get(string $key, string $default): string {
+        $val := $this->get($key);
+        if ($val == null) {
+            return $default;
+        }
+        return $val;
+    }
+    
+    /**
+     * 获取整数值
+     */
+    public function getInt(string $key): int|null {
+        $val := $this->get($key);
+        if ($val == null) {
+            return null;
+        }
+        $intVal := to_int($val);
+        if ($intVal == null) {
+            return null;
+        }
+        return $intVal;
+    }
+    
+    /**
+     * 获取整数值（带默认值）
+     */
+    public function getInt(string $key, int $default): int {
+        $val := $this->getInt($key);
+        if ($val == null) {
+            return $default;
+        }
+        return $val;
+    }
+    
+    /**
+     * 获取布尔值
+     */
+    public function getBool(string $key): bool|null {
+        $val := $this->get($key);
+        if ($val == null) {
+            return null;
+        }
+        $lower := Str::toLower($val);
+        if ($lower == "true" || $lower == "1" || $lower == "yes" || $lower == "on") {
+            return true;
+        }
+        if ($lower == "false" || $lower == "0" || $lower == "no" || $lower == "off") {
+            return false;
+        }
+        return null;
+    }
+    
+    /**
+     * 获取布尔值（带默认值）
+     */
+    public function getBool(string $key, bool $default): bool {
+        $val := $this->getBool($key);
+        if ($val == null) {
+            return $default;
+        }
+        return $val;
+    }
+    
+    /**
+     * 获取所有值
+     */
+    public function getAll(string $key): []string {
+        if (!$this->has($key)) {
+            return [];
+        }
+        return $this->values[$key];
+    }
+    
+    /**
+     * 设置值（覆盖所有）
+     */
+    public function set(string $key, string $value): UrlValues {
+        $this->values[$key] = [$value];
+        return $this;
+    }
+    
+    /**
+     * 添加值（追加）
+     */
+    public function add(string $key, string $value): UrlValues {
+        if (!$this->has($key)) {
+            $this->values[$key] = [];
+        }
+        $this->values[$key][] = $value;
+        return $this;
+    }
+    
+    /**
+     * 删除键
+     */
+    public function del(string $key): UrlValues {
+        if ($this->has($key)) {
+            unset($this->values[$key]);
+        }
+        return $this;
+    }
+    
+    /**
+     * 检查是否存在
+     */
+    public function has(string $key): bool {
+        return $this->values.hasKey($key);
+    }
+    
+    /**
+     * 是否为空
+     */
+    public function isEmpty(): bool {
+        return len($this->values) == 0;
+    }
+    
+    /**
+     * 编码为查询字符串
+     */
+    public function encode(): string {
+        if ($this->isEmpty()) {
+            return "";
+        }
+        
+        $parts := [];
+        $keys := $this->values.keys();
+        
+        // 按键名排序（保持一致性）
+        $sortedKeys := [];
+        for ($i := 0; $i < len($keys); $i++) {
+            $sortedKeys[] = $keys[$i];
+        }
+        // 简单排序
+        for ($i := 0; $i < len($sortedKeys) - 1; $i++) {
+            for ($j := $i + 1; $j < len($sortedKeys); $j++) {
+                if ($sortedKeys[$i] > $sortedKeys[$j]) {
+                    $tmp := $sortedKeys[$i];
+                    $sortedKeys[$i] = $sortedKeys[$j];
+                    $sortedKeys[$j] = $tmp;
+                }
+            }
+        }
+        
+        for ($i := 0; $i < len($sortedKeys); $i++) {
+            $key := $sortedKeys[$i];
+            $vals := $this->values[$key];
+            
+            for ($j := 0; $j < len($vals); $j++) {
+                $val := $vals[$j];
+                $encodedKey := UrlValues::escape($key);
+                $encodedVal := UrlValues::escape($val);
+                $parts[] = $encodedKey + "=" + $encodedVal;
+            }
+        }
+        
+        return Str::join($parts, "&");
+    }
+    
+    /**
+     * 转为字符串（别名）
+     */
+    public function toString(): string {
+        return $this->encode();
+    }
+    
+    /**
+     * 清空
+     */
+    public function clear(): UrlValues {
+        $this->values = [];
+        return $this;
+    }
+    
+    /**
+     * 复制
+     */
+    public function copy(): UrlValues {
+        $result := new UrlValues();
+        $keys := $this->values.keys();
+        for ($i := 0; $i < len($keys); $i++) {
+            $key := $keys[$i];
+            $vals := $this->values[$key];
+            $result->values[$key] = [];
+            for ($j := 0; $j < len($vals); $j++) {
+                $result->values[$key][] = $vals[$j];
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 转为单值映射（取第一个值）
+     */
+    public function toMap(): map[string]string {
+        $result := [];
+        $keys := $this->values.keys();
+        for ($i := 0; $i < len($keys); $i++) {
+            $key := $keys[$i];
+            $vals := $this->values[$key];
+            if (len($vals) > 0) {
+                $result[$key] = $vals[0];
+            }
+        }
+        return $result;
+    }
+    
+    /**
+     * 查询参数编码（静态方法）
+     */
+    public static function escape(string $s): string {
+        // 使用与 Url 类相同的实现
+        $result := $s;
+        // 先编码已有的 + 为 %2B
+        $result = Str::replace($result, "+", "%2B");
+        // 然后编码其他特殊字符
+        $result = Str::replace($result, " ", "+");
+        $result = Str::replace($result, "&", "%26");
+        $result = Str::replace($result, "=", "%3D");
+        $result = Str::replace($result, "#", "%23");
+        $result = Str::replace($result, "?", "%3F");
+        return $result;
+    }
+    
+    /**
+     * 查询参数解码（静态方法）
+     */
+    public static function unescape(string $s): string {
+        // 使用与 Url 类相同的实现
+        $result := Str::replace($s, "+", " ");
+        $result = Str::replace($result, "%26", "&");
+        $result = Str::replace($result, "%3D", "=");
+        $result = Str::replace($result, "%23", "#");
+        $result = Str::replace($result, "%3F", "?");
+        $result = Str::replace($result, "%2B", "+");
+        $result = Str::replace($result, "%20", " ");
+        return $result;
+    }
+}
+

@@ -1,0 +1,21 @@
+namespace sola.net.url
+
+use sola.lang.RuntimeException;
+
+/**
+ * URL 异常
+ * 
+ * 表示 URL 解析或操作时发生的异常。
+ * 
+ * 使用示例：
+ * ```sola
+ * try {
+ *     $url := Url::parse("invalid://url");
+ * } catch (UrlException $e) {
+ *     echo "URL 解析失败: " + $e->getMessage();
+ * }
+ * ```
+ */
+public class UrlException extends RuntimeException {
+}
+

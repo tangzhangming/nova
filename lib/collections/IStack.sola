@@ -56,3 +56,5 @@ public interface IStack<T> extends ICollection<T> {
     public function search(T $element): int;
 }
 
+
+

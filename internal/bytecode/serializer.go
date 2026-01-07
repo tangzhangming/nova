@@ -504,3 +504,5 @@ func (e *FormatError) Error() string {
 	return fmt.Sprintf("bytecode format error: %s", e.Message)
 }
 
+
+

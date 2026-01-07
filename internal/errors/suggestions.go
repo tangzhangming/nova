@@ -350,3 +350,5 @@ func GetSuggestions(code string, context map[string]interface{}) []string {
 	return defaultSuggestionGenerator.GetSuggestions(code, context)
 }
 
+
+

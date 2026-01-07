@@ -1,0 +1,579 @@
+namespace sola.net.url
+
+use sola.lang.Str;
+
+/**
+ * URL 对象
+ * 
+ * 提供 URL 解析、构建、编码解码等功能，类似 Go 的 net/url.URL。
+ * 
+ * 使用示例：
+ * ```sola
+ * // 解析 URL
+ * $url := Url::parse("https://example.com:8080/path?key=value#section");
+ * echo $url->getScheme();    // "https"
+ * echo $url->getHost();      // "example.com:8080"
+ * echo $url->getPath();      // "/path"
+ * 
+ * // 构建 URL
+ * $url := new Url();
+ * $url->setScheme("https")->setHost("example.com")->setPath("/api/users");
+ * echo $url->toString();
+ * ```
+ */
+public class Url {
+    
+    public string $scheme;
+    public string $host;
+    public string $path;
+    public string $rawQuery;
+    public string $fragment;
+    public string $rawPath;
+    public bool $forceQuery;
+    
+    private UrlValues|null $query;
+    private string $hostname;
+    private int $port;
+    private bool $queryParsed;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+        $this->scheme = "";
+        $this->host = "";
+        $this->path = "";
+        $this->rawQuery = "";
+        $this->fragment = "";
+        $this->rawPath = "";
+        $this->forceQuery = false;
+        $this->query = null;
+        $this->hostname = "";
+        $this->port = -1;
+        $this->queryParsed = false;
+    }
+    
+    /**
+     * 解析完整 URL
+     */
+    public static function parse(string $rawUrl): Url {
+        $url := new Url();
+        
+        if ($rawUrl == "" || $rawUrl == null) {
+            throw new sola.net.url.UrlException("empty URL");
+        }
+        
+        // 查找 scheme
+        $schemeEnd := Str::indexOf($rawUrl, "://");
+        if ($schemeEnd >= 0) {
+            $url->scheme = Str::substring($rawUrl, 0, $schemeEnd);
+            $rawUrl = Str::substring($rawUrl, $schemeEnd + 3);
+        }
+        
+        // 查找 fragment
+        $fragPos := Str::lastIndexOf($rawUrl, "#");
+        if ($fragPos >= 0) {
+            $url->fragment = Str::substring($rawUrl, $fragPos + 1);
+            $rawUrl = Str::substring($rawUrl, 0, $fragPos);
+        }
+        
+        // 查找 query
+        $queryPos := Str::indexOf($rawUrl, "?");
+        if ($queryPos >= 0) {
+            $url->rawQuery = Str::substring($rawUrl, $queryPos + 1);
+            $rawUrl = Str::substring($rawUrl, 0, $queryPos);
+        }
+        
+        // 分离 host 和 path
+        $pathStart := Str::indexOf($rawUrl, "/");
+        if ($pathStart >= 0) {
+            $url->host = Str::substring($rawUrl, 0, $pathStart);
+            $url->path = Str::substring($rawUrl, $pathStart);
+        } else {
+            $url->host = $rawUrl;
+            $url->path = "/";
+        }
+        
+        // 解析 host 和 port
+        $url->parseHost();
+        
+        // 解析 path
+        $url->rawPath = $url->path;
+        $url->path = Url::pathUnescape($url->path);
+        
+        return $url;
+    }
+    
+    /**
+     * 解析请求 URI（仅 path?query#fragment）
+     */
+    public static function parseRequestURI(string $rawURI): Url {
+        $url := new Url();
+        
+        if ($rawURI == "" || $rawURI == null) {
+            $url->path = "/";
+            return $url;
+        }
+        
+        // 查找 fragment
+        $fragPos := Str::lastIndexOf($rawURI, "#");
+        if ($fragPos >= 0) {
+            $url->fragment = Str::substring($rawURI, $fragPos + 1);
+            $rawURI = Str::substring($rawURI, 0, $fragPos);
+        }
+        
+        // 查找 query
+        $queryPos := Str::indexOf($rawURI, "?");
+        if ($queryPos >= 0) {
+            $url->rawQuery = Str::substring($rawURI, $queryPos + 1);
+            $rawURI = Str::substring($rawURI, 0, $queryPos);
+        }
+        
+        // path
+        if ($rawURI == "") {
+            $url->path = "/";
+        } else {
+            $url->path = $rawURI;
+        }
+        
+        $url->rawPath = $url->path;
+        $url->path = Url::pathUnescape($url->path);
+        
+        return $url;
+    }
+    
+    /**
+     * 解析 host 和 port
+     */
+    private function parseHost(): void {
+        if ($this->host == "") {
+            $this->hostname = "";
+            $this->port = -1;
+            return;
+        }
+        
+        // 检查 IPv6 地址 [::1]:8080
+        if (Str::charAt($this->host, 0) == "[") {
+            $closeBracket := Str::indexOf($this->host, "]");
+            if ($closeBracket >= 0) {
+                $this->hostname = Str::substring($this->host, 0, $closeBracket + 1);
+                if ($closeBracket + 1 < Str::length($this->host)) {
+                    $portPart := Str::substring($this->host, $closeBracket + 2);
+                    if (Str::charAt($portPart, 0) == ":") {
+                        $portStr := Str::substring($portPart, 1);
+                        $this->port = to_int($portStr);
+                    }
+                }
+                return;
+            }
+        }
+        
+        // 普通 host:port
+        $colonPos := Str::lastIndexOf($this->host, ":");
+        if ($colonPos >= 0) {
+            $this->hostname = Str::substring($this->host, 0, $colonPos);
+            $portStr := Str::substring($this->host, $colonPos + 1);
+            $this->port = to_int($portStr);
+        } else {
+            $this->hostname = $this->host;
+            $this->port = -1;
+        }
+    }
+    
+    /**
+     * 获取 scheme
+     */
+    public function getScheme(): string {
+        return $this->scheme;
+    }
+    
+    /**
+     * 获取 host（含端口）
+     */
+    public function getHost(): string {
+        return $this->host;
+    }
+    
+    /**
+     * 获取 hostname（不含端口）
+     */
+    public function getHostname(): string {
+        if ($this->hostname == "" && $this->host != "") {
+            $this->parseHost();
+        }
+        return $this->hostname;
+    }
+    
+    /**
+     * 获取 port
+     */
+    public function getPort(): int {
+        if ($this->hostname == "" && $this->host != "") {
+            $this->parseHost();
+        }
+        return $this->port;
+    }
+    
+    /**
+     * 获取 path（解码后）
+     */
+    public function getPath(): string {
+        return $this->path;
+    }
+    
+    /**
+     * 获取 rawPath（原始路径）
+     */
+    public function getRawPath(): string {
+        return $this->rawPath;
+    }
+    
+    /**
+     * 获取查询参数对象
+     */
+    public function getQuery(): UrlValues {
+        if (!$this->queryParsed) {
+            $this->query = UrlValues::parse($this->rawQuery);
+            $this->queryParsed = true;
+        }
+        if ($this->query == null) {
+            $this->query = new UrlValues();
+        }
+        return $this->query;
+    }
+    
+    /**
+     * 获取原始查询字符串
+     */
+    public function getRawQuery(): string {
+        return $this->rawQuery;
+    }
+    
+    /**
+     * 获取 fragment
+     */
+    public function getFragment(): string {
+        return $this->fragment;
+    }
+    
+    /**
+     * 设置 scheme
+     */
+    public function setScheme(string $scheme): Url {
+        $this->scheme = $scheme;
+        return $this;
+    }
+    
+    /**
+     * 设置 host
+     */
+    public function setHost(string $host): Url {
+        $this->host = $host;
+        $this->hostname = "";
+        $this->port = -1;
+        return $this;
+    }
+    
+    /**
+     * 设置 path
+     */
+    public function setPath(string $path): Url {
+        $this->path = $path;
+        $this->rawPath = Url::pathEscape($path);
+        return $this;
+    }
+    
+    /**
+     * 设置查询参数
+     */
+    public function setQuery(UrlValues|string $query): Url {
+        if ($query instanceof UrlValues) {
+            $this->rawQuery = $query->encode();
+            $this->query = $query;
+            $this->queryParsed = true;
+        } else {
+            $this->rawQuery = $query;
+            $this->query = null;
+            $this->queryParsed = false;
+        }
+        return $this;
+    }
+    
+    /**
+     * 设置 fragment
+     */
+    public function setFragment(string $fragment): Url {
+        $this->fragment = $fragment;
+        return $this;
+    }
+    
+    /**
+     * 转为完整 URL 字符串
+     */
+    public function toString(): string {
+        $result := "";
+        
+        if ($this->scheme != "") {
+            $result = $result + $this->scheme + "://";
+        }
+        
+        if ($this->host != "") {
+            $result = $result + $this->host;
+        }
+        
+        if ($this->rawPath != "") {
+            $result = $result + $this->rawPath;
+        } else if ($this->path != "") {
+            $result = $result + Url::pathEscape($this->path);
+        }
+        
+        if ($this->rawQuery != "" || $this->forceQuery) {
+            $result = $result + "?" + $this->rawQuery;
+        }
+        
+        if ($this->fragment != "") {
+            $result = $result + "#" + UrlValues::escape($this->fragment);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 转为请求 URI（仅 path?query#fragment）
+     */
+    public function toRequestURI(): string {
+        $result := "";
+        
+        if ($this->rawPath != "") {
+            $result = $result + $this->rawPath;
+        } else if ($this->path != "") {
+            $result = $result + Url::pathEscape($this->path);
+        } else {
+            $result = $result + "/";
+        }
+        
+        if ($this->rawQuery != "" || $this->forceQuery) {
+            $result = $result + "?" + $this->rawQuery;
+        }
+        
+        if ($this->fragment != "") {
+            $result = $result + "#" + UrlValues::escape($this->fragment);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 解析相对路径
+     */
+    public function resolve(string $ref): Url {
+        if ($ref == "" || $ref == null) {
+            return $this;
+        }
+        
+        // 如果是绝对路径
+        if (Str::charAt($ref, 0) == "/") {
+            $result := new Url();
+            $result->scheme = $this->scheme;
+            $result->host = $this->host;
+            $result->setPath($ref);
+            return $result;
+        }
+        
+        // 相对路径解析
+        $basePath := $this->path;
+        if ($basePath == "") {
+            $basePath = "/";
+        }
+        
+        // 移除最后一个路径段
+        $lastSlash := Str::lastIndexOf($basePath, "/");
+        if ($lastSlash >= 0) {
+            $basePath = Str::substring($basePath, 0, $lastSlash + 1);
+        }
+        
+        // 处理 ../
+        $parts := Str::split($ref, "/");
+        $resultParts := Str::split($basePath, "/");
+        
+        // 移除空字符串
+        $cleanParts := [];
+        for ($i := 0; $i < len($resultParts); $i++) {
+            if ($resultParts[$i] != "") {
+                $cleanParts[] = $resultParts[$i];
+            }
+        }
+        
+        for ($i := 0; $i < len($parts); $i++) {
+            $part := $parts[$i];
+            if ($part == ".") {
+                continue;
+            } else if ($part == "..") {
+                if (len($cleanParts) > 0) {
+                    // 移除最后一个元素
+                    $newParts := [];
+                    for ($j := 0; $j < len($cleanParts) - 1; $j++) {
+                        $newParts[] = $cleanParts[$j];
+                    }
+                    $cleanParts = $newParts;
+                }
+            } else if ($part != "") {
+                $cleanParts[] = $part;
+            }
+        }
+        
+        $newPath := "/" + Str::join($cleanParts, "/");
+        
+        $result := new Url();
+        $result->scheme = $this->scheme;
+        $result->host = $this->host;
+        $result->setPath($newPath);
+        
+        return $result;
+    }
+    
+    /**
+     * 拼接路径
+     */
+    public function join(string $path): Url {
+        $basePath := $this->path;
+        if ($basePath == "" || $basePath == "/") {
+            $this->setPath($path);
+        } else {
+            if (Str::charAt($basePath, Str::length($basePath) - 1) == "/") {
+                $this->setPath($basePath + $path);
+            } else {
+                $this->setPath($basePath + "/" + $path);
+            }
+        }
+        return $this;
+    }
+    
+    /**
+     * 验证 URL 是否有效
+     */
+    public function isValid(): bool {
+        // 基本验证
+        if ($this->scheme != "" && $this->host == "" && $this->path == "") {
+            return false;
+        }
+        return true;
+    }
+    
+    /**
+     * 是否为绝对 URL
+     */
+    public function isAbsolute(): bool {
+        return $this->scheme != "";
+    }
+    
+    /**
+     * 复制 URL
+     */
+    public function copy(): Url {
+        $result := new Url();
+        $result->scheme = $this->scheme;
+        $result->host = $this->host;
+        $result->path = $this->path;
+        $result->rawQuery = $this->rawQuery;
+        $result->fragment = $this->fragment;
+        $result->rawPath = $this->rawPath;
+        $result->forceQuery = $this->forceQuery;
+        $result->hostname = $this->hostname;
+        $result->port = $this->port;
+        if ($this->query != null) {
+            $result->query = $this->query->copy();
+            $result->queryParsed = true;
+        }
+        return $result;
+    }
+    
+    // ========================================================================
+    // 静态编码/解码方法
+    // ========================================================================
+    
+    /**
+     * 路径编码
+     * 
+     * 注意：这是一个简化实现，完整实现需要 native 函数支持
+     */
+    public static function pathEscape(string $s): string {
+        // 简化实现：只编码明显的特殊字符
+        // 完整实现需要使用 native_url_path_escape
+        $result := Str::replace($s, " ", "%20");
+        $result = Str::replace($result, "#", "%23");
+        $result = Str::replace($result, "?", "%3F");
+        // 保留 / 不编码
+        return $result;
+    }
+    
+    /**
+     * 路径解码
+     * 
+     * 注意：这是一个简化实现，完整实现需要 native 函数支持
+     */
+    public static function pathUnescape(string $s): string {
+        // 简化实现：只解码常见的编码
+        // 完整实现需要使用 native_url_path_unescape
+        $result := Str::replace($s, "%20", " ");
+        $result = Str::replace($result, "%23", "#");
+        $result = Str::replace($result, "%3F", "?");
+        $result = Str::replace($result, "%2F", "/");
+        return $result;
+    }
+    
+    /**
+     * 查询参数编码
+     * 
+     * 注意：这是一个简化实现，完整实现需要 native 函数支持
+     */
+    public static function queryEscape(string $s): string {
+        // 空格编码为 +，其他特殊字符编码为 %XX
+        // 简化实现：只编码明显的特殊字符
+        // 完整实现需要使用 native_url_query_escape
+        $result := $s;
+        // 先编码已有的 + 为 %2B
+        $result = Str::replace($result, "+", "%2B");
+        // 然后编码其他特殊字符
+        $result = Str::replace($result, " ", "+");
+        $result = Str::replace($result, "&", "%26");
+        $result = Str::replace($result, "=", "%3D");
+        $result = Str::replace($result, "#", "%23");
+        $result = Str::replace($result, "?", "%3F");
+        return $result;
+    }
+    
+    /**
+     * 查询参数解码
+     * 
+     * 注意：这是一个简化实现，完整实现需要 native 函数支持
+     */
+    public static function queryUnescape(string $s): string {
+        // + 解码为空格，%XX 解码为字符
+        // 简化实现：只解码常见的编码
+        // 完整实现需要使用 native_url_query_unescape
+        $result := Str::replace($s, "+", " ");
+        $result = Str::replace($result, "%26", "&");
+        $result = Str::replace($result, "%3D", "=");
+        $result = Str::replace($result, "%23", "#");
+        $result = Str::replace($result, "%3F", "?");
+        $result = Str::replace($result, "%2B", "+");
+        $result = Str::replace($result, "%20", " ");
+        return $result;
+    }
+    
+    /**
+     * URL 编码（所有组件）
+     */
+    public static function escape(string $s): string {
+        return Url::queryEscape($s);
+    }
+    
+    /**
+     * URL 解码（所有组件）
+     */
+    public static function unescape(string $s): string {
+        return Url::queryUnescape($s);
+    }
+}
+

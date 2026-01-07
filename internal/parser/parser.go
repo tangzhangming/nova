@@ -1485,18 +1485,18 @@ func (p *Parser) isTypeStart() bool {
 		token.MAP, token.FUNC_TYPE, token.QUESTION) {
 		return true
 	}
-	
+
 	// 类名后跟变量: ClassName $var
 	if p.check(token.IDENT) && p.lookAhead(1).Type == token.VARIABLE {
 		return true
 	}
-	
+
 	// 泛型类型: ClassName<...> $var
 	// 需要检查 IDENT < 的情况，并且找到匹配的 > 后面是变量
 	if p.check(token.IDENT) && p.lookAhead(1).Type == token.LT {
 		return p.isGenericTypeStart()
 	}
-	
+
 	return false
 }
 
