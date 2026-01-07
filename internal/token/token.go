@@ -74,6 +74,8 @@ const (
 	AT        // @
 	HASH      // #
 	ELLIPSIS  // ...
+	SAFE_DOT  // ?.
+	NULL_COALESCE // ??
 
 	// 关键字 - 类型
 	keyword_beg
@@ -217,6 +219,8 @@ var tokenNames = map[TokenType]string{
 	AT:             "@",
 	HASH:           "#",
 	ELLIPSIS:       "...",
+	SAFE_DOT:       "?.",
+	NULL_COALESCE:  "??",
 	INT_TYPE:       "int",
 	I8_TYPE:        "i8",
 	I16_TYPE:       "i16",

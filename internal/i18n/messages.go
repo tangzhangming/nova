@@ -97,6 +97,14 @@ const (
 	ErrInterfaceMethodReturnMismatch = "compiler.interface_method_return_mismatch"
 	ErrInterfaceMethodStaticMismatch = "compiler.interface_method_static_mismatch"
 	
+	// 空安全检查相关
+	ErrNullableAccess               = "compiler.nullable_access"
+	ErrNullAssignment               = "compiler.null_assignment"
+	ErrNullableArgument             = "compiler.nullable_argument"
+	ErrNullableReturn               = "compiler.nullable_return"
+	WarnUnreachableCode             = "compiler.unreachable_code"
+	WarnUninitializedVariable       = "compiler.uninitialized_variable"
+	
 	// 类名解析相关
 	ErrSelfOutsideClass = "compiler.self_outside_class"
 

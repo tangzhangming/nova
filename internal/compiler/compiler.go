@@ -166,6 +166,23 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	// 收集所有类、接口、方法签名，用于静态类型检查
 	c.symbolTable.CollectFromFile(file)
 	
+	// ========== Phase 1.5: 类型检查 ==========
+	// 独立的类型检查器，在代码生成前进行静态分析
+	tc := NewTypeChecker(c.symbolTable)
+	tc.SetStrictNullCheck(true)
+	typeErrors := tc.Check(file)
+	
+	// 将类型错误转换为编译错误
+	for _, te := range typeErrors {
+		c.errors = append(c.errors, Error{
+			Pos:     te.Pos,
+			Message: te.Message,
+		})
+	}
+	
+	// 如果有类型错误，仍然继续编译以收集更多错误
+	// 但生成的字节码可能不正确，运行时可能出错
+	
 	// 预留 slot 0 给调用者（与 CompileFunction 保持一致）
 	c.addLocal("")
 

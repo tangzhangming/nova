@@ -607,6 +607,59 @@ func (e *MethodCall) String() string {
 }
 func (e *MethodCall) exprNode() {}
 
+// SafePropertyAccess 安全属性访问 ($obj?.prop)
+type SafePropertyAccess struct {
+	Object   Expression
+	SafeDot  token.Token
+	Property *Identifier
+}
+
+func (e *SafePropertyAccess) Pos() token.Position { return e.Object.Pos() }
+func (e *SafePropertyAccess) End() token.Position { return e.Property.End() }
+func (e *SafePropertyAccess) String() string {
+	return e.Object.String() + "?." + e.Property.String()
+}
+func (e *SafePropertyAccess) exprNode() {}
+
+// SafeMethodCall 安全方法调用 ($obj?.method())
+type SafeMethodCall struct {
+	Object         Expression
+	SafeDot        token.Token
+	Method         *Identifier
+	LParen         token.Token
+	Arguments      []Expression
+	NamedArguments []*NamedArgument
+	RParen         token.Token
+}
+
+func (e *SafeMethodCall) Pos() token.Position { return e.Object.Pos() }
+func (e *SafeMethodCall) End() token.Position { return e.RParen.Pos }
+func (e *SafeMethodCall) String() string {
+	var args []string
+	for _, arg := range e.Arguments {
+		args = append(args, arg.String())
+	}
+	for _, na := range e.NamedArguments {
+		args = append(args, na.String())
+	}
+	return e.Object.String() + "?." + e.Method.String() + "(" + strings.Join(args, ", ") + ")"
+}
+func (e *SafeMethodCall) exprNode() {}
+
+// NullCoalesceExpr 空合并表达式 ($a ?? $b)
+type NullCoalesceExpr struct {
+	Left     Expression
+	Operator token.Token
+	Right    Expression
+}
+
+func (e *NullCoalesceExpr) Pos() token.Position { return e.Left.Pos() }
+func (e *NullCoalesceExpr) End() token.Position { return e.Right.End() }
+func (e *NullCoalesceExpr) String() string {
+	return e.Left.String() + " ?? " + e.Right.String()
+}
+func (e *NullCoalesceExpr) exprNode() {}
+
 // StaticAccess 静态访问 (Class::CONST, Class::$prop, self::method())
 type StaticAccess struct {
 	Class       Expression // 可以是 Identifier (类名), SelfExpr, ParentExpr

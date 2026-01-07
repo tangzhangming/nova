@@ -96,6 +96,14 @@ var messagesZH = map[string]string{
 	ErrInterfaceMethodReturnMismatch: "类 '%s' 的方法 '%s' 返回类型与接口 '%s' 不兼容（期望 %s，实际 %s）",
 	ErrInterfaceMethodStaticMismatch: "类 '%s' 的方法 '%s' 与接口 '%s' 的静态/实例属性不匹配",
 	
+	// 空安全检查相关
+	ErrNullableAccess:          "不能访问可空类型 '%s' 的成员，请先检查 null 或使用安全调用 '?.'",
+	ErrNullAssignment:          "不能将 null 赋值给非可空类型 '%s'，请使用可空类型 '%s|null'",
+	ErrNullableArgument:        "将可空类型 '%s' 传递给非可空参数 '%s'，可能导致空指针错误",
+	ErrNullableReturn:          "不能从返回类型为 '%s' 的函数返回 null",
+	WarnUnreachableCode:        "检测到不可达代码",
+	WarnUninitializedVariable:  "变量 '%s' 可能未初始化",
+	
 	// 类名解析相关
 	ErrSelfOutsideClass: "不能在类外使用 self::class",
 

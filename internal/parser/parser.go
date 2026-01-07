@@ -470,6 +470,7 @@ const (
 	PREC_NONE       = iota
 	PREC_ASSIGNMENT // =, +=, -=, ...
 	PREC_TERNARY    // ?:
+	PREC_COALESCE   // ?? (空合并)
 	PREC_OR         // ||
 	PREC_AND        // &&
 	PREC_BIT_OR     // |
@@ -519,7 +520,9 @@ func (p *Parser) getPrecedence(t token.TokenType) int {
 		return PREC_TERM
 	case token.STAR, token.SLASH, token.PERCENT:
 		return PREC_FACTOR
-	case token.LBRACKET, token.ARROW, token.DOUBLE_COLON, token.LPAREN, token.DOT,
+	case token.NULL_COALESCE:
+		return PREC_COALESCE
+	case token.LBRACKET, token.ARROW, token.SAFE_DOT, token.DOUBLE_COLON, token.LPAREN, token.DOT,
 		token.INCREMENT, token.DECREMENT:
 		return PREC_POSTFIX
 	default:
@@ -654,6 +657,10 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 		return p.parseIndexExpr(left)
 	case token.ARROW:
 		return p.parsePropertyOrMethodAccess(left)
+	case token.SAFE_DOT:
+		return p.parseSafePropertyOrMethodAccess(left)
+	case token.NULL_COALESCE:
+		return p.parseNullCoalesceExpr(left)
 	case token.DOUBLE_COLON:
 		return p.parseStaticAccess(left)
 	case token.LPAREN:
@@ -1184,6 +1191,54 @@ func (p *Parser) parsePropertyOrMethodAccess(left ast.Expression) ast.Expression
 		Object:   left,
 		Arrow:    arrow,
 		Property: &ast.Identifier{Token: property, Name: property.Literal},
+	}
+}
+
+// parseSafePropertyOrMethodAccess 解析安全属性/方法访问 ($obj?.prop, $obj?.method())
+func (p *Parser) parseSafePropertyOrMethodAccess(left ast.Expression) ast.Expression {
+	safeDot := p.advance() // 消费 ?.
+	property := p.consume(token.IDENT, "expected property name after '?.'")
+
+	if p.check(token.LPAREN) {
+		// 安全方法调用
+		lparen := p.advance()
+		var args []ast.Expression
+		var namedArgs []*ast.NamedArgument
+		hasNamedArg := false
+		if !p.check(token.RPAREN) {
+			args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
+			for p.match(token.COMMA) {
+				args, namedArgs, hasNamedArg = p.parseCallArgument(args, namedArgs, hasNamedArg)
+			}
+		}
+		rparen := p.consume(token.RPAREN, "expected ')'")
+		return &ast.SafeMethodCall{
+			Object:         left,
+			SafeDot:        safeDot,
+			Method:         &ast.Identifier{Token: property, Name: property.Literal},
+			LParen:         lparen,
+			Arguments:      args,
+			NamedArguments: namedArgs,
+			RParen:         rparen,
+		}
+	}
+
+	// 安全属性访问
+	return &ast.SafePropertyAccess{
+		Object:   left,
+		SafeDot:  safeDot,
+		Property: &ast.Identifier{Token: property, Name: property.Literal},
+	}
+}
+
+// parseNullCoalesceExpr 解析空合并表达式 ($a ?? $b)
+func (p *Parser) parseNullCoalesceExpr(left ast.Expression) ast.Expression {
+	op := p.advance() // 消费 ??
+	right := p.parsePrecedence(PREC_COALESCE) // 右结合
+	return &ast.NullCoalesceExpr{
+		Left:     left,
+		Operator: op,
+		Right:    right,
 	}
 }
 

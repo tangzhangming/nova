@@ -96,6 +96,14 @@ var messagesEN = map[string]string{
 	ErrInterfaceMethodReturnMismatch: "method '%s' in class '%s' has return type incompatible with interface '%s' (expected %s, got %s)",
 	ErrInterfaceMethodStaticMismatch: "method '%s' in class '%s' has static/instance mismatch with interface '%s'",
 	
+	// Null safety checks
+	ErrNullableAccess:          "cannot access member of nullable type '%s', check for null first or use safe call '?.'",
+	ErrNullAssignment:          "cannot assign null to non-nullable type '%s', use nullable type '%s|null'",
+	ErrNullableArgument:        "passing nullable type '%s' to non-nullable parameter '%s', may cause null pointer error",
+	ErrNullableReturn:          "cannot return null from function with return type '%s'",
+	WarnUnreachableCode:        "unreachable code detected",
+	WarnUninitializedVariable:  "variable '%s' may not have been initialized",
+	
 	// Class name resolution
 	ErrSelfOutsideClass: "cannot use self::class outside of class",
 

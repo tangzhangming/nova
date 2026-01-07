@@ -97,7 +97,13 @@ func (l *Lexer) scanToken() {
 	case '~':
 		l.addToken(token.BIT_NOT)
 	case '?':
-		l.addToken(token.QUESTION)
+		if l.match('.') {
+			l.addToken(token.SAFE_DOT)
+		} else if l.match('?') {
+			l.addToken(token.NULL_COALESCE)
+		} else {
+			l.addToken(token.QUESTION)
+		}
 	case '@':
 		l.addToken(token.AT)
 
