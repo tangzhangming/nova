@@ -70,6 +70,7 @@ const (
 
 	// 函数调用
 	OpCall       // 调用函数 (argCount: u8)
+	OpTailCall   // 尾调用 (argCount: u8) - 复用当前栈帧
 	OpReturn     // 返回
 	OpReturnNull // 返回 null
 	OpClosure    // 创建闭包 (upvalueCount: u16)
@@ -187,6 +188,7 @@ var opNames = map[OpCode]string{
 	OpJumpIfTrue:  "JUMP_IF_TRUE",
 	OpLoop:        "LOOP",
 	OpCall:        "CALL",
+	OpTailCall:    "TAIL_CALL",
 	OpReturn:      "RETURN",
 	OpReturnNull:  "RETURN_NULL",
 	OpClosure:     "CLOSURE",
@@ -359,7 +361,7 @@ func (c *Chunk) disassembleInstruction(result *string, offset int) int {
 		return c.jumpInstruction(result, op, 1, offset)
 	case OpLoop:
 		return c.jumpInstruction(result, op, -1, offset)
-	case OpCall:
+	case OpCall, OpTailCall:
 		return c.byteInstruction(result, op, offset)
 	case OpCallMethod, OpCallStatic:
 		return c.invokeInstruction(result, op, offset)

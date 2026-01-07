@@ -705,9 +705,8 @@ func (p *Printer) printStatement(stmt ast.Statement) {
 		if s.Else != nil {
 			p.write(" else")
 			p.printBlock(s.Else)
-		} else {
-			p.writeln()
 		}
+		p.writeln()
 	case *ast.SwitchStmt:
 		p.writeIndent()
 		p.write("switch (")

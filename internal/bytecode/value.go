@@ -943,6 +943,7 @@ type Function struct {
 	DefaultValues []Value  // 默认参数值（从第 MinArity 个参数开始）
 	IsBuiltin     bool     // 是否是内置函数
 	BuiltinFn     BuiltinFn // 内置函数实现
+	Inlinable     bool     // 是否可内联（由编译器设置）
 }
 
 // NewFunction 创建函数

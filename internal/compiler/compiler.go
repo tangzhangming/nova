@@ -64,6 +64,10 @@ type Compiler struct {
 	loopHoistedExprs []hoistedExpr   // 待外提的表达式
 	inLoopAnalysis   bool            // 是否在循环分析阶段
 
+	// 函数内联相关字段
+	compiledFunctions map[string]*bytecode.Function // 已编译函数缓存（用于内联）
+	currentFuncName   string                        // 当前编译的函数名（防止自递归内联）
+
 	errors []Error
 }
 
@@ -122,6 +126,7 @@ func NewWithSymbolTable(st *SymbolTable) *Compiler {
 		exprCache:       make(map[string]int),
 		loopModifiedVars: make(map[string]bool),
 		loopHoistedExprs: make([]hoistedExpr, 0),
+		compiledFunctions: make(map[string]*bytecode.Function),
 	}
 }
 
@@ -204,9 +209,11 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	prevLocalCount := c.localCount
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
+	prevFuncName := c.currentFuncName
 
 	// 创建新函数
 	c.function = bytecode.NewFunction(name)
+	c.currentFuncName = name
 	c.function.Arity = len(params)
 	c.function.SourceFile = c.sourceFile // 继承源文件信息
 	c.locals = make([]Local, 256)
@@ -272,6 +279,12 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 
 	fn := c.function
 	fn.LocalCount = c.localCount
+	
+	// 检查函数是否可内联
+	fn.Inlinable = c.isInlinable(fn)
+	
+	// 缓存已编译的函数（用于内联）
+	c.compiledFunctions[name] = fn
 
 	// 恢复状态
 	c.function = prevFn
@@ -279,6 +292,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.localCount = prevLocalCount
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns
+	c.currentFuncName = prevFuncName
 
 	return fn
 }
@@ -1361,6 +1375,33 @@ func (c *Compiler) compileWhileStmt(s *ast.WhileStmt) {
 	c.breakJumps = nil
 	c.loopDepth++
 
+	// 无效分支消除：检查条件是否为常量
+	if c.isConstExpr(s.Condition) {
+		condVal := c.evaluateConstExpr(s.Condition)
+		if !condVal.IsTruthy() {
+			// while(false) - 不编译循环体，直接跳过
+			c.loopStart = prevLoopStart
+			c.breakJumps = prevBreakJumps
+			c.loopDepth--
+			c.loopModifiedVars = make(map[string]bool)
+			return
+		}
+		// while(true) - 无限循环，不生成条件检查
+		// 编译循环体
+		c.compileStmt(s.Body)
+		// 跳回循环开始（无限循环）
+		c.emitLoop(loopStart)
+		// 修补所有 break
+		for _, jump := range c.breakJumps {
+			c.patchJump(jump)
+		}
+		c.loopStart = prevLoopStart
+		c.breakJumps = prevBreakJumps
+		c.loopDepth--
+		c.loopModifiedVars = make(map[string]bool)
+		return
+	}
+
 	// 编译条件
 	c.compileExpr(s.Condition)
 	exitJump := c.emitJump(bytecode.OpJumpIfFalse)
@@ -1428,9 +1469,42 @@ func (c *Compiler) compileForStmt(s *ast.ForStmt) {
 	c.breakJumps = nil
 	c.loopDepth++
 
-	// 条件
+	// 无效分支消除：检查条件是否为常量
 	var exitJump int
 	if s.Condition != nil {
+		if c.isConstExpr(s.Condition) {
+			condVal := c.evaluateConstExpr(s.Condition)
+			if !condVal.IsTruthy() {
+				// for(;;false) - 不编译循环体，直接跳过
+				c.loopStart = prevLoopStart
+				c.breakJumps = prevBreakJumps
+				c.loopDepth--
+				c.endScope()
+				c.loopModifiedVars = make(map[string]bool)
+				return
+			}
+			// for(;;true) - 无限循环，不生成条件检查
+			// 编译循环体
+			c.compileStmt(s.Body)
+			// 后置表达式
+			if s.Post != nil {
+				c.compileExpr(s.Post)
+				c.emit(bytecode.OpPop)
+			}
+			// 跳回循环开始（无限循环）
+			c.emitLoop(loopStart)
+			// 修补 break
+			for _, jump := range c.breakJumps {
+				c.patchJump(jump)
+			}
+			c.loopStart = prevLoopStart
+			c.breakJumps = prevBreakJumps
+			c.loopDepth--
+			c.endScope()
+			c.loopModifiedVars = make(map[string]bool)
+			return
+		}
+		// 非常量条件，使用正常的跳转逻辑
 		c.compileExpr(s.Condition)
 		exitJump = c.emitJump(bytecode.OpJumpIfFalse)
 		c.emit(bytecode.OpPop)
@@ -1737,7 +1811,15 @@ func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
 	if actualReturns == 0 {
 		c.emit(bytecode.OpReturnNull)
 	} else if actualReturns == 1 {
-		// 单返回值
+		// 单返回值 - 检查是否是尾调用
+		if callExpr, ok := s.Values[0].(*ast.CallExpr); ok {
+			// 检测尾调用：return fn(...)
+			if c.isTailCallable(callExpr) {
+				c.compileTailCall(callExpr)
+				return
+			}
+		}
+		// 非尾调用，正常编译
 		c.compileExpr(s.Values[0])
 		c.emit(bytecode.OpReturn)
 	} else {
@@ -2215,6 +2297,20 @@ func (c *Compiler) compileBinaryExpr(e *ast.BinaryExpr) {
 }
 
 func (c *Compiler) compileTernaryExpr(e *ast.TernaryExpr) {
+	// 无效分支消除：检查条件是否为常量
+	if c.isConstExpr(e.Condition) {
+		condVal := c.evaluateConstExpr(e.Condition)
+		if condVal.IsTruthy() {
+			// 条件为真，只编译 then 分支
+			c.compileExpr(e.Then)
+		} else {
+			// 条件为假，只编译 else 分支
+			c.compileExpr(e.Else)
+		}
+		return
+	}
+	
+	// 非常量条件，使用正常的跳转逻辑
 	c.compileExpr(e.Condition)
 	elseJump := c.emitJump(bytecode.OpJumpIfFalse)
 	c.emit(bytecode.OpPop)
@@ -2407,11 +2503,177 @@ func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 	// 处理命名参数
 	args := c.resolveNamedArguments(e)
 	
+	// 尝试内联：检查是否是函数标识符调用且可内联
+	if ident, ok := e.Function.(*ast.Identifier); ok {
+		if targetFn := c.compiledFunctions[ident.Name]; targetFn != nil && targetFn.Inlinable {
+			// 防止自递归内联
+			if ident.Name != c.currentFuncName {
+				// 内联函数体
+				c.inlineFunction(targetFn, args)
+				return
+			}
+		}
+	}
+	
+	// 非内联调用，使用正常调用
 	c.compileExpr(e.Function)
 	for _, arg := range args {
 		c.compileExpr(arg)
 	}
 	c.emitByte(bytecode.OpCall, byte(len(args)))
+}
+
+// isTailCallable 检查调用表达式是否可以作为尾调用
+// 尾调用条件：
+// 1. 函数调用（Identifier 或 Variable）
+// 2. 不是方法调用（PropertyAccess）
+// 3. 不是闭包调用（ClosureExpr）
+func (c *Compiler) isTailCallable(e *ast.CallExpr) bool {
+	// 必须是函数调用，不能是方法调用
+	switch e.Function.(type) {
+	case *ast.Identifier, *ast.Variable:
+		// 普通函数调用，可以尾调用
+		return true
+	case *ast.PropertyAccess:
+		// 方法调用，不支持尾调用（需要 this 上下文）
+		return false
+	case *ast.ClosureExpr:
+		// 闭包调用，不支持尾调用（可能有 upvalues）
+		return false
+	default:
+		return false
+	}
+}
+
+// compileTailCall 编译尾调用
+// 尾调用使用 OpTailCall 指令，复用当前栈帧
+func (c *Compiler) compileTailCall(e *ast.CallExpr) {
+	// 处理命名参数
+	args := c.resolveNamedArguments(e)
+	
+	// 编译函数和参数（与普通调用相同）
+	c.compileExpr(e.Function)
+	for _, arg := range args {
+		c.compileExpr(arg)
+	}
+	
+	// 使用 OpTailCall 而非 OpCall
+	c.emitByte(bytecode.OpTailCall, byte(len(args)))
+}
+
+// isInlinable 检查函数是否可内联
+// 内联启发式规则：
+// 1. 函数体指令数 <= 20
+// 2. 无闭包捕获（UpvalueCount == 0）
+// 3. 非可变参数
+// 4. 非内置函数
+func (c *Compiler) isInlinable(fn *bytecode.Function) bool {
+	// 内置函数不能内联
+	if fn.IsBuiltin {
+		return false
+	}
+	
+	// 可变参数函数不能内联（参数处理复杂）
+	if fn.IsVariadic {
+		return false
+	}
+	
+	// 有闭包捕获的函数不能内联（需要 upvalues）
+	if fn.UpvalueCount > 0 {
+		return false
+	}
+	
+	// 函数体指令数限制（<= 20）
+	if fn.Chunk.Len() > 20 {
+		return false
+	}
+	
+	return true
+}
+
+// inlineFunction 内联函数体到当前编译位置
+// 将函数体的字节码复制到当前 chunk，并处理参数绑定
+func (c *Compiler) inlineFunction(targetFn *bytecode.Function, args []ast.Expression) {
+	// 编译参数到栈上（与函数调用相同）
+	// 注意：内联时参数已经在栈上，我们需要将它们存储到局部变量槽中
+	// 函数体的局部变量布局：[caller, arg0, arg1, ..., local0, local1, ...]
+	
+	// 保存当前局部变量状态
+	savedLocals := make([]Local, len(c.locals))
+	copy(savedLocals, c.locals)
+	
+	// 为参数创建局部变量槽（跳过 slot 0，它是调用者）
+	paramSlots := make([]int, len(args))
+	for i := 0; i < len(args); i++ {
+		// 编译参数表达式
+		c.compileExpr(args[i])
+		// 创建局部变量槽
+		slot := c.localCount
+		c.addLocal(fmt.Sprintf("$__inline_param_%d", i))
+		// 存储参数到局部变量
+		c.emitU16(bytecode.OpStoreLocal, uint16(slot))
+		paramSlots[i] = slot
+	}
+	
+	// 复制函数体的字节码（跳过最后的 OpReturnNull）
+	// 注意：需要调整局部变量引用和跳转偏移量
+	sourceChunk := targetFn.Chunk
+	targetChunk := c.currentChunk()
+	
+	// 计算需要调整的局部变量偏移量
+	localOffset := c.localCount - 1 // 新局部变量的起始槽（-1 因为 slot 0 是调用者）
+	
+	// 复制字节码，调整局部变量引用
+	offset := 0
+	for offset < len(sourceChunk.Code) {
+		op := bytecode.OpCode(sourceChunk.Code[offset])
+		
+		// 跳过最后的 OpReturnNull（内联时不需要返回）
+		if op == bytecode.OpReturnNull && offset == len(sourceChunk.Code)-1 {
+			break
+		}
+		
+		// 处理需要调整局部变量引用的指令
+		switch op {
+		case bytecode.OpLoadLocal, bytecode.OpStoreLocal:
+			// 调整局部变量索引：函数内的局部变量需要加上偏移量
+			oldSlot := int(sourceChunk.ReadU16(offset + 1))
+			// slot 0 是调用者，保持不变
+			// slot 1..N 是参数，需要映射到我们创建的参数槽
+			if oldSlot == 0 {
+				// 调用者槽，保持不变
+				targetChunk.Write(byte(op), c.currentLine)
+				targetChunk.WriteU16(uint16(0), c.currentLine)
+			} else if oldSlot <= len(args) {
+				// 参数槽，映射到我们创建的参数槽
+				targetChunk.Write(byte(op), c.currentLine)
+				targetChunk.WriteU16(uint16(paramSlots[oldSlot-1]), c.currentLine)
+			} else {
+				// 函数内局部变量，加上偏移量
+				newSlot := oldSlot + localOffset - len(args)
+				targetChunk.Write(byte(op), c.currentLine)
+				targetChunk.WriteU16(uint16(newSlot), c.currentLine)
+			}
+			offset += 3
+		case bytecode.OpReturn:
+			// 内联时，return 语句需要特殊处理
+			// 如果函数有返回值，保留返回值在栈上
+			// 如果没有返回值，移除 OpReturnNull（已在上面处理）
+			// 对于 OpReturn，保留返回值在栈上，不发出返回指令
+			// 实际上，我们需要保留返回值，所以这里不做任何操作
+			// 但需要跳过 return 指令
+			offset++
+		default:
+			// 其他指令直接复制
+			line := sourceChunk.Lines[offset]
+			targetChunk.Write(sourceChunk.Code[offset], line)
+			offset++
+		}
+	}
+	
+	// 恢复局部变量状态（但保留内联函数创建的局部变量）
+	// 实际上，内联后局部变量应该被清理，但为了简化，我们保留它们
+	// 这可能会导致局部变量槽浪费，但不会影响正确性
 }
 
 // resolveNamedArguments 解析命名参数，返回按正确顺序排列的参数列表

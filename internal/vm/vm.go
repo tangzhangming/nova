@@ -467,6 +467,15 @@ func (vm *VM) execute() InterpretResult {
 			frame = &vm.frames[vm.frameCount-1]
 			chunk = frame.Closure.Function.Chunk
 
+		case bytecode.OpTailCall:
+			argCount := int(chunk.Code[frame.IP])
+			frame.IP++
+			if result := vm.tailCall(vm.peek(argCount), argCount); result != InterpretOK {
+				return result
+			}
+			frame = &vm.frames[vm.frameCount-1]
+			chunk = frame.Closure.Function.Chunk
+
 		case bytecode.OpReturn:
 			result := vm.pop()
 			vm.frameCount--
@@ -1870,6 +1879,114 @@ func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 	default:
 		return vm.runtimeError(i18n.T(i18n.ErrCanOnlyCallFunctions))
 	}
+}
+
+// tailCall 尾调用：复用当前栈帧而非创建新帧
+func (vm *VM) tailCall(callee bytecode.Value, argCount int) InterpretResult {
+	var closure *bytecode.Closure
+	
+	switch callee.Type {
+	case bytecode.ValClosure:
+		closure = callee.Data.(*bytecode.Closure)
+	case bytecode.ValFunc:
+		fn := callee.Data.(*bytecode.Function)
+		// 内置函数不支持尾调用（需要返回值）
+		if fn.IsBuiltin && fn.BuiltinFn != nil {
+			return vm.runtimeError("tail call not supported for builtin functions")
+		}
+		closure = &bytecode.Closure{Function: fn}
+	default:
+		return vm.runtimeError(i18n.T(i18n.ErrCanOnlyCallFunctions))
+	}
+	
+	fn := closure.Function
+	
+	// 检查参数数量
+	if fn.IsVariadic {
+		if argCount < fn.MinArity {
+			return vm.runtimeError(i18n.T(i18n.ErrArgumentCountMin, fn.MinArity, argCount))
+		}
+	} else {
+		if argCount < fn.MinArity {
+			return vm.runtimeError(i18n.T(i18n.ErrArgumentCountMin, fn.MinArity, argCount))
+		}
+		if argCount > fn.Arity {
+			return vm.runtimeError(i18n.T(i18n.ErrArgumentCountMax, fn.Arity, argCount))
+		}
+	}
+	
+	// 获取当前帧
+	currentFrame := &vm.frames[vm.frameCount-1]
+	
+	// 处理默认参数：填充缺失的参数
+	if !fn.IsVariadic && argCount < fn.Arity {
+		defaultStart := fn.MinArity
+		for i := argCount; i < fn.Arity; i++ {
+			defaultIdx := i - defaultStart
+			if defaultIdx >= 0 && defaultIdx < len(fn.DefaultValues) {
+				vm.push(fn.DefaultValues[defaultIdx])
+			} else {
+				vm.push(bytecode.NullValue)
+			}
+		}
+		argCount = fn.Arity
+	}
+	
+	// 处理可变参数：将多余参数打包成数组
+	if fn.IsVariadic {
+		variadicCount := argCount - fn.MinArity
+		if variadicCount > 0 {
+			// 收集可变参数到数组
+			varArgs := make([]bytecode.Value, variadicCount)
+			for i := variadicCount - 1; i >= 0; i-- {
+				varArgs[i] = vm.pop()
+			}
+			argCount = fn.MinArity
+			vm.push(bytecode.NewArray(varArgs))
+			argCount++ // 可变参数数组占一个 slot
+		} else {
+			// 没有可变参数，推入空数组
+			vm.push(bytecode.NewArray([]bytecode.Value{}))
+			argCount++
+		}
+	}
+	
+	// 将参数从栈顶移动到当前帧的参数位置
+	// 栈布局：[..., old_callee, old_arg0, old_arg1, ..., new_arg0, new_arg1, ...]
+	// 需要移动到：[..., new_callee, new_arg0, new_arg1, ...]
+	
+	// 保存新参数（从栈顶开始）
+	newArgs := make([]bytecode.Value, argCount+1) // +1 for callee
+	for i := argCount; i >= 0; i-- {
+		newArgs[i] = vm.pop()
+	}
+	
+	// 调整栈：移除旧参数，保留调用者
+	// 计算需要保留的栈大小（从调用者到旧参数之前）
+	keepSize := currentFrame.BaseSlot
+	vm.stackTop = keepSize
+	
+	// 将新参数和函数放回栈
+	vm.push(bytecode.NewClosure(closure)) // 新函数
+	for i := 0; i < argCount; i++ {
+		vm.push(newArgs[i+1]) // 新参数
+	}
+	
+	// 如果有 upvalues，将它们作为额外的局部变量
+	for _, upval := range closure.Upvalues {
+		if upval.IsClosed {
+			vm.push(upval.Closed)
+		} else {
+			vm.push(*upval.Location)
+		}
+	}
+	
+	// 复用当前帧：更新闭包和 IP，重置 BaseSlot
+	currentFrame.Closure = closure
+	currentFrame.IP = 0
+	currentFrame.BaseSlot = keepSize
+	
+	return InterpretOK
 }
 
 // callBuiltin 调用内置函数，支持异常捕获
