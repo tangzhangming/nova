@@ -394,6 +394,45 @@ func (p Position) String() string {
 	return fmt.Sprintf("%d:%d", p.Line, p.Column)
 }
 
+// IsValid 检查位置是否有效
+func (p Position) IsValid() bool {
+	return p.Line > 0
+}
+
+// Span 表示源代码中的一个范围（开始到结束）
+type Span struct {
+	Start Position // 开始位置
+	End   Position // 结束位置
+}
+
+// NewSpan 创建新的 Span
+func NewSpan(start, end Position) Span {
+	return Span{Start: start, End: end}
+}
+
+// SpanFromToken 从 Token 创建 Span
+func SpanFromToken(t Token) Span {
+	endPos := t.Pos
+	endPos.Column += len(t.Literal)
+	endPos.Offset += len(t.Literal)
+	return Span{Start: t.Pos, End: endPos}
+}
+
+// Length 返回 Span 的长度（仅在同一行有效）
+func (s Span) Length() int {
+	if s.Start.Line == s.End.Line {
+		return s.End.Column - s.Start.Column
+	}
+	return 1 // 多行时返回 1
+}
+
+func (s Span) String() string {
+	if s.Start.Line == s.End.Line {
+		return fmt.Sprintf("%s:%d:%d-%d", s.Start.Filename, s.Start.Line, s.Start.Column, s.End.Column)
+	}
+	return fmt.Sprintf("%s:%d:%d-%d:%d", s.Start.Filename, s.Start.Line, s.Start.Column, s.End.Line, s.End.Column)
+}
+
 // Token 表示一个词法单元
 type Token struct {
 	Type    TokenType   // Token 类型

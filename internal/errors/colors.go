@@ -217,6 +217,163 @@ func Strip(s string) string {
 	return result
 }
 
+// ============================================================================
+// 代码语法高亮
+// ============================================================================
+
+// SyntaxHighlighter 代码语法高亮器
+type SyntaxHighlighter struct {
+	enabled bool
+}
+
+// NewSyntaxHighlighter 创建语法高亮器
+func NewSyntaxHighlighter() *SyntaxHighlighter {
+	return &SyntaxHighlighter{enabled: colorsEnabled}
+}
+
+// 关键字列表
+var keywords = map[string]bool{
+	"if": true, "else": true, "elseif": true, "while": true, "for": true, "foreach": true,
+	"switch": true, "case": true, "default": true, "break": true, "continue": true, "return": true,
+	"function": true, "class": true, "interface": true, "extends": true, "implements": true,
+	"public": true, "private": true, "protected": true, "static": true, "final": true, "abstract": true,
+	"new": true, "try": true, "catch": true, "finally": true, "throw": true,
+	"use": true, "namespace": true, "const": true, "enum": true,
+	"true": true, "false": true, "null": true, "self": true, "parent": true,
+	"as": true, "is": true, "match": true, "where": true, "type": true,
+}
+
+// 类型关键字
+var typeKeywords = map[string]bool{
+	"int": true, "float": true, "string": true, "bool": true, "void": true,
+	"i8": true, "i16": true, "i32": true, "i64": true,
+	"u8": true, "u16": true, "u32": true, "u64": true,
+	"f32": true, "f64": true, "byte": true, "uint": true,
+	"object": true, "func": true, "map": true,
+}
+
+// HighlightLine 高亮代码行
+func (h *SyntaxHighlighter) HighlightLine(line string) string {
+	if !h.enabled || !colorsEnabled {
+		return line
+	}
+	return h.highlightTokens(line)
+}
+
+// highlightTokens 对源代码行进行 token 级别的高亮
+func (h *SyntaxHighlighter) highlightTokens(line string) string {
+	var result strings.Builder
+	i := 0
+	n := len(line)
+
+	for i < n {
+		ch := line[i]
+
+		// 跳过空白
+		if ch == ' ' || ch == '\t' {
+			result.WriteByte(ch)
+			i++
+			continue
+		}
+
+		// 字符串
+		if ch == '"' || ch == '\'' {
+			quote := ch
+			start := i
+			i++
+			for i < n && line[i] != quote {
+				if line[i] == '\\' && i+1 < n {
+					i++
+				}
+				i++
+			}
+			if i < n {
+				i++ // 包含结束引号
+			}
+			result.WriteString(Colorize(line[start:i], ColorGreen))
+			continue
+		}
+
+		// 注释
+		if ch == '/' && i+1 < n {
+			if line[i+1] == '/' {
+				result.WriteString(Colorize(line[i:], ColorWhite))
+				break
+			}
+		}
+
+		// 变量 $xxx
+		if ch == '$' {
+			start := i
+			i++
+			for i < n && (isAlphaNumeric(line[i]) || line[i] == '_') {
+				i++
+			}
+			result.WriteString(Colorize(line[start:i], ColorCyan))
+			continue
+		}
+
+		// 数字
+		if isDigit(ch) {
+			start := i
+			for i < n && (isDigit(line[i]) || line[i] == '.' || line[i] == 'x' || line[i] == 'X' ||
+				(line[i] >= 'a' && line[i] <= 'f') || (line[i] >= 'A' && line[i] <= 'F')) {
+				i++
+			}
+			result.WriteString(Colorize(line[start:i], ColorMagenta))
+			continue
+		}
+
+		// 标识符/关键字
+		if isAlpha(ch) {
+			start := i
+			for i < n && (isAlphaNumeric(line[i]) || line[i] == '_') {
+				i++
+			}
+			word := line[start:i]
+			if keywords[word] {
+				result.WriteString(Colorize(word, ColorYellow))
+			} else if typeKeywords[word] {
+				result.WriteString(Colorize(word, ColorBlue))
+			} else {
+				result.WriteString(word)
+			}
+			continue
+		}
+
+		// 运算符
+		if isOperator(ch) {
+			result.WriteString(Colorize(string(ch), ColorRed))
+			i++
+			continue
+		}
+
+		// 其他字符
+		result.WriteByte(ch)
+		i++
+	}
+
+	return result.String()
+}
+
+func isAlpha(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_'
+}
+
+func isDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
+}
+
+func isAlphaNumeric(ch byte) bool {
+	return isAlpha(ch) || isDigit(ch)
+}
+
+func isOperator(ch byte) bool {
+	return ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '%' ||
+		ch == '=' || ch == '<' || ch == '>' || ch == '!' || ch == '&' || ch == '|' ||
+		ch == '^' || ch == '~'
+}
+
 
 
 

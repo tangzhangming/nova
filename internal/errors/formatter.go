@@ -78,21 +78,27 @@ func (e *RuntimeError) Error() string {
 
 // Formatter 错误格式化器
 type Formatter struct {
-	Colors      bool // 是否使用颜色
-	ShowSource  bool // 是否显示源代码
-	ShowHints   bool // 是否显示修复建议
-	MaxContext  int  // 上下文行数（源代码前后行数）
-	TabWidth    int  // Tab 宽度
+	Colors         bool // 是否使用颜色
+	ShowSource     bool // 是否显示源代码
+	ShowHints      bool // 是否显示修复建议
+	ShowContext    bool // 是否显示上下文行
+	MaxContext     int  // 上下文行数（源代码前后行数）
+	TabWidth       int  // Tab 宽度
+	ShowLineNumbers bool // 是否显示行号
+	ShowRelatedInfo bool // 是否显示相关信息
 }
 
 // NewFormatter 创建默认格式化器
 func NewFormatter() *Formatter {
 	return &Formatter{
-		Colors:     true,
-		ShowSource: true,
-		ShowHints:  true,
-		MaxContext: 2,
-		TabWidth:   4,
+		Colors:         true,
+		ShowSource:     true,
+		ShowHints:      true,
+		ShowContext:    true,
+		MaxContext:     2,
+		TabWidth:       4,
+		ShowLineNumbers: true,
+		ShowRelatedInfo: true,
 	}
 }
 
@@ -212,6 +218,21 @@ func (f *Formatter) formatSourceContext(lines []string, errorLine, startCol, end
 	separator := f.colorize(strings.Repeat(" ", lineNumWidth)+" |", ColorBlue)
 	sb.WriteString(separator + "\n")
 
+	// 显示上下文（前几行）
+	if f.ShowContext {
+		startContext := errorLine - f.MaxContext
+		if startContext < 1 {
+			startContext = 1
+		}
+		for i := startContext; i < errorLine; i++ {
+			if i > 0 && i <= len(lines) {
+				lineNum := f.colorize(fmt.Sprintf("%*d", lineNumWidth, i), ColorBlue)
+				pipe := f.colorize(" |", ColorBlue)
+				sb.WriteString(fmt.Sprintf("%s%s %s\n", lineNum, pipe, f.expandTabs(lines[i-1])))
+			}
+		}
+	}
+
 	// 显示错误行
 	if errorLine > 0 && errorLine <= len(lines) {
 		line := lines[errorLine-1]
@@ -236,6 +257,21 @@ func (f *Formatter) formatSourceContext(lines []string, errorLine, startCol, end
 		sb.WriteString(underline + "\n")
 	}
 
+	// 显示上下文（后几行）
+	if f.ShowContext {
+		endContext := errorLine + f.MaxContext
+		if endContext > len(lines) {
+			endContext = len(lines)
+		}
+		for i := errorLine + 1; i <= endContext; i++ {
+			if i > 0 && i <= len(lines) {
+				lineNum := f.colorize(fmt.Sprintf("%*d", lineNumWidth, i), ColorBlue)
+				pipe := f.colorize(" |", ColorBlue)
+				sb.WriteString(fmt.Sprintf("%s%s %s\n", lineNum, pipe, f.expandTabs(lines[i-1])))
+			}
+		}
+	}
+
 	// 处理额外的标签
 	for _, label := range labels {
 		if label.Line != errorLine && label.Line > 0 && label.Line <= len(lines) {
@@ -251,6 +287,67 @@ func (f *Formatter) formatSourceContext(lines []string, errorLine, startCol, end
 				sb.WriteString(msgLine + "\n")
 			}
 		}
+	}
+
+	return sb.String()
+}
+
+// FormatMultilineError 格式化多行错误（跨多个位置）
+func (f *Formatter) FormatMultilineError(err *CompileError, sourceLines []string, relatedLabels []Label) string {
+	var sb strings.Builder
+
+	// 错误头
+	levelStr := f.colorize(err.Level.String(), f.levelColor(err.Level))
+	codeStr := f.colorize(fmt.Sprintf("[%s]", err.Code), f.levelColor(err.Level))
+	sb.WriteString(fmt.Sprintf("%s%s: %s\n", levelStr, codeStr, err.Message))
+
+	// 主要位置
+	arrow := f.colorize("-->", ColorCyan)
+	location := f.colorize(fmt.Sprintf("%s:%d:%d", err.File, err.Line, err.Column), ColorCyan)
+	sb.WriteString(fmt.Sprintf(" %s %s\n", arrow, location))
+
+	// 显示主要源代码
+	if f.ShowSource && len(sourceLines) > 0 && err.Line > 0 && err.Line <= len(sourceLines) {
+		sb.WriteString(f.formatSourceContext(sourceLines, err.Line, err.Column, err.EndColumn, err.Labels))
+	}
+
+	// 显示相关位置
+	if f.ShowRelatedInfo && len(relatedLabels) > 0 {
+		for _, label := range relatedLabels {
+			if label.Line > 0 && label.Line <= len(sourceLines) {
+				sb.WriteString("\n")
+				noteStr := f.colorize("note:", ColorCyan)
+				sb.WriteString(fmt.Sprintf(" %s %s\n", noteStr, label.Message))
+				
+				relatedLocation := f.colorize(fmt.Sprintf("%s:%d:%d", err.File, label.Line, label.Column), ColorCyan)
+				sb.WriteString(fmt.Sprintf(" %s %s\n", arrow, relatedLocation))
+				
+				line := sourceLines[label.Line-1]
+				lineNumWidth := len(fmt.Sprintf("%d", label.Line))
+				lineNum := f.colorize(fmt.Sprintf("%*d", lineNumWidth, label.Line), ColorBlue)
+				pipe := f.colorize(" |", ColorBlue)
+				sb.WriteString(fmt.Sprintf("%s%s %s\n", lineNum, pipe, f.expandTabs(line)))
+				
+				actualCol := f.calculateActualColumn(line, label.Column)
+				underline := strings.Repeat(" ", lineNumWidth+3+actualCol-1) +
+					f.colorize(strings.Repeat("-", label.Length), ColorCyan)
+				sb.WriteString(underline + "\n")
+			}
+		}
+	}
+
+	// 修复建议
+	if f.ShowHints {
+		for _, hint := range err.Hints {
+			hintLabel := f.colorize(" = help:", ColorCyan)
+			sb.WriteString(fmt.Sprintf("%s %s\n", hintLabel, hint))
+		}
+	}
+
+	// 附加说明
+	for _, note := range err.Notes {
+		noteLabel := f.colorize(" = note:", ColorCyan)
+		sb.WriteString(fmt.Sprintf("%s %s\n", noteLabel, note))
 	}
 
 	return sb.String()

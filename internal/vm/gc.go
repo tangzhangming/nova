@@ -51,6 +51,35 @@ type GC struct {
 
 	// 调试模式
 	debug bool
+
+	// 内存泄漏检测
+	leakDetection    bool                      // 是否启用泄漏检测
+	allocationSites  map[uintptr]AllocationInfo // 分配点信息
+	leakReports      []LeakReport              // 泄漏报告
+	cycleDetection   bool                      // 是否启用循环引用检测
+	detectedCycles   []CycleInfo               // 检测到的循环引用
+}
+
+// AllocationInfo 分配点信息
+type AllocationInfo struct {
+	TypeName   string // 类型名称
+	AllocTime  int64  // 分配时间（纳秒）
+	StackTrace string // 分配时的调用栈（调试模式）
+	Size       int    // 估计大小
+}
+
+// LeakReport 内存泄漏报告
+type LeakReport struct {
+	TypeName     string // 类型名称
+	Count        int    // 泄漏数量
+	TotalSize    int    // 总大小估计
+	SampleTraces []string // 部分分配调用栈
+}
+
+// CycleInfo 循环引用信息
+type CycleInfo struct {
+	Objects []string // 循环中的对象描述
+	Path    []uintptr // 循环路径
 }
 
 // NewGC 创建垃圾回收器
@@ -65,6 +94,11 @@ func NewGC() *GC {
 		allocThreshold:   16,   // 每分配 16 个对象检查一次是否需要 GC
 		enabled:          true,
 		debug:            false,
+		leakDetection:    false,
+		allocationSites:  make(map[uintptr]AllocationInfo),
+		leakReports:      nil,
+		cycleDetection:   false,
+		detectedCycles:   nil,
 	}
 }
 
@@ -76,6 +110,19 @@ func (gc *GC) SetEnabled(enabled bool) {
 // SetDebug 设置调试模式
 func (gc *GC) SetDebug(debug bool) {
 	gc.debug = debug
+}
+
+// SetLeakDetection 设置泄漏检测模式
+func (gc *GC) SetLeakDetection(enabled bool) {
+	gc.leakDetection = enabled
+	if enabled && gc.allocationSites == nil {
+		gc.allocationSites = make(map[uintptr]AllocationInfo)
+	}
+}
+
+// SetCycleDetection 设置循环引用检测模式
+func (gc *GC) SetCycleDetection(enabled bool) {
+	gc.cycleDetection = enabled
 }
 
 // SetThreshold 设置 GC 触发阈值
@@ -275,6 +322,281 @@ func (gc *GC) Stats() GCStats {
 		TotalCollections: gc.totalCollections,
 		TotalFreed:       gc.totalFreed,
 		NextThreshold:    gc.nextThreshold,
+		LeakReports:      gc.leakReports,
+		DetectedCycles:   gc.detectedCycles,
+	}
+}
+
+// ============================================================================
+// 内存泄漏检测
+// ============================================================================
+
+// DetectLeaks 检测内存泄漏
+// 应该在程序结束时调用，检测还存活但可能是泄漏的对象
+func (gc *GC) DetectLeaks() []LeakReport {
+	if !gc.leakDetection {
+		return nil
+	}
+
+	gc.leakReports = nil
+	typeCount := make(map[string]int)
+	typeSamples := make(map[string][]string)
+
+	for _, obj := range gc.heap {
+		if obj == nil {
+			continue
+		}
+
+		if w, ok := obj.(*GCObjectWrapper); ok {
+			typeName := gc.getTypeName(w.value)
+			typeCount[typeName]++
+
+			// 记录部分分配调用栈样本
+			key := gc.keyOf(w.value)
+			if info, exists := gc.allocationSites[key]; exists {
+				if len(typeSamples[typeName]) < 3 { // 最多保留 3 个样本
+					typeSamples[typeName] = append(typeSamples[typeName], info.StackTrace)
+				}
+			}
+		}
+	}
+
+	// 生成报告
+	for typeName, count := range typeCount {
+		if count > 0 {
+			gc.leakReports = append(gc.leakReports, LeakReport{
+				TypeName:     typeName,
+				Count:        count,
+				SampleTraces: typeSamples[typeName],
+			})
+		}
+	}
+
+	return gc.leakReports
+}
+
+// DetectCycles 检测循环引用
+func (gc *GC) DetectCycles() []CycleInfo {
+	if !gc.cycleDetection {
+		return nil
+	}
+
+	gc.detectedCycles = nil
+	visited := make(map[uintptr]bool)
+	inStack := make(map[uintptr]bool)
+	path := make([]uintptr, 0)
+
+	for _, obj := range gc.heap {
+		if obj == nil {
+			continue
+		}
+		if w, ok := obj.(*GCObjectWrapper); ok {
+			key := gc.keyOf(w.value)
+			if !visited[key] {
+				gc.detectCycleDFS(w, visited, inStack, path)
+			}
+		}
+	}
+
+	return gc.detectedCycles
+}
+
+// detectCycleDFS 使用 DFS 检测循环引用
+func (gc *GC) detectCycleDFS(obj *GCObjectWrapper, visited, inStack map[uintptr]bool, path []uintptr) {
+	key := gc.keyOf(obj.value)
+	if key == 0 {
+		return
+	}
+
+	visited[key] = true
+	inStack[key] = true
+	path = append(path, key)
+
+	children := gc.getValueChildren(obj.value)
+	for _, child := range children {
+		if childW, ok := child.(*GCObjectWrapper); ok {
+			childKey := gc.keyOf(childW.value)
+			if childKey == 0 {
+				continue
+			}
+
+			if inStack[childKey] {
+				// 发现循环
+				cycleStart := -1
+				for i, p := range path {
+					if p == childKey {
+						cycleStart = i
+						break
+					}
+				}
+				if cycleStart >= 0 {
+					cyclePath := make([]uintptr, len(path)-cycleStart)
+					copy(cyclePath, path[cycleStart:])
+
+					// 构建循环描述
+					var objects []string
+					for _, p := range cyclePath {
+						if w, exists := gc.objects[p]; exists {
+							objects = append(objects, gc.getTypeName(w.value))
+						}
+					}
+
+					gc.detectedCycles = append(gc.detectedCycles, CycleInfo{
+						Objects: objects,
+						Path:    cyclePath,
+					})
+				}
+			} else if !visited[childKey] {
+				gc.detectCycleDFS(childW, visited, inStack, path)
+			}
+		}
+	}
+
+	inStack[key] = false
+}
+
+// getTypeName 获取值的类型名称
+func (gc *GC) getTypeName(v bytecode.Value) string {
+	switch v.Type {
+	case bytecode.ValArray:
+		return "array"
+	case bytecode.ValFixedArray:
+		return "fixed_array"
+	case bytecode.ValMap:
+		return "map"
+	case bytecode.ValObject:
+		if obj := v.AsObject(); obj != nil && obj.Class != nil {
+			return obj.Class.Name
+		}
+		return "object"
+	case bytecode.ValClosure:
+		return "closure"
+	case bytecode.ValFunc:
+		if fn := v.Data.(*bytecode.Function); fn != nil {
+			return "function:" + fn.Name
+		}
+		return "function"
+	default:
+		return gc.valueTypeName(v.Type)
+	}
+}
+
+// valueTypeName 获取值类型名称
+func (gc *GC) valueTypeName(t bytecode.ValueType) string {
+	switch t {
+	case bytecode.ValNull:
+		return "null"
+	case bytecode.ValBool:
+		return "bool"
+	case bytecode.ValInt:
+		return "int"
+	case bytecode.ValFloat:
+		return "float"
+	case bytecode.ValString:
+		return "string"
+	case bytecode.ValArray:
+		return "array"
+	case bytecode.ValFixedArray:
+		return "fixed_array"
+	case bytecode.ValMap:
+		return "map"
+	case bytecode.ValObject:
+		return "object"
+	case bytecode.ValFunc:
+		return "function"
+	case bytecode.ValClosure:
+		return "closure"
+	case bytecode.ValIterator:
+		return "iterator"
+	default:
+		return "unknown"
+	}
+}
+
+// PrintLeakReport 打印泄漏报告
+func (gc *GC) PrintLeakReport() {
+	reports := gc.DetectLeaks()
+	if len(reports) == 0 {
+		println("[GC] No memory leaks detected")
+		return
+	}
+
+	println("[GC] Memory Leak Report:")
+	println("========================")
+	for _, report := range reports {
+		println("  Type:", report.TypeName)
+		println("    Count:", report.Count)
+		if len(report.SampleTraces) > 0 {
+			println("    Sample allocation traces:")
+			for _, trace := range report.SampleTraces {
+				if trace != "" {
+					println("      -", trace)
+				}
+			}
+		}
+	}
+}
+
+// PrintCycleReport 打印循环引用报告
+func (gc *GC) PrintCycleReport() {
+	cycles := gc.DetectCycles()
+	if len(cycles) == 0 {
+		println("[GC] No circular references detected")
+		return
+	}
+
+	println("[GC] Circular Reference Report:")
+	println("================================")
+	for i, cycle := range cycles {
+		println("  Cycle", i+1, ":")
+		for j, obj := range cycle.Objects {
+			if j > 0 {
+				print(" -> ")
+			}
+			print(obj)
+		}
+		println(" -> (back to start)")
+	}
+}
+
+// DebugDump 输出完整的 GC 调试信息
+func (gc *GC) DebugDump() {
+	println("\n[GC] Debug Dump")
+	println("================")
+	println("Heap Size:", len(gc.heap))
+	println("Total Allocations:", gc.totalAllocations)
+	println("Total Collections:", gc.totalCollections)
+	println("Total Freed:", gc.totalFreed)
+	println("Next Threshold:", gc.nextThreshold)
+	println("")
+
+	// 按类型统计对象
+	typeCounts := make(map[string]int)
+	for _, obj := range gc.heap {
+		if obj == nil {
+			continue
+		}
+		if w, ok := obj.(*GCObjectWrapper); ok {
+			typeName := gc.getTypeName(w.value)
+			typeCounts[typeName]++
+		}
+	}
+
+	println("Objects by Type:")
+	for typeName, count := range typeCounts {
+		println("  ", typeName, ":", count)
+	}
+
+	// 检测循环引用
+	if gc.cycleDetection {
+		println("")
+		gc.PrintCycleReport()
+	}
+
+	// 检测泄漏
+	if gc.leakDetection {
+		println("")
+		gc.PrintLeakReport()
 	}
 }
 
@@ -285,6 +607,8 @@ type GCStats struct {
 	TotalCollections int64
 	TotalFreed       int64
 	NextThreshold    int
+	LeakReports      []LeakReport // 泄漏报告
+	DetectedCycles   []CycleInfo  // 检测到的循环引用
 }
 
 // ============================================================================

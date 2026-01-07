@@ -255,6 +255,141 @@ func (g *SuggestionGenerator) stackOverflowSuggestions() []string {
 }
 
 // ============================================================================
+// 智能修复建议
+// ============================================================================
+
+// QuickFix 快速修复建议
+type QuickFix struct {
+	Message     string // 修复描述
+	Replacement string // 替换文本
+	Line        int    // 行号
+	Column      int    // 起始列
+	EndColumn   int    // 结束列
+}
+
+// GetQuickFixes 根据错误码和上下文获取快速修复建议
+func GetQuickFixes(code string, context map[string]interface{}) []QuickFix {
+	var fixes []QuickFix
+
+	switch code {
+	case E0100, E0102: // 未定义的变量
+		if varName, ok := context["variable"].(string); ok {
+			// 建议声明变量
+			fixes = append(fixes, QuickFix{
+				Message:     i18n.T("quickfix.declare_variable", varName),
+				Replacement: varName + " := ",
+			})
+		}
+
+	case E0101: // 变量重复声明
+		if varName, ok := context["variable"].(string); ok {
+			// 建议使用赋值
+			fixes = append(fixes, QuickFix{
+				Message:     i18n.T("quickfix.use_assignment", varName),
+				Replacement: varName + " = ",
+			})
+		}
+
+	case E0200, E0202: // 类型不匹配
+		expected, _ := context["expected"].(string)
+		actual, _ := context["actual"].(string)
+
+		// 类型转换建议
+		if expected == "int" && actual == "string" {
+			fixes = append(fixes, QuickFix{
+				Message:     i18n.T("quickfix.convert_to_int"),
+				Replacement: "(int)",
+			})
+		} else if expected == "string" && actual == "int" {
+			fixes = append(fixes, QuickFix{
+				Message:     i18n.T("quickfix.convert_to_string"),
+				Replacement: "(string)",
+			})
+		} else if expected == "float" && actual == "int" {
+			fixes = append(fixes, QuickFix{
+				Message:     i18n.T("quickfix.implicit_conversion"),
+				Replacement: "", // 隐式转换
+			})
+		}
+
+	case E0300: // 未定义的函数
+		if funcName, ok := context["function"].(string); ok {
+			if similar, ok := context["similar"].(string); ok && similar != "" {
+				fixes = append(fixes, QuickFix{
+					Message:     i18n.T("quickfix.replace_with", similar),
+					Replacement: similar,
+				})
+			}
+			// 建议导入
+			fixes = append(fixes, QuickFix{
+				Message:     i18n.T("quickfix.add_import", funcName),
+				Replacement: "",
+			})
+		}
+
+	case E0301: // 参数过少
+		if expected, ok := context["expected"].(int); ok {
+			if actual, ok := context["actual"].(int); ok {
+				missing := expected - actual
+				fixes = append(fixes, QuickFix{
+					Message: i18n.T("quickfix.add_params", missing),
+				})
+			}
+		}
+
+	case E0302: // 参数过多
+		if actual, ok := context["actual"].(int); ok {
+			if expected, ok := context["expected"].(int); ok {
+				extra := actual - expected
+				fixes = append(fixes, QuickFix{
+					Message: i18n.T("quickfix.remove_params", extra),
+				})
+			}
+		}
+
+	case E0401: // 未定义的方法
+		if _, ok := context["method"].(string); ok {
+			if similar, ok := context["similar"].(string); ok && similar != "" {
+				fixes = append(fixes, QuickFix{
+					Message:     i18n.T("quickfix.replace_with", similar),
+					Replacement: similar,
+				})
+			}
+		}
+
+	case E0402: // 未定义的属性
+		if _, ok := context["property"].(string); ok {
+			if similar, ok := context["similar"].(string); ok && similar != "" {
+				fixes = append(fixes, QuickFix{
+					Message:     i18n.T("quickfix.replace_with", similar),
+					Replacement: similar,
+				})
+			}
+		}
+	}
+
+	return fixes
+}
+
+// AnalyzeExpression 分析表达式并提供建议
+func AnalyzeExpression(expr string, context map[string]interface{}) []string {
+	var suggestions []string
+
+	// 检测常见的错误模式
+	if strings.Contains(expr, "==") && strings.Contains(expr, "=") {
+		// 可能是赋值和比较混淆
+		suggestions = append(suggestions, i18n.T("suggestion.check_assignment_vs_comparison"))
+	}
+
+	if strings.Contains(expr, "!=") && strings.Contains(expr, "!") {
+		// 可能是逻辑非和不等于混淆
+		suggestions = append(suggestions, i18n.T("suggestion.check_not_operator"))
+	}
+
+	return suggestions
+}
+
+// ============================================================================
 // 相似名称查找
 // ============================================================================
 
