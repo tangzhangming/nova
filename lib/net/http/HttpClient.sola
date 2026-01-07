@@ -1,0 +1,546 @@
+// Sola 标准库 - HTTP 客户端（标准版）
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.net.tcp.{TcpClient, TlsClient};
+use sola.net.url.Url;
+use sola.net.url.UrlValues;
+use sola.net.ConnectionException;
+
+/**
+ * HTTP 客户端（标准版）
+ * 
+ * 提供完整的 HTTP 客户端功能，严格类型设计，高性能。
+ * 支持 HTTP/HTTPS、超时、重定向等。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.http.HttpClient;
+ * 
+ * $client := new HttpClient();
+ * $client->setTimeout(60000);
+ * 
+ * // GET 请求
+ * $response := $client->get("https://api.example.com/users");
+ * 
+ * // POST JSON
+ * $jsonBody := Json::encode(["name" => "Alice"]);
+ * $response := $client->postJson("https://api.example.com/users", $jsonBody);
+ * ```
+ */
+public class HttpClient {
+    
+    // ========================================================================
+    // 配置属性
+    // ========================================================================
+    
+    /** 总超时时间（毫秒） */
+    private int $timeout = 30000;
+    
+    /** 连接超时时间（毫秒） */
+    private int $connectTimeout = 10000;
+    
+    /** 读取超时时间（毫秒），0 表示使用总超时 */
+    private int $readTimeout = 0;
+    
+    /** 是否跟随重定向 */
+    private bool $followRedirects = true;
+    
+    /** 最大重定向次数 */
+    private int $maxRedirects = 10;
+    
+    /** 是否跳过 TLS 证书验证 */
+    private bool $skipTlsVerify = false;
+    
+    /** User-Agent */
+    private string $userAgent = "Sola-HttpClient/1.0";
+    
+    /** 默认请求头 */
+    private Header $defaultHeaders;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+        $this->defaultHeaders = new Header();
+    }
+    
+    // ========================================================================
+    // 配置方法（链式调用）
+    // ========================================================================
+    
+    /**
+     * 设置总超时时间
+     * 
+     * @param int $ms 超时时间（毫秒）
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setTimeout(int $ms): HttpClient {
+        $this->timeout = $ms;
+        return $this;
+    }
+    
+    /**
+     * 设置连接超时时间
+     * 
+     * @param int $ms 超时时间（毫秒）
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setConnectTimeout(int $ms): HttpClient {
+        $this->connectTimeout = $ms;
+        return $this;
+    }
+    
+    /**
+     * 设置读取超时时间
+     * 
+     * @param int $ms 超时时间（毫秒），0 表示使用总超时
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setReadTimeout(int $ms): HttpClient {
+        $this->readTimeout = $ms;
+        return $this;
+    }
+    
+    /**
+     * 设置是否跟随重定向
+     * 
+     * @param bool $follow 是否跟随
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setFollowRedirects(bool $follow): HttpClient {
+        $this->followRedirects = $follow;
+        return $this;
+    }
+    
+    /**
+     * 设置最大重定向次数
+     * 
+     * @param int $max 最大次数
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setMaxRedirects(int $max): HttpClient {
+        $this->maxRedirects = $max;
+        return $this;
+    }
+    
+    /**
+     * 设置是否跳过 TLS 证书验证
+     * 
+     * @param bool $skip 是否跳过
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setSkipTlsVerify(bool $skip): HttpClient {
+        $this->skipTlsVerify = $skip;
+        return $this;
+    }
+    
+    /**
+     * 设置 User-Agent
+     * 
+     * @param string $ua User-Agent 字符串
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setUserAgent(string $ua): HttpClient {
+        $this->userAgent = $ua;
+        return $this;
+    }
+    
+    /**
+     * 设置默认请求头
+     * 
+     * @param string $key 头部键名
+     * @param string $value 头部值
+     * @return HttpClient 返回自身用于链式调用
+     */
+    public function setDefaultHeader(string $key, string $value): HttpClient {
+        $this->defaultHeaders->set($key, $value);
+        return $this;
+    }
+    
+    // ========================================================================
+    // 核心请求方法
+    // ========================================================================
+    
+    /**
+     * 发送请求
+     * 
+     * @param ClientRequest $request 请求对象
+     * @return ClientResponse 响应对象
+     * @throws HttpException 如果请求失败
+     */
+    public function send(ClientRequest $request): ClientResponse {
+        // 应用默认头部
+        $defaultKeys := $this->defaultHeaders->keys();
+        for ($i := 0; $i < len($defaultKeys); $i++) {
+            $key := $defaultKeys[$i];
+            if (!$request->header->has($key)) {
+                $request->header->set($key, $this->defaultHeaders->get($key));
+            }
+        }
+        
+        // 设置 User-Agent（如果未设置）
+        if (!$request->header->has("User-Agent")) {
+            $request->header->set("User-Agent", $this->userAgent);
+        }
+        
+        // 发送请求并处理重定向
+        return $this->doRequest($request, 0);
+    }
+    
+    /**
+     * 执行请求（内部方法，处理重定向）
+     * 
+     * @param ClientRequest $request 请求对象
+     * @param int $redirectCount 当前重定向次数
+     * @return ClientResponse 响应对象
+     */
+    private function doRequest(ClientRequest $request, int $redirectCount): ClientResponse {
+        // 检查重定向次数
+        if ($redirectCount > $this->maxRedirects) {
+            throw new HttpException(HttpStatus::TOO_MANY_REQUESTS, "Too many redirects");
+        }
+        
+        // 解析 URL
+        $url := Url::parse($request->url);
+        $scheme := Str::toLowerCase($url->getScheme());
+        $host := $url->getHostname();
+        $port := $url->getPort();
+        
+        // 确定端口
+        if ($port < 0) {
+            if ($scheme == "https") {
+                $port = 443;
+            } else {
+                $port = 80;
+            }
+        }
+        
+        // 确定是否使用 TLS
+        $useTls := $scheme == "https";
+        
+        // 建立连接
+        $conn := null;
+        if ($useTls) {
+            $tlsClient := new TlsClient();
+            $tlsClient->setConnectTimeout($this->connectTimeout);
+            if ($this->skipTlsVerify) {
+                $tlsClient->setSkipVerify(true);
+            }
+            if ($this->readTimeout > 0) {
+                $tlsClient->setReadTimeout($this->readTimeout);
+            } else if ($this->timeout > 0) {
+                $tlsClient->setReadTimeout($this->timeout);
+            }
+            
+            if (!$tlsClient->connect($host, $port)) {
+                throw new ConnectionException("Failed to connect to " + $host + ":" + $port);
+            }
+            $conn = $tlsClient;
+        } else {
+            $tcpClient := new TcpClient();
+            $tcpClient->setConnectTimeout($this->connectTimeout);
+            if ($this->readTimeout > 0) {
+                $tcpClient->setReadTimeout($this->readTimeout);
+            } else if ($this->timeout > 0) {
+                $tcpClient->setReadTimeout($this->timeout);
+            }
+            
+            if (!$tcpClient->connect($host, $port)) {
+                throw new ConnectionException("Failed to connect to " + $host + ":" + $port);
+            }
+            $conn = $tcpClient;
+        }
+        
+        // 发送请求
+        $requestStr := $request->build();
+        $conn->write($requestStr);
+        
+        // 读取响应
+        $response := $this->readResponse($conn);
+        
+        // 关闭连接
+        $conn->close();
+        
+        // 处理重定向
+        if ($this->followRedirects && $response->isRedirect()) {
+            $location := $response->headerValue("Location");
+            if ($location != "") {
+                // 构建新的请求
+                $redirectUrl := "";
+                if (Str::startsWith($location, "http://") || Str::startsWith($location, "https://")) {
+                    $redirectUrl = $location;
+                } else {
+                    // 相对路径，需要解析
+                    $baseUrl := Url::parse($request->url);
+                    $redirectUrlObj := $baseUrl->resolve($location);
+                    $redirectUrl = $redirectUrlObj->toString();
+                }
+                
+                // 对于 GET/HEAD，重定向时不应该带 body
+                if ($request->method == "GET" || $request->method == "HEAD") {
+                    $redirectRequest := new ClientRequest($request->method, $redirectUrl);
+                    $redirectRequest->header = $request->header->clone();
+                } else {
+                    // 其他方法，保持原请求
+                    $redirectRequest := $request->copy();
+                    $redirectRequest->setUrl($redirectUrl);
+                }
+                
+                return $this->doRequest($redirectRequest, $redirectCount + 1);
+            }
+        }
+        
+        return $response;
+    }
+    
+    /**
+     * 读取 HTTP 响应
+     * 
+     * @param TcpClient|TlsClient $conn 连接对象
+     * @return ClientResponse 响应对象
+     */
+    private function readResponse(TcpClient|TlsClient $conn): ClientResponse {
+        // 读取状态行和头部
+        $headerStr := "";
+        $bodyStart := false;
+        
+        // 读取直到遇到空行
+        while (!$bodyStart) {
+            $line := $conn->readLine();
+            if ($line == "") {
+                break;
+            }
+            
+            $headerStr = $headerStr + $line;
+            
+            // 检查是否到达头部结束（空行）
+            if (Str::endsWith($headerStr, "\r\n\r\n") || Str::endsWith($headerStr, "\n\n")) {
+                $bodyStart = true;
+            }
+        }
+        
+        // 解析响应
+        $response := ClientResponse::parse($headerStr, Bytes::alloc(0));
+        
+        // 读取 body
+        $contentLength := $response->header()->getContentLength();
+        if ($contentLength > 0) {
+            $body := $conn->readExact($contentLength);
+            $response->setBody($body);
+        } else {
+            // 检查 Transfer-Encoding: chunked
+            $transferEncoding := Str::toLowerCase($response->headerValue("Transfer-Encoding"));
+            if (Str::contains($transferEncoding, "chunked")) {
+                $body := $this->readChunkedBody($conn);
+                $response->setBody($body);
+            } else {
+                // 没有 Content-Length，尝试读取所有可用数据
+                $body := Bytes::alloc(0);
+                while ($conn->available() > 0) {
+                    $chunk := $conn->readBytes(4096);
+                    if (len($chunk) == 0) {
+                        break;
+                    }
+                    $body = Bytes::concat($body, $chunk);
+                }
+                $response->setBody($body);
+            }
+        }
+        
+        return $response;
+    }
+    
+    /**
+     * 读取分块传输编码的响应体
+     * 
+     * @param TcpClient|TlsClient $conn 连接对象
+     * @return byte[] 响应体字节数组
+     */
+    private function readChunkedBody(TcpClient|TlsClient $conn): byte[] {
+        $body := Bytes::alloc(0);
+        
+        while (true) {
+            // 读取块大小行
+            $sizeLine := Str::trim($conn->readLine());
+            if ($sizeLine == "") {
+                break;
+            }
+            
+            // 解析块大小（十六进制）
+            $chunkSize := 0;
+            $hexEnd := Str::indexOf($sizeLine, ";");
+            if ($hexEnd >= 0) {
+                $hexStr := Str::substring($sizeLine, 0, $hexEnd);
+            } else {
+                $hexStr := $sizeLine;
+            }
+            
+            // 简单的十六进制转十进制（只处理小写）
+            $hexStr = Str::toLowerCase(Str::trim($hexStr));
+            $chunkSize = HttpClient::hexToInt($hexStr);
+            
+            if ($chunkSize == 0) {
+                // 最后一个块
+                $conn->readLine(); // 读取结束的空行
+                break;
+            }
+            
+            // 读取块数据
+            $chunk := $conn->readExact($chunkSize);
+            $body = Bytes::concat($body, $chunk);
+            
+            // 读取块结束的 CRLF
+            $conn->readLine();
+        }
+        
+        return $body;
+    }
+    
+    /**
+     * 十六进制字符串转整数（简化实现）
+     * 
+     * @param string $hex 十六进制字符串
+     * @return int 整数值
+     */
+    private static function hexToInt(string $hex): int {
+        $result := 0;
+        $len := Str::length($hex);
+        
+        for ($i := 0; $i < $len; $i++) {
+            $char := Str::charAt($hex, $i);
+            $digit := 0;
+            
+            if ($char >= "0" && $char <= "9") {
+                $digit = Str::toInt($char);
+            } else if ($char >= "a" && $char <= "f") {
+                if ($char == "a") { $digit = 10; }
+                else if ($char == "b") { $digit = 11; }
+                else if ($char == "c") { $digit = 12; }
+                else if ($char == "d") { $digit = 13; }
+                else if ($char == "e") { $digit = 14; }
+                else if ($char == "f") { $digit = 15; }
+            }
+            
+            $result = $result * 16 + $digit;
+        }
+        
+        return $result;
+    }
+    
+    // ========================================================================
+    // 便捷方法
+    // ========================================================================
+    
+    /**
+     * GET 请求
+     * 
+     * @param string $url 请求 URL
+     * @return ClientResponse 响应对象
+     */
+    public function get(string $url): ClientResponse {
+        $request := new ClientRequest("GET", $url);
+        return $this->send($request);
+    }
+    
+    /**
+     * POST 请求
+     * 
+     * @param string $url 请求 URL
+     * @param string $body 请求体
+     * @return ClientResponse 响应对象
+     */
+    public function post(string $url, string $body): ClientResponse {
+        $request := new ClientRequest("POST", $url);
+        $request->setBody($body);
+        return $this->send($request);
+    }
+    
+    /**
+     * POST JSON 请求
+     * 
+     * @param string $url 请求 URL
+     * @param string $jsonBody 已序列化的 JSON 字符串
+     * @return ClientResponse 响应对象
+     */
+    public function postJson(string $url, string $jsonBody): ClientResponse {
+        $request := new ClientRequest("POST", $url);
+        $request->setJsonBody($jsonBody);
+        return $this->send($request);
+    }
+    
+    /**
+     * POST 表单请求
+     * 
+     * @param string $url 请求 URL
+     * @param UrlValues $form 表单数据
+     * @return ClientResponse 响应对象
+     */
+    public function postForm(string $url, UrlValues $form): ClientResponse {
+        $request := new ClientRequest("POST", $url);
+        $request->setFormBody($form);
+        return $this->send($request);
+    }
+    
+    /**
+     * PUT 请求
+     * 
+     * @param string $url 请求 URL
+     * @param string $body 请求体
+     * @return ClientResponse 响应对象
+     */
+    public function put(string $url, string $body): ClientResponse {
+        $request := new ClientRequest("PUT", $url);
+        $request->setBody($body);
+        return $this->send($request);
+    }
+    
+    /**
+     * PUT JSON 请求
+     * 
+     * @param string $url 请求 URL
+     * @param string $jsonBody 已序列化的 JSON 字符串
+     * @return ClientResponse 响应对象
+     */
+    public function putJson(string $url, string $jsonBody): ClientResponse {
+        $request := new ClientRequest("PUT", $url);
+        $request->setJsonBody($jsonBody);
+        return $this->send($request);
+    }
+    
+    /**
+     * PATCH 请求
+     * 
+     * @param string $url 请求 URL
+     * @param string $body 请求体
+     * @return ClientResponse 响应对象
+     */
+    public function patch(string $url, string $body): ClientResponse {
+        $request := new ClientRequest("PATCH", $url);
+        $request->setBody($body);
+        return $this->send($request);
+    }
+    
+    /**
+     * DELETE 请求
+     * 
+     * @param string $url 请求 URL
+     * @return ClientResponse 响应对象
+     */
+    public function delete(string $url): ClientResponse {
+        $request := new ClientRequest("DELETE", $url);
+        return $this->send($request);
+    }
+    
+    /**
+     * HEAD 请求
+     * 
+     * @param string $url 请求 URL
+     * @return ClientResponse 响应对象
+     */
+    public function head(string $url): ClientResponse {
+        $request := new ClientRequest("HEAD", $url);
+        return $this->send($request);
+    }
+}
+

@@ -1,0 +1,555 @@
+// Sola 标准库 - HTTP 客户端（简化版）
+namespace sola.net.http
+
+use sola.lang.Str;
+use sola.net.url.{Url, UrlValues};
+use sola.json.Json;
+use sola.util.Base64;
+
+/**
+ * HTTP 客户端（简化版）
+ * 
+ * 提供简洁易用的 HTTP 客户端 API，使用万能数组，自动处理序列化。
+ * 支持静态方法快速请求和实例链式配置。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.http.SimpleHttp;
+ * 
+ * // 静态方法 - 快速请求
+ * $response := SimpleHttp::get("https://api.example.com/users");
+ * $data := $response->json();
+ * 
+ * // 静态方法 - POST JSON
+ * $response := SimpleHttp::postJson("https://api.example.com/users", [
+ *     "name" => "Bob"
+ * ]);
+ * 
+ * // 实例配置 - 链式调用
+ * $api := SimpleHttp::create()
+ *     ->baseUrl("https://api.example.com")
+ *     ->withToken("token")
+ *     ->asJson();
+ * 
+ * $users := $api->doGet("/users");
+ * ```
+ */
+public class SimpleHttp {
+    
+    /** 底层 HttpClient 实例 */
+    private HttpClient $client;
+    
+    /** 基础 URL */
+    private string $baseUrl = "";
+    
+    /** 临时请求头 */
+    private Header $headers;
+    
+    /** 请求体格式 */
+    private string $bodyFormat = "raw";  // raw, json, form
+    
+    /** 查询参数 */
+    private UrlValues $query;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+        $this->client = new HttpClient();
+        $this->headers = new Header();
+        $this->query = new UrlValues();
+    }
+    
+    // ========================================================================
+    // 静态工厂方法（快速请求）
+    // ========================================================================
+    
+    /**
+     * 快速 GET 请求
+     * 
+     * @param string $url 请求 URL
+     * @return ClientResponse 响应对象
+     */
+    public static function get(string $url): ClientResponse {
+        $http := new SimpleHttp();
+        return $http->doGet($url);
+    }
+    
+    /**
+     * 快速 POST 请求
+     * 
+     * @param string $url 请求 URL
+     * @param mixed $data 请求数据（可选）
+     * @return ClientResponse 响应对象
+     */
+    public static function post(string $url, mixed $data = null): ClientResponse {
+        $http := new SimpleHttp();
+        return $http->doPost($url, $data);
+    }
+    
+    /**
+     * 快速 POST JSON 请求
+     * 
+     * @param string $url 请求 URL
+     * @param mixed $data 请求数据（自动序列化为 JSON）
+     * @return ClientResponse 响应对象
+     */
+    public static function postJson(string $url, mixed $data): ClientResponse {
+        $http := new SimpleHttp();
+        $http->asJson();
+        return $http->doPost($url, $data);
+    }
+    
+    /**
+     * 快速 POST 表单请求
+     * 
+     * @param string $url 请求 URL
+     * @param mixed $data 表单数据（万能数组）
+     * @return ClientResponse 响应对象
+     */
+    public static function postForm(string $url, mixed $data): ClientResponse {
+        $http := new SimpleHttp();
+        $http->asForm();
+        return $http->doPost($url, $data);
+    }
+    
+    /**
+     * 快速 PUT 请求
+     * 
+     * @param string $url 请求 URL
+     * @param mixed $data 请求数据（可选）
+     * @return ClientResponse 响应对象
+     */
+    public static function put(string $url, mixed $data = null): ClientResponse {
+        $http := new SimpleHttp();
+        return $http->doPut($url, $data);
+    }
+    
+    /**
+     * 快速 PATCH 请求
+     * 
+     * @param string $url 请求 URL
+     * @param mixed $data 请求数据（可选）
+     * @return ClientResponse 响应对象
+     */
+    public static function patch(string $url, mixed $data = null): ClientResponse {
+        $http := new SimpleHttp();
+        return $http->doPatch($url, $data);
+    }
+    
+    /**
+     * 快速 DELETE 请求
+     * 
+     * @param string $url 请求 URL
+     * @return ClientResponse 响应对象
+     */
+    public static function delete(string $url): ClientResponse {
+        $http := new SimpleHttp();
+        return $http->doDelete($url);
+    }
+    
+    /**
+     * 静态工厂 - 创建实例
+     * 
+     * @return SimpleHttp 新的实例
+     */
+    public static function create(): SimpleHttp {
+        return new SimpleHttp();
+    }
+    
+    // ========================================================================
+    // 实例配置方法（链式调用）
+    // ========================================================================
+    
+    /**
+     * 设置基础 URL
+     * 
+     * @param string $url 基础 URL
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function baseUrl(string $url): SimpleHttp {
+        $this->baseUrl = $url;
+        return $this;
+    }
+    
+    /**
+     * 添加请求头
+     * 
+     * @param string $key 头部键名
+     * @param string $value 头部值
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function withHeader(string $key, string $value): SimpleHttp {
+        $this->headers->set($key, $value);
+        return $this;
+    }
+    
+    /**
+     * 批量添加请求头（万能数组）
+     * 
+     * @param mixed $headers 头部映射（万能数组）
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function withHeaders(mixed $headers): SimpleHttp {
+        if ($headers == null) {
+            return $this;
+        }
+        
+        $keys := $headers.keys();
+        for ($i := 0; $i < len($keys); $i++) {
+            $key := $keys[$i];
+            $value := $headers[$key];
+            if ($value != null) {
+                $this->headers->set($key, "" + $value);
+            }
+        }
+        
+        return $this;
+    }
+    
+    /**
+     * 设置认证 Token
+     * 
+     * @param string $token Token 值
+     * @param string $type Token 类型，默认 "Bearer"
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function withToken(string $token, string $type = "Bearer"): SimpleHttp {
+        $this->headers->set("Authorization", $type + " " + $token);
+        return $this;
+    }
+    
+    /**
+     * 设置 Basic 认证
+     * 
+     * @param string $user 用户名
+     * @param string $pass 密码
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function withBasicAuth(string $user, string $pass): SimpleHttp {
+        // Base64 编码（简化实现，实际应该使用 Base64 工具类）
+        $credentials := $user + ":" + $pass;
+        $encoded := SimpleHttp::base64Encode($credentials);
+        $this->headers->set("Authorization", "Basic " + $encoded);
+        return $this;
+    }
+    
+    /**
+     * 设置超时时间
+     * 
+     * @param int $seconds 超时时间（秒）
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function timeout(int $seconds): SimpleHttp {
+        $this->client->setTimeout($seconds * 1000);
+        return $this;
+    }
+    
+    /**
+     * 添加查询参数（万能数组）
+     * 
+     * @param mixed $params 查询参数映射（万能数组）
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function withQuery(mixed $params): SimpleHttp {
+        if ($params == null) {
+            return $this;
+        }
+        
+        $keys := $params.keys();
+        for ($i := 0; $i < len($keys); $i++) {
+            $key := $keys[$i];
+            $value := $params[$key];
+            if ($value != null) {
+                $this->query->set($key, "" + $value);
+            }
+        }
+        
+        return $this;
+    }
+    
+    /**
+     * 添加单个查询参数
+     * 
+     * @param string $key 参数键名
+     * @param string $value 参数值
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function withQueryParam(string $key, string $value): SimpleHttp {
+        $this->query->set($key, $value);
+        return $this;
+    }
+    
+    /**
+     * 设置请求体格式为 JSON
+     * 
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function asJson(): SimpleHttp {
+        $this->bodyFormat = "json";
+        $this->headers->set("Content-Type", "application/json");
+        $this->headers->set("Accept", "application/json");
+        return $this;
+    }
+    
+    /**
+     * 设置请求体格式为表单
+     * 
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function asForm(): SimpleHttp {
+        $this->bodyFormat = "form";
+        $this->headers->set("Content-Type", "application/x-www-form-urlencoded");
+        return $this;
+    }
+    
+    /**
+     * 设置 Accept 头部
+     * 
+     * @param string $contentType 内容类型
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function accept(string $contentType): SimpleHttp {
+        $this->headers->set("Accept", $contentType);
+        return $this;
+    }
+    
+    /**
+     * 设置 Content-Type 头部
+     * 
+     * @param string $type 内容类型
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function contentType(string $type): SimpleHttp {
+        $this->headers->set("Content-Type", $type);
+        return $this;
+    }
+    
+    /**
+     * 跳过 TLS 证书验证
+     * 
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function insecure(): SimpleHttp {
+        $this->client->setSkipTlsVerify(true);
+        return $this;
+    }
+    
+    // ========================================================================
+    // 实例请求方法
+    // ========================================================================
+    
+    /**
+     * GET 请求
+     * 
+     * @param string $url 请求 URL（相对或绝对）
+     * @return ClientResponse 响应对象
+     */
+    public function doGet(string $url): ClientResponse {
+        $request := $this->buildRequest("GET", $url, null);
+        return $this->client->send($request);
+    }
+    
+    /**
+     * POST 请求
+     * 
+     * @param string $url 请求 URL（相对或绝对）
+     * @param mixed $data 请求数据（可选）
+     * @return ClientResponse 响应对象
+     */
+    public function doPost(string $url, mixed $data = null): ClientResponse {
+        $request := $this->buildRequest("POST", $url, $data);
+        return $this->client->send($request);
+    }
+    
+    /**
+     * PUT 请求
+     * 
+     * @param string $url 请求 URL（相对或绝对）
+     * @param mixed $data 请求数据（可选）
+     * @return ClientResponse 响应对象
+     */
+    public function doPut(string $url, mixed $data = null): ClientResponse {
+        $request := $this->buildRequest("PUT", $url, $data);
+        return $this->client->send($request);
+    }
+    
+    /**
+     * PATCH 请求
+     * 
+     * @param string $url 请求 URL（相对或绝对）
+     * @param mixed $data 请求数据（可选）
+     * @return ClientResponse 响应对象
+     */
+    public function doPatch(string $url, mixed $data = null): ClientResponse {
+        $request := $this->buildRequest("PATCH", $url, $data);
+        return $this->client->send($request);
+    }
+    
+    /**
+     * DELETE 请求
+     * 
+     * @param string $url 请求 URL（相对或绝对）
+     * @return ClientResponse 响应对象
+     */
+    public function doDelete(string $url): ClientResponse {
+        $request := $this->buildRequest("DELETE", $url, null);
+        return $this->client->send($request);
+    }
+    
+    /**
+     * HEAD 请求
+     * 
+     * @param string $url 请求 URL（相对或绝对）
+     * @return ClientResponse 响应对象
+     */
+    public function doHead(string $url): ClientResponse {
+        $request := $this->buildRequest("HEAD", $url, null);
+        return $this->client->send($request);
+    }
+    
+    /**
+     * 重置临时配置（保留 baseUrl 和 headers）
+     * 
+     * @return SimpleHttp 返回自身用于链式调用
+     */
+    public function reset(): SimpleHttp {
+        $this->query = new UrlValues();
+        $this->bodyFormat = "raw";
+        return $this;
+    }
+    
+    // ========================================================================
+    // 内部方法
+    // ========================================================================
+    
+    /**
+     * 构建请求对象
+     * 
+     * @param string $method HTTP 方法
+     * @param string $url 请求 URL
+     * @param mixed $data 请求数据
+     * @return ClientRequest 请求对象
+     */
+    private function buildRequest(string $method, string $url, mixed $data): ClientRequest {
+        // 处理 URL
+        $fullUrl := $this->resolveUrl($url);
+        
+        // 添加查询参数
+        if (!$this->query->isEmpty()) {
+            $urlObj := Url::parse($fullUrl);
+            $existingQuery := $urlObj->getQuery();
+            
+            // 合并查询参数
+            $existingKeys := $existingQuery->keys();
+            for ($i := 0; $i < len($existingKeys); $i++) {
+                $key := $existingKeys[$i];
+                $values := $existingQuery->getAll($key);
+                for ($j := 0; $j < len($values); $j++) {
+                    $this->query->add($key, $values[$j]);
+                }
+            }
+            
+            $urlObj->setQuery($this->query);
+            $fullUrl = $urlObj->toString();
+        }
+        
+        // 创建请求
+        $request := new ClientRequest($method, $fullUrl);
+        
+        // 复制头部
+        $headerKeys := $this->headers->keys();
+        for ($i := 0; $i < len($headerKeys); $i++) {
+            $key := $headerKeys[$i];
+            $values := $this->headers->getAll($key);
+            for ($j := 0; $j < len($values); $j++) {
+                $request->header->add($key, $values[$j]);
+            }
+        }
+        
+        // 处理请求体
+        if ($data != null) {
+            if ($this->bodyFormat == "json") {
+                $jsonStr := Json::encode($data);
+                $request->setJsonBody($jsonStr);
+            } else if ($this->bodyFormat == "form") {
+                $form := SimpleHttp::arrayToUrlValues($data);
+                $request->setFormBody($form);
+            } else {
+                // raw 格式
+                if ($data is string) {
+                    $request->setBody($data);
+                } else {
+                    // 尝试转换为字符串
+                    $request->setBody("" + $data);
+                }
+            }
+        }
+        
+        return $request;
+    }
+    
+    /**
+     * 解析 URL（处理相对路径和 baseUrl）
+     * 
+     * @param string $url 请求 URL
+     * @return string 完整 URL
+     */
+    private function resolveUrl(string $url): string {
+        // 如果是绝对 URL，直接返回
+        if (Str::startsWith($url, "http://") || Str::startsWith($url, "https://")) {
+            return $url;
+        }
+        
+        // 如果有 baseUrl，拼接
+        if ($this->baseUrl != "") {
+            $baseUrlObj := Url::parse($this->baseUrl);
+            if (Str::startsWith($url, "/")) {
+                // 绝对路径
+                $baseUrlObj->setPath($url);
+            } else {
+                // 相对路径
+                $baseUrlObj->join($url);
+            }
+            return $baseUrlObj->toString();
+        }
+        
+        return $url;
+    }
+    
+    /**
+     * 将万能数组转换为 UrlValues
+     * 
+     * @param mixed $data 万能数组
+     * @return UrlValues UrlValues 对象
+     */
+    private static function arrayToUrlValues(mixed $data): UrlValues {
+        $form := new UrlValues();
+        
+        if ($data == null) {
+            return $form;
+        }
+        
+        $keys := $data.keys();
+        for ($i := 0; $i < len($keys); $i++) {
+            $key := $keys[$i];
+            $value := $data[$key];
+            if ($value != null) {
+                $form->set($key, "" + $value);
+            }
+        }
+        
+        return $form;
+    }
+    
+    /**
+     * Base64 编码
+     * 
+     * @param string $str 要编码的字符串
+     * @return string Base64 编码后的字符串
+     */
+    private static function base64Encode(string $str): string {
+        return Base64::encodeToString($str);
+    }
+}
+

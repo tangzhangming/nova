@@ -1,0 +1,209 @@
+// Sola 标准库 - HTTP 客户端请求
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.net.url.UrlValues;
+
+/**
+ * HTTP 客户端请求对象
+ * 
+ * 用于构建和表示 HTTP 请求，严格类型设计，高性能。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.http.ClientRequest;
+ * 
+ * // 创建请求
+ * $request := new ClientRequest("POST", "https://api.example.com/users");
+ * $request->setHeader("Content-Type", "application/json");
+ * $request->setBody($jsonString);
+ * 
+ * // 或使用链式调用
+ * $request := new ClientRequest("GET", "https://api.example.com/users")
+ *     ->setHeader("Authorization", "Bearer token");
+ * ```
+ */
+public class ClientRequest {
+    
+    /** HTTP 方法 */
+    public string $method = "GET";
+    
+    /** 请求 URL */
+    public string $url = "";
+    
+    /** 请求头 */
+    public Header $header;
+    
+    /** 请求体（字节数组） */
+    public byte[] $body;
+    
+    /**
+     * 构造函数
+     * 
+     * @param string $method HTTP 方法，默认 "GET"
+     * @param string $url 请求 URL
+     */
+    public function __construct(string $method = "GET", string $url = "") {
+        $this->method = $method;
+        $this->url = $url;
+        $this->header = new Header();
+        $this->body = Bytes::alloc(0);
+    }
+    
+    // ========================================================================
+    // 设置方法（链式调用）
+    // ========================================================================
+    
+    /**
+     * 设置 HTTP 方法
+     * 
+     * @param string $method HTTP 方法
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setMethod(string $method): ClientRequest {
+        $this->method = $method;
+        return $this;
+    }
+    
+    /**
+     * 设置请求 URL
+     * 
+     * @param string $url 请求 URL
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setUrl(string $url): ClientRequest {
+        $this->url = $url;
+        return $this;
+    }
+    
+    /**
+     * 设置请求头（覆盖同名头部）
+     * 
+     * @param string $key 头部键名
+     * @param string $value 头部值
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setHeader(string $key, string $value): ClientRequest {
+        $this->header->set($key, $value);
+        return $this;
+    }
+    
+    /**
+     * 添加请求头（不覆盖，支持多值）
+     * 
+     * @param string $key 头部键名
+     * @param string $value 头部值
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function addHeader(string $key, string $value): ClientRequest {
+        $this->header->add($key, $value);
+        return $this;
+    }
+    
+    /**
+     * 设置请求体（字符串）
+     * 
+     * @param string $body 请求体字符串
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setBody(string $body): ClientRequest {
+        $this->body = Bytes::fromString($body);
+        return $this;
+    }
+    
+    /**
+     * 设置请求体（字节数组）
+     * 
+     * @param byte[] $body 请求体字节数组
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setBodyBytes(byte[] $body): ClientRequest {
+        $this->body = $body;
+        return $this;
+    }
+    
+    /**
+     * 设置 JSON 请求体
+     * 
+     * 注意：需要调用方自己序列化 JSON，这里只设置 Content-Type
+     * 
+     * @param string $jsonBody 已序列化的 JSON 字符串
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setJsonBody(string $jsonBody): ClientRequest {
+        $this->setBody($jsonBody);
+        $this->setHeader("Content-Type", "application/json");
+        return $this;
+    }
+    
+    /**
+     * 设置表单请求体
+     * 
+     * @param UrlValues $form 表单数据
+     * @return ClientRequest 返回自身用于链式调用
+     */
+    public function setFormBody(UrlValues $form): ClientRequest {
+        $formStr := $form->encode();
+        $this->setBody($formStr);
+        $this->setHeader("Content-Type", "application/x-www-form-urlencoded");
+        return $this;
+    }
+    
+    // ========================================================================
+    // 构建 HTTP 请求字符串
+    // ========================================================================
+    
+    /**
+     * 构建 HTTP 请求原始字符串
+     * 
+     * @return string HTTP 请求原始字符串
+     */
+    public function build(): string {
+        $urlObj := sola.net.url.Url::parse($this->url);
+        
+        // 构建请求行
+        $requestLine := $this->method + " " + $urlObj->toRequestURI() + " HTTP/1.1\r\n";
+        
+        // 构建头部
+        $headerStr := "";
+        
+        // 设置 Host 头（如果未设置）
+        if (!$this->header->has("Host")) {
+            $host := $urlObj->getHost();
+            if ($host != "") {
+                $this->header->set("Host", $host);
+            }
+        }
+        
+        // 设置 Content-Length（如果有 body）
+        if (len($this->body) > 0) {
+            $this->header->set("Content-Length", "" + len($this->body));
+        }
+        
+        // 合并默认头部
+        $headerStr = $this->header->toString();
+        
+        // 构建完整请求
+        $request := $requestLine + $headerStr + "\r\n";
+        
+        // 添加 body（如果有）
+        if (len($this->body) > 0) {
+            $request = $request + Bytes::toString($this->body);
+        }
+        
+        return $request;
+    }
+    
+    /**
+     * 复制请求
+     * 
+     * @return ClientRequest 新的请求对象
+     */
+    public function copy(): ClientRequest {
+        $copy := new ClientRequest($this->method, $this->url);
+        $copy->header = $this->header->clone();
+        $copy->body = $this->body;
+        return $copy;
+    }
+}
+

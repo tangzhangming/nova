@@ -1,0 +1,379 @@
+// Sola 标准库 - HTTP 客户端响应
+namespace sola.net.http
+
+use sola.lang.{Str, Bytes};
+use sola.json.Json;
+
+/**
+ * HTTP 客户端响应对象
+ * 
+ * 表示 HTTP 响应，提供对状态码、头部、Cookie 和响应体的访问。
+ * 
+ * 使用示例：
+ * ```sola
+ * use sola.net.http.ClientResponse;
+ * 
+ * $response := $client->get("https://api.example.com/users");
+ * 
+ * // 检查状态
+ * if ($response->isOk()) {
+ *     $data := $response->json();
+ * }
+ * 
+ * // 获取响应体
+ * $text := $response->text();
+ * $body := $response->body();
+ * ```
+ */
+public class ClientResponse {
+    
+    /** HTTP 状态码 */
+    private int $statusCode;
+    
+    /** 状态文本 */
+    private string $statusText;
+    
+    /** 协议版本 */
+    private string $protocol;
+    
+    /** 响应头 */
+    private Header $header;
+    
+    /** 响应体（字节数组） */
+    private byte[] $body;
+    
+    /** 响应体字符串缓存 */
+    private string $bodyText;
+    
+    /**
+     * 构造函数
+     */
+    public function __construct() {
+        $this->statusCode = 0;
+        $this->statusText = "";
+        $this->protocol = "HTTP/1.1";
+        $this->header = new Header();
+        $this->body = Bytes::alloc(0);
+        $this->bodyText = "";
+    }
+    
+    // ========================================================================
+    // 状态码访问
+    // ========================================================================
+    
+    /**
+     * 获取 HTTP 状态码
+     * 
+     * @return int 状态码
+     */
+    public function getStatusCode(): int {
+        return $this->statusCode;
+    }
+    
+    /**
+     * 获取状态文本
+     * 
+     * @return string 状态文本
+     */
+    public function getStatusText(): string {
+        return $this->statusText;
+    }
+    
+    /**
+     * 获取协议版本
+     * 
+     * @return string 协议版本
+     */
+    public function getProtocol(): string {
+        return $this->protocol;
+    }
+    
+    // ========================================================================
+    // 状态判断
+    // ========================================================================
+    
+    /**
+     * 是否为 200 OK
+     * 
+     * @return bool 是否为 200
+     */
+    public function isOk(): bool {
+        return $this->statusCode == HttpStatus::OK;
+    }
+    
+    /**
+     * 是否为成功状态码 (2xx)
+     * 
+     * @return bool 是否为成功状态码
+     */
+    public function isSuccess(): bool {
+        return HttpStatus::isSuccess($this->statusCode);
+    }
+    
+    /**
+     * 是否为重定向状态码 (3xx)
+     * 
+     * @return bool 是否为重定向状态码
+     */
+    public function isRedirect(): bool {
+        return HttpStatus::isRedirection($this->statusCode);
+    }
+    
+    /**
+     * 是否为客户端错误状态码 (4xx)
+     * 
+     * @return bool 是否为客户端错误
+     */
+    public function isClientError(): bool {
+        return HttpStatus::isClientError($this->statusCode);
+    }
+    
+    /**
+     * 是否为服务器错误状态码 (5xx)
+     * 
+     * @return bool 是否为服务器错误
+     */
+    public function isServerError(): bool {
+        return HttpStatus::isServerError($this->statusCode);
+    }
+    
+    /**
+     * 是否为错误状态码 (4xx 或 5xx)
+     * 
+     * @return bool 是否为错误状态码
+     */
+    public function isFailed(): bool {
+        return HttpStatus::isError($this->statusCode);
+    }
+    
+    // ========================================================================
+    // Body 访问
+    // ========================================================================
+    
+    /**
+     * 获取响应体（字节数组）
+     * 
+     * @return byte[] 响应体字节数组
+     */
+    public function body(): byte[] {
+        return $this->body;
+    }
+    
+    /**
+     * 获取响应体（字符串）
+     * 
+     * @return string 响应体字符串
+     */
+    public function text(): string {
+        if ($this->bodyText == "" && len($this->body) > 0) {
+            $this->bodyText = Bytes::toString($this->body);
+        }
+        return $this->bodyText;
+    }
+    
+    /**
+     * 解析响应体为 JSON
+     * 
+     * @return mixed 解析后的 JSON 数据
+     * @throws JsonException 如果 JSON 格式无效
+     */
+    public function json(): mixed {
+        $text := $this->text();
+        if ($text == "") {
+            return null;
+        }
+        return Json::decode($text);
+    }
+    
+    // ========================================================================
+    // Header 访问
+    // ========================================================================
+    
+    /**
+     * 获取响应头对象
+     * 
+     * @return Header 响应头对象
+     */
+    public function header(): Header {
+        return $this->header;
+    }
+    
+    /**
+     * 获取指定头部值
+     * 
+     * @param string $key 头部键名
+     * @return string 头部值，不存在返回空字符串
+     */
+    public function headerValue(string $key): string {
+        return $this->header->get($key);
+    }
+    
+    // ========================================================================
+    // Cookie 访问
+    // ========================================================================
+    
+    /**
+     * 获取所有 Cookie
+     * 
+     * @return Cookie[] Cookie 数组
+     */
+    public function cookies(): Cookie[] {
+        $setCookieHeaders := $this->header->getAll("Set-Cookie");
+        $cookies := [];
+        $count := 0;
+        
+        for ($i := 0; $i < len($setCookieHeaders); $i++) {
+            $cookie := Cookie::parseSetCookie($setCookieHeaders[$i]);
+            if ($cookie != null && $cookie->name != "") {
+                $cookies[$count] = $cookie;
+                $count++;
+            }
+        }
+        
+        return $cookies;
+    }
+    
+    /**
+     * 获取指定名称的 Cookie
+     * 
+     * @param string $name Cookie 名称
+     * @return Cookie|null Cookie 对象，不存在返回 null
+     */
+    public function cookie(string $name): Cookie|null {
+        $allCookies := $this->cookies();
+        for ($i := 0; $i < len($allCookies); $i++) {
+            if ($allCookies[$i]->name == $name) {
+                return $allCookies[$i];
+            }
+        }
+        return null;
+    }
+    
+    // ========================================================================
+    // 内部设置方法（供 HttpClient 使用）
+    // ========================================================================
+    
+    /**
+     * 设置状态码
+     * 
+     * @param int $code 状态码
+     * @param string $text 状态文本
+     */
+    public function setStatus(int $code, string $text): void {
+        $this->statusCode = $code;
+        $this->statusText = $text;
+    }
+    
+    /**
+     * 设置协议版本
+     * 
+     * @param string $protocol 协议版本
+     */
+    public function setProtocol(string $protocol): void {
+        $this->protocol = $protocol;
+    }
+    
+    /**
+     * 设置响应头
+     * 
+     * @param Header $header 响应头对象
+     */
+    public function setHeader(Header $header): void {
+        $this->header = $header;
+    }
+    
+    /**
+     * 设置响应体
+     * 
+     * @param byte[] $body 响应体字节数组
+     */
+    public function setBody(byte[] $body): void {
+        $this->body = $body;
+        $this->bodyText = "";
+    }
+    
+    // ========================================================================
+    // 静态解析方法
+    // ========================================================================
+    
+    /**
+     * 从原始 HTTP 响应字符串解析
+     * 
+     * @param string $raw 原始 HTTP 响应字符串
+     * @param byte[] $body 响应体（已分离）
+     * @return ClientResponse 解析后的响应对象
+     */
+    public static function parse(string $raw, byte[] $body): ClientResponse {
+        $response := new ClientResponse();
+        $response->setBody($body);
+        
+        // 查找第一个空行，分离头部和状态行
+        $headerEnd := Str::indexOf($raw, "\r\n\r\n");
+        if ($headerEnd < 0) {
+            $headerEnd = Str::indexOf($raw, "\n\n");
+            if ($headerEnd < 0) {
+                // 没有找到空行，整个都是头部
+                $headerStr := $raw;
+            } else {
+                $headerStr := Str::substring($raw, 0, $headerEnd);
+            }
+        } else {
+            $headerStr := Str::substring($raw, 0, $headerEnd);
+        }
+        
+        // 解析状态行
+        $firstLineEnd := Str::indexOf($headerStr, "\r\n");
+        if ($firstLineEnd < 0) {
+            $firstLineEnd = Str::indexOf($headerStr, "\n");
+        }
+        
+        if ($firstLineEnd >= 0) {
+            $statusLine := Str::substring($headerStr, 0, $firstLineEnd);
+            $response->parseStatusLine($statusLine);
+            
+            // 解析头部
+            if ($firstLineEnd + 2 < Str::length($headerStr)) {
+                $headerOnly := Str::substring($headerStr, $firstLineEnd + 2);
+                $response->header = Header::parse($headerOnly);
+            }
+        } else {
+            // 只有状态行，没有头部
+            $response->parseStatusLine($headerStr);
+        }
+        
+        return $response;
+    }
+    
+    /**
+     * 解析状态行
+     * 
+     * @param string $statusLine 状态行（如 "HTTP/1.1 200 OK"）
+     */
+    private function parseStatusLine(string $statusLine): void {
+        $parts := Str::split(Str::trim($statusLine), " ");
+        
+        if (len($parts) >= 1) {
+            $this->protocol = $parts[0];
+        }
+        
+        if (len($parts) >= 2) {
+            $this->statusCode = Str::toInt($parts[1]);
+        }
+        
+        if (len($parts) >= 3) {
+            // 状态文本可能是多个单词，合并
+            $text := "";
+            for ($i := 2; $i < len($parts); $i++) {
+                if ($i > 2) {
+                    $text = $text + " ";
+                }
+                $text = $text + $parts[$i];
+            }
+            $this->statusText = $text;
+        } else {
+            // 如果没有状态文本，使用状态码对应的文本
+            $this->statusText = HttpStatus::text($this->statusCode);
+        }
+    }
+}
+
