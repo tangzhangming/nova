@@ -1932,15 +1932,16 @@ func (vm *VM) compareOp(op bytecode.OpCode) InterpretResult {
 func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 	switch callee.Type {
 	case bytecode.ValClosure:
-		return vm.call(callee.Data.(*bytecode.Closure), argCount)
+		// 使用优化的调用路径
+		return vm.callOptimized(callee.Data.(*bytecode.Closure), argCount)
 	case bytecode.ValFunc:
 		fn := callee.Data.(*bytecode.Function)
-		// 特殊处理内置函数
+		// 特殊处理内置函数（使用优化路径）
 		if fn.IsBuiltin && fn.BuiltinFn != nil {
-			return vm.callBuiltin(fn, argCount)
+			return vm.callBuiltinOptimized(fn, argCount)
 		}
 		closure := &bytecode.Closure{Function: fn}
-		return vm.call(closure, argCount)
+		return vm.callOptimized(closure, argCount)
 	default:
 		return vm.runtimeError(i18n.T(i18n.ErrCanOnlyCallFunctions))
 	}
