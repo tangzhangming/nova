@@ -74,6 +74,12 @@ type VM struct {
 	// 垃圾回收
 	gc *GC
 
+	// 内联缓存（B1）
+	icManager *ICManager
+
+	// 热点检测（B2）
+	hotspotDetector *HotspotDetector
+
 	// 错误信息
 	hadError     bool
 	errorMessage string
@@ -82,10 +88,12 @@ type VM struct {
 // New 创建虚拟机
 func New() *VM {
 	return &VM{
-		globals: make(map[string]bytecode.Value),
-		classes: make(map[string]*bytecode.Class),
-		enums:   make(map[string]*bytecode.Enum),
-		gc:      NewGC(),
+		globals:         make(map[string]bytecode.Value),
+		classes:         make(map[string]*bytecode.Class),
+		enums:           make(map[string]*bytecode.Enum),
+		gc:              NewGC(),
+		icManager:       NewICManager(),
+		hotspotDetector: NewHotspotDetector(),
 	}
 }
 
@@ -102,6 +110,26 @@ func (vm *VM) SetGCEnabled(enabled bool) {
 // SetGCDebug 设置 GC 调试模式
 func (vm *VM) SetGCDebug(debug bool) {
 	vm.gc.SetDebug(debug)
+}
+
+// GetICManager 获取内联缓存管理器
+func (vm *VM) GetICManager() *ICManager {
+	return vm.icManager
+}
+
+// SetICEnabled 启用/禁用内联缓存
+func (vm *VM) SetICEnabled(enabled bool) {
+	vm.icManager.SetEnabled(enabled)
+}
+
+// GetHotspotDetector 获取热点检测器
+func (vm *VM) GetHotspotDetector() *HotspotDetector {
+	return vm.hotspotDetector
+}
+
+// SetHotspotEnabled 启用/禁用热点检测
+func (vm *VM) SetHotspotEnabled(enabled bool) {
+	vm.hotspotDetector.SetEnabled(enabled)
 }
 
 // SetGCThreshold 设置 GC 触发阈值
@@ -480,9 +508,14 @@ func (vm *VM) execute() InterpretResult {
 			}
 
 		case bytecode.OpLoop:
+			loopHeaderIP := frame.IP - 1 // 回边位置
 			offset := chunk.ReadU16(frame.IP)
 			frame.IP += 2
-			frame.IP -= int(offset)
+			targetIP := frame.IP - int(offset) // 循环头位置
+			frame.IP = targetIP
+			
+			// 热点检测：记录循环迭代
+			vm.hotspotDetector.RecordLoopIteration(frame.Closure.Function, targetIP, loopHeaderIP)
 
 		// 函数调用
 		case bytecode.OpCall:
@@ -695,6 +728,7 @@ func (vm *VM) execute() InterpretResult {
 			}
 
 		case bytecode.OpCallMethod:
+			callSiteIP := frame.IP - 1 // 保存调用点 IP（用于内联缓存）
 			nameIdx := chunk.ReadU16(frame.IP)
 			frame.IP += 2
 			argCount := int(chunk.Code[frame.IP])
@@ -705,10 +739,35 @@ func (vm *VM) execute() InterpretResult {
 			receiver := vm.peek(argCount)
 			if receiver.Type == bytecode.ValObject {
 				obj := receiver.AsObject()
+				
+				// 尝试内联缓存快速路径
+				if vm.icManager.IsEnabled() {
+					ic := vm.icManager.GetMethodCache(frame.Closure.Function, callSiteIP)
+					if ic != nil {
+						if method, hit := ic.Lookup(obj.Class); hit {
+							// 缓存命中：直接调用
+							if result := vm.callMethodDirect(obj, method, argCount); result != InterpretOK {
+								return result
+							}
+							frame = &vm.frames[vm.frameCount-1]
+							chunk = frame.Closure.Function.Chunk
+							continue
+						}
+					}
+				}
+				
 				method := obj.Class.GetMethod(name)
 				if method == nil && name == "__construct" {
 					// 没有构造函数，跳过调用，只保留对象在栈上
 					continue
+				}
+				
+				// 更新内联缓存
+				if vm.icManager.IsEnabled() && method != nil {
+					ic := vm.icManager.GetMethodCache(frame.Closure.Function, callSiteIP)
+					if ic != nil {
+						ic.Update(obj.Class, method)
+					}
 				}
 			}
 			
@@ -2186,6 +2245,26 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	return InterpretOK
 }
 
+// callMethodDirect 直接调用方法（内联缓存命中时使用）
+func (vm *VM) callMethodDirect(obj *bytecode.Object, method *bytecode.Method, argCount int) InterpretResult {
+	// 热点检测：记录函数调用
+	fn := &bytecode.Function{
+		Name:          method.Name,
+		ClassName:     method.ClassName,
+		SourceFile:    method.SourceFile,
+		Arity:         method.Arity,
+		MinArity:      method.MinArity,
+		Chunk:         method.Chunk,
+		LocalCount:    method.LocalCount,
+		DefaultValues: method.DefaultValues,
+	}
+	vm.hotspotDetector.RecordFunctionCall(fn)
+	
+	// 创建闭包并调用
+	closure := &bytecode.Closure{Function: fn}
+	return vm.callOptimized(closure, argCount)
+}
+
 // 调用方法
 func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	receiver := vm.peek(argCount)
@@ -2205,6 +2284,9 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	if method == nil {
 		return vm.runtimeError(i18n.T(i18n.ErrUndefinedMethod, name, argCount))
 	}
+
+	// 热点检测：记录函数调用
+	vm.hotspotDetector.RecordFunctionCall(&bytecode.Function{Name: method.Name, ClassName: method.ClassName})
 
 	// 检查方法访问权限
 	if err := vm.checkMethodAccess(obj.Class, method); err != nil {

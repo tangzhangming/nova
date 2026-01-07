@@ -363,6 +363,52 @@ $a--        // 后置自减
 --$a        // 前置自减
 ```
 
+#### 算术运算符类型规则（严格类型检查）
+
+Sola 是强类型语言，**不允许隐式类型转换**。算术运算符要求操作数类型完全匹配：
+
+| 运算符 | 允许的类型组合 | 禁止的类型组合 |
+|--------|---------------|---------------|
+| `+` | `int + int`、`float + float`、`string + string` | `int + float`、`string + int` 等 |
+| `-` `*` `/` `%` | `int op int`、`float op float` | `int op float` 等不同类型 |
+
+```sola
+// ✅ 正确：相同类型运算
+int $a = 10;
+int $b = 20;
+echo $a + $b;      // 30
+
+float $x = 1.5;
+float $y = 2.5;
+echo $x + $y;      // 4.0
+
+string $s1 = "Hello";
+string $s2 = " World";
+echo $s1 + $s2;    // "Hello World"
+
+// ❌ 错误：不同类型不能运算
+int $n = 10;
+float $f = 3.14;
+// echo $n + $f;   // 编译错误：运算符 '+' 不能用于 int 和 float 类型
+
+string $str = "100";
+int $num = 50;
+// echo $str + $num;  // 编译错误：运算符 '+' 不能用于 string 和 int 类型
+```
+
+**如需混合类型运算，必须显式类型转换：**
+
+```sola
+int $n = 10;
+float $f = 3.14;
+
+// 方法1：将 int 转为 float
+echo ($n as float) + $f;   // 13.14
+
+// 方法2：将 float 转为 int（截断小数）
+echo $n + ($f as int);     // 13
+```
+
 ### 比较运算符
 ```sola
 $a == $b    // 相等
