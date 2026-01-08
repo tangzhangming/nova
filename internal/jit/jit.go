@@ -2,9 +2,9 @@
 package jit
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
+	"unsafe"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/jit/platform"
@@ -79,10 +79,17 @@ func (jc *JITCompiler) CompileFunction(fn *bytecode.Function) (*CompiledFunction
 	}
 	copy(execCode, machineCode)
 	
+	// 获取函数指针（机器码的起始地址）
+	funcPtr := uintptr(0)
+	if len(execCode) > 0 {
+		funcPtr = uintptr(unsafe.Pointer(&execCode[0]))
+	}
+	
 	compiled := &CompiledFunction{
 		Name:        fn.Name,
 		MachineCode: execCode,
 		StackSize:   regAlloc.GetStackSize(),
+		FuncPtr:     funcPtr,
 	}
 	
 	jc.codeCache.Put(fn.Name, compiled)
@@ -94,11 +101,21 @@ func (jc *JITCompiler) GetPlatform() string {
 	return jc.platform
 }
 
+// GetCompiled 获取已编译的函数
+func (jc *JITCompiler) GetCompiled(name string) *CompiledFunction {
+	compiled, ok := jc.codeCache.Get(name)
+	if !ok {
+		return nil
+	}
+	return compiled
+}
+
 // CompiledFunction 已编译的函数
 type CompiledFunction struct {
 	Name        string
 	MachineCode []byte
 	StackSize   int
+	FuncPtr     uintptr // 函数指针，用于调用本机代码
 }
 
 // ============================================================================
@@ -713,8 +730,6 @@ type CodeCache struct {
 	maxSize  int
 	usedSize int
 	entries  map[string]*CompiledFunction
-	memory   []byte
-	nextFree int
 	mutex    sync.RWMutex
 }
 
@@ -723,7 +738,6 @@ func NewCodeCache(maxSize int) *CodeCache {
 	return &CodeCache{
 		maxSize: maxSize,
 		entries: make(map[string]*CompiledFunction),
-		memory:  make([]byte, maxSize),
 	}
 }
 
@@ -732,15 +746,8 @@ func (cc *CodeCache) AllocateExecutable(size int) ([]byte, error) {
 	cc.mutex.Lock()
 	defer cc.mutex.Unlock()
 	
-	if cc.nextFree+size > cc.maxSize {
-		return nil, fmt.Errorf("code cache full")
-	}
-	
-	start := cc.nextFree
-	cc.nextFree += size
-	cc.usedSize += size
-	
-	return cc.memory[start : start+size], nil
+	// 使用跨平台的可执行内存分配器
+	return allocExecutable(size)
 }
 
 // Put 存储已编译函数

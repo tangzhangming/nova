@@ -37,6 +37,22 @@ func (vm *VM) callOptimized(closure *bytecode.Closure, argCount int) InterpretRe
 	fn := closure.Function
 	globalCallStats.TotalCalls++
 
+	// 热点检测：记录函数调用
+	if vm.hotspotDetector != nil && vm.hotspotDetector.IsEnabled() {
+		vm.hotspotDetector.RecordFunctionCall(fn)
+	}
+
+	// 检查是否已 JIT 编译
+	if vm.jitCompiler != nil && vm.jitEnabled {
+		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil && compiled.FuncPtr != 0 {
+			// 尝试使用 JIT 编译的代码执行
+			if result, ok := vm.executeNative(compiled, closure, argCount); ok {
+				return result
+			}
+			// JIT 执行失败，继续使用解释执行
+		}
+	}
+
 	// 快速路径：简单函数（无可变参数，参数数量匹配）
 	if !fn.IsVariadic && argCount == fn.Arity && len(closure.Upvalues) == 0 {
 		return vm.callFast(closure, argCount)

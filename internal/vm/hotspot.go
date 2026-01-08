@@ -10,9 +10,9 @@ import (
 
 // HotspotThreshold 热点阈值
 const (
-	FunctionHotThreshold = 10000 // 函数调用 10000 次视为热点
-	LoopHotThreshold     = 1000  // 循环迭代 1000 次视为热点
-	BackedgeThreshold    = 100   // 回边执行 100 次开始计数
+	FunctionHotThreshold = 100  // 函数调用 100 次视为热点（降低以加速JIT）
+	LoopHotThreshold     = 50   // 循环迭代 50 次视为热点
+	BackedgeThreshold    = 10   // 回边执行 10 次开始计数
 )
 
 // HotspotState 热点状态
@@ -85,6 +85,23 @@ func NewHotspotDetector() *HotspotDetector {
 // SetEnabled 启用/禁用热点检测
 func (hd *HotspotDetector) SetEnabled(enabled bool) {
 	hd.enabled = enabled
+}
+
+// IsEnabled 检查热点检测是否启用
+func (hd *HotspotDetector) IsEnabled() bool {
+	return hd.enabled
+}
+
+// GetCallCount 获取函数调用次数
+func (hd *HotspotDetector) GetCallCount(fn *bytecode.Function) int64 {
+	if fn == nil {
+		return 0
+	}
+	fnPtr := funcToPtr(fn)
+	if profile, ok := hd.profiles[fnPtr]; ok {
+		return profile.CallCount
+	}
+	return 0
 }
 
 // OnFunctionHot 设置函数变热回调

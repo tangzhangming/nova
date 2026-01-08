@@ -83,6 +83,7 @@ type VM struct {
 
 	// JIT 编译器
 	jitCompiler *jit.JITCompiler
+	jitEnabled  bool // 是否启用 JIT 执行
 
 	// 错误信息
 	hadError     bool
@@ -102,6 +103,7 @@ func New() *VM {
 	
 	// 初始化 JIT 编译器（如果支持）
 	vm.jitCompiler = jit.NewJITCompiler()
+	vm.jitEnabled = true // 默认启用 JIT 执行
 	
 	// 设置热点检测回调
 	if vm.jitCompiler != nil {
@@ -2264,6 +2266,18 @@ func (vm *VM) callBuiltin(fn *bytecode.Function, argCount int) InterpretResult {
 func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	fn := closure.Function
 	
+	// 检查是否已 JIT 编译并可执行
+	if vm.jitCompiler != nil && vm.jitEnabled {
+		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil && compiled.FuncPtr != 0 {
+			// 尝试使用 JIT 编译的代码执行
+			result, ok := vm.executeNative(compiled, closure, argCount)
+			if ok {
+				return result
+			}
+			// JIT 执行失败，回退到解释执行
+		}
+	}
+	
 	// 检查参数数量
 	if fn.IsVariadic {
 		// 可变参数函数：至少需要 MinArity 个参数
@@ -2334,6 +2348,53 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	}
 
 	return InterpretOK
+}
+
+// executeNative 执行 JIT 编译的本机代码
+// 返回 (结果, 是否成功执行)
+func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Closure, argCount int) (InterpretResult, bool) {
+	fn := closure.Function
+	
+	// 只对简单的纯计算函数启用 JIT 执行
+	// 复杂函数（如有闭包、可变参数等）暂不支持
+	if fn.IsVariadic || len(closure.Upvalues) > 0 {
+		return InterpretOK, false
+	}
+	
+	// 准备参数
+	args := make([]int64, argCount)
+	baseSlot := vm.stackTop - argCount
+	for i := 0; i < argCount; i++ {
+		val := vm.stack[baseSlot+i]
+		switch val.Type {
+		case bytecode.ValInt:
+			args[i] = val.AsInt()
+		case bytecode.ValBool:
+			if val.AsBool() {
+				args[i] = 1
+			} else {
+				args[i] = 0
+			}
+		default:
+			// 不支持的参数类型，回退到解释执行
+			return InterpretOK, false
+		}
+	}
+	
+	// 调用本机代码
+	result, ok := jit.ExecuteCompiled(compiled, args)
+	if !ok {
+		// JIT 执行失败，回退到解释执行
+		return InterpretOK, false
+	}
+	
+	// 弹出函数和参数
+	vm.stackTop = baseSlot - 1
+	
+	// 将结果推入栈
+	vm.push(bytecode.NewInt(result))
+	
+	return InterpretOK, true
 }
 
 // callMethodDirect 直接调用方法（内联缓存命中时使用）
