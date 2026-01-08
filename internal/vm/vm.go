@@ -8,6 +8,7 @@ import (
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/errors"
 	"github.com/tangzhangming/nova/internal/i18n"
+	"github.com/tangzhangming/nova/internal/jit"
 )
 
 const (
@@ -80,6 +81,9 @@ type VM struct {
 	// 热点检测（B2）
 	hotspotDetector *HotspotDetector
 
+	// JIT 编译器
+	jitCompiler *jit.JITCompiler
+
 	// 错误信息
 	hadError     bool
 	errorMessage string
@@ -87,13 +91,72 @@ type VM struct {
 
 // New 创建虚拟机
 func New() *VM {
-	return &VM{
+	vm := &VM{
 		globals:         make(map[string]bytecode.Value),
 		classes:         make(map[string]*bytecode.Class),
 		enums:           make(map[string]*bytecode.Enum),
 		gc:              NewGC(),
 		icManager:       NewICManager(),
 		hotspotDetector: NewHotspotDetector(),
+	}
+	
+	// 初始化 JIT 编译器（如果支持）
+	vm.jitCompiler = jit.NewJITCompiler()
+	
+	// 设置热点检测回调
+	if vm.jitCompiler != nil {
+		vm.hotspotDetector.OnFunctionHot(vm.onFunctionHot)
+		vm.hotspotDetector.OnLoopHot(vm.onLoopHot)
+	}
+	
+	return vm
+}
+
+// onFunctionHot 函数变热时的回调（触发 JIT 编译）
+func (vm *VM) onFunctionHot(profile *FunctionProfile) {
+	if vm.jitCompiler == nil {
+		return
+	}
+	
+	// 触发 JIT 编译
+	fn := profile.Function
+	if fn != nil {
+		// 编译函数
+		compiled, err := vm.jitCompiler.CompileFunction(fn)
+		if err == nil && compiled != nil {
+			// 标记为已编译
+			vm.hotspotDetector.MarkCompiled(fn)
+		}
+	}
+}
+
+// onLoopHot 循环变热时的回调（触发 OSR）
+func (vm *VM) onLoopHot(profile *LoopProfile) {
+	if vm.jitCompiler == nil {
+		return
+	}
+	
+	// OSR（On-Stack Replacement）：
+	// 在循环中间切换到 JIT 代码
+	// 简化：这里可以触发循环所在函数的 JIT 编译
+	_ = profile
+}
+
+// GetJITCompiler 获取 JIT 编译器
+func (vm *VM) GetJITCompiler() *jit.JITCompiler {
+	return vm.jitCompiler
+}
+
+// SetJITEnabled 启用/禁用 JIT
+func (vm *VM) SetJITEnabled(enabled bool) {
+	if enabled && vm.jitCompiler == nil {
+		vm.jitCompiler = jit.NewJITCompiler()
+		if vm.jitCompiler != nil {
+			vm.hotspotDetector.OnFunctionHot(vm.onFunctionHot)
+			vm.hotspotDetector.OnLoopHot(vm.onLoopHot)
+		}
+	} else if !enabled {
+		vm.jitCompiler = nil
 	}
 }
 
