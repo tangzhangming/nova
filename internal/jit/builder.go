@@ -174,10 +174,16 @@ func (b *IRBuilder) convertInstructions() error {
 	b.current = b.fn.Entry
 	b.stack = make([]*IRValue, 0)
 	
-	// 加载参数
+	// 加载参数：生成 LoadLocal 指令从栈上加载参数
+	// 注意：Sola 字节码中 local[0] 预留给 this/调用者，参数从 local[1] 开始
+	// 参数在 emitPrologue 中被保存到 [rbp - (i+1)*8]（对应 local[i]）
 	for i := 0; i < b.srcFunc.Arity; i++ {
 		arg := b.fn.NewValue(TypeUnknown)
-		b.locals[i] = arg
+		// 生成加载指令，localIdx 从 1 开始（参数在字节码中从 local[1] 开始）
+		load := NewInstr(OpLoadLocal, arg)
+		load.LocalIdx = i + 1  // 参数从 local[1] 开始
+		b.current.AddInstr(load)
+		b.locals[i + 1] = arg  // 存储到对应位置
 	}
 	
 	// 转换每条指令

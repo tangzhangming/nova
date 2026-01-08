@@ -51,17 +51,15 @@ func (vm *VM) callOptimized(closure *bytecode.Closure, argCount int) InterpretRe
 	}
 
 	// 检查是否已 JIT 编译
-	// 注意：JIT编译已完成，但执行层暂时禁用（代码生成器需要进一步调试）
-	// 框架已就绪，后续只需修复代码生成器即可启用
-	// if vm.jitEnabled && vm.jitCompiler != nil {
-	// 	if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
-	// 		// 尝试使用 JIT 编译的代码执行
-	// 		if result, ok := vm.executeNative(compiled, closure, argCount); ok {
-	// 			return result
-	// 		}
-	// 		// JIT 执行失败，继续使用解释执行
-	// 	}
-	// }
+	if vm.jitEnabled && vm.jitCompiler != nil {
+		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
+			// 尝试使用 JIT 编译的代码执行
+			if result, ok := vm.executeNative(compiled, closure, argCount); ok {
+				return result
+			}
+			// JIT 执行失败，继续使用解释执行
+		}
+	}
 
 	// 快速路径：简单函数（无可变参数，参数数量匹配）
 	if !fn.IsVariadic && argCount == fn.Arity && len(closure.Upvalues) == 0 {

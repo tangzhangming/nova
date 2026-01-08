@@ -104,9 +104,11 @@ func (cg *X64CodeGenerator) emitPrologue() {
 	
 	// 将参数从参数寄存器保存到栈
 	// Windows x64: RCX=arg0, RDX=arg1, R8=arg2, R9=arg3
+	// 注意：Sola 字节码中 local[0] 预留给 this，参数从 local[1] 开始
+	// 所以 arg0 保存到 [rbp-16] (local[1])，arg1 保存到 [rbp-24] (local[2])，以此类推
 	argRegs := []X64Reg{RCX, RDX, R8, R9}
 	for i := 0; i < cg.fn.NumArgs && i < 4; i++ {
-		offset := (i + 1) * -8
+		offset := (i + 2) * -8  // local[i+1] 的偏移
 		cg.asm.MovMemReg(RBP, int32(offset), argRegs[i])
 	}
 }
@@ -222,13 +224,24 @@ func (cg *X64CodeGenerator) emitConst(instr *IRInstr) {
 
 // emitLoadLocal 生成局部变量加载
 func (cg *X64CodeGenerator) emitLoadLocal(instr *IRInstr) {
-	if instr.Dest == nil || len(instr.Args) == 0 {
+	if instr.Dest == nil {
 		return
 	}
 	
 	localIdx := instr.LocalIdx
 	dst := cg.getReg(instr.Dest.ID)
+	
 	if dst == RegNone {
+		// 如果值被溢出到栈上，需要先加载到临时寄存器再存储
+		dst = RAX
+		offset := int32((localIdx + 1) * -8)
+		cg.asm.MovRegMem(dst, RBP, offset)
+		
+		if cg.alloc.IsSpilled(instr.Dest.ID) {
+			slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+			spillOffset := cg.getSpillOffset(slot)
+			cg.asm.MovMemReg(RBP, spillOffset, dst)
+		}
 		return
 	}
 	

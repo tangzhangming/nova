@@ -55,7 +55,9 @@ func CanJIT(fn *bytecode.Function) bool {
 			bytecode.OpClosure,
 			bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry,
 			bytecode.OpConcat,
-			bytecode.OpLoadGlobal, bytecode.OpStoreGlobal:
+			bytecode.OpLoadGlobal, bytecode.OpStoreGlobal,
+			// 暂时禁用循环（代码生成器需要进一步调试）
+			bytecode.OpLoop, bytecode.OpJump, bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue:
 			return false
 		}
 		

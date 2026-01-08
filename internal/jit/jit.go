@@ -85,7 +85,7 @@ func DefaultConfig() *Config {
 		Enabled:           true,
 		HotThreshold:      100,   // 调用 100 次后编译
 		LoopThreshold:     50,    // 循环 50 次后触发 OSR
-		OptimizationLevel: 2,     // 标准优化级别
+		OptimizationLevel: 0,     // 暂时禁用优化
 		MaxCodeCacheSize:  16 * 1024 * 1024, // 16MB 代码缓存
 		EnableInlining:    true,
 		MaxInlineDepth:    3,
