@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"unsafe"
+
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
@@ -349,18 +351,12 @@ type HotspotStats struct {
 	Enabled        bool
 }
 
-// funcToPtr 将函数转换为指针
+// funcToPtr 将函数转换为指针，用于快速函数身份比较
 func funcToPtr(fn *bytecode.Function) uintptr {
 	if fn == nil {
 		return 0
 	}
-	// 使用函数名的哈希作为简化标识
-	// 实际实现可以使用 unsafe.Pointer
-	h := uintptr(0)
-	for _, c := range fn.Name {
-		h = h*31 + uintptr(c)
-	}
-	return h
+	return uintptr(unsafe.Pointer(fn))
 }
 
 // ============================================================================
