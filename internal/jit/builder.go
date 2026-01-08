@@ -333,6 +333,16 @@ func (b *IRBuilder) convertInstruction(op bytecode.OpCode, ip int, line int) err
 		
 	case bytecode.OpShr:
 		b.emitBinary(OpShr, line)
+	
+	// 数组操作
+	case bytecode.OpArrayLen:
+		b.emitArrayLen(line)
+		
+	case bytecode.OpArrayGet:
+		b.emitArrayGet(line)
+		
+	case bytecode.OpArraySet:
+		b.emitArraySet(line)
 		
 	// 跳转
 	case bytecode.OpJump:
@@ -532,6 +542,50 @@ func (b *IRBuilder) inferBinaryType(op Opcode, left, right *IRValue) ValueType {
 	
 	// 默认返回整数
 	return TypeInt
+}
+
+// ============================================================================
+// 数组操作
+// ============================================================================
+
+// emitArrayLen 生成数组长度指令
+func (b *IRBuilder) emitArrayLen(line int) {
+	arr := b.pop() // 数组值
+	
+	dest := b.fn.NewValue(TypeInt)
+	instr := NewInstr(OpArrayLen, dest, arr)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitArrayGet 生成数组取元素指令
+func (b *IRBuilder) emitArrayGet(line int) {
+	index := b.pop() // 索引
+	arr := b.pop()   // 数组
+	
+	dest := b.fn.NewValue(TypeUnknown) // 元素类型未知
+	instr := NewInstr(OpArrayGet, dest, arr, index)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitArraySet 生成数组设元素指令
+func (b *IRBuilder) emitArraySet(line int) {
+	value := b.pop() // 值
+	index := b.pop() // 索引
+	arr := b.pop()   // 数组
+	
+	// ArraySet 不产生新值，只是副作用
+	instr := NewInstr(OpArraySet, nil, arr, index, value)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 把数组推回栈（保持栈语义）
+	b.push(arr)
 }
 
 // instrSize 获取指令大小

@@ -7,6 +7,7 @@ package jit
 import (
 	"runtime"
 	"testing"
+	"unsafe"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
@@ -369,4 +370,374 @@ func TestFullCompilePipeline(t *testing.T) {
 	if entry == 0 {
 		t.Error("Entry point is 0")
 	}
+}
+
+// ============================================================================
+// 数组操作测试
+// ============================================================================
+
+// TestCanJIT_ArrayOps 测试带数组操作的函数是否可以 JIT
+func TestCanJIT_ArrayOps(t *testing.T) {
+	// 带 ArrayLen 的函数应该可以 JIT
+	withArrayLen := &bytecode.Function{
+		Name:       "withArrayLen",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 2,
+	}
+	chunk := withArrayLen.Chunk
+	// load local 1 (假设是数组)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(1, 1)
+	// arraylen
+	chunk.WriteOp(bytecode.OpArrayLen, 2)
+	// return
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	if !CanJIT(withArrayLen) {
+		t.Error("Function with ArrayLen should be JIT-able")
+	}
+	
+	// 带 ArrayGet 的函数应该可以 JIT
+	withArrayGet := &bytecode.Function{
+		Name:       "withArrayGet",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 3,
+	}
+	chunk = withArrayGet.Chunk
+	// load local 1 (数组)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(1, 1)
+	// load local 2 (索引)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(2, 1)
+	// arrayget
+	chunk.WriteOp(bytecode.OpArrayGet, 2)
+	// return
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	if !CanJIT(withArrayGet) {
+		t.Error("Function with ArrayGet should be JIT-able")
+	}
+	
+	// 带 ArraySet 的函数应该可以 JIT
+	withArraySet := &bytecode.Function{
+		Name:       "withArraySet",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 4,
+	}
+	chunk = withArraySet.Chunk
+	// load local 1 (数组)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(1, 1)
+	// load local 2 (索引)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(2, 1)
+	// load local 3 (值)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(3, 1)
+	// arrayset
+	chunk.WriteOp(bytecode.OpArraySet, 2)
+	// pop (ArraySet 推回数组)
+	chunk.WriteOp(bytecode.OpPop, 3)
+	// return null
+	chunk.WriteOp(bytecode.OpReturnNull, 4)
+	
+	if !CanJIT(withArraySet) {
+		t.Error("Function with ArraySet should be JIT-able")
+	}
+	
+	// 带 NewArray 的函数不能 JIT（需要内存分配）
+	withNewArray := &bytecode.Function{
+		Name:       "withNewArray",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 1,
+	}
+	chunk = withNewArray.Chunk
+	chunk.WriteOp(bytecode.OpNewArray, 1)
+	chunk.WriteU16(5, 1) // 创建长度为 5 的数组
+	chunk.WriteOp(bytecode.OpReturn, 2)
+	
+	if CanJIT(withNewArray) {
+		t.Error("Function with NewArray should not be JIT-able")
+	}
+}
+
+// TestArrayIRBuilder 测试数组操作的 IR 构建
+func TestArrayIRBuilder(t *testing.T) {
+	// 创建带 ArrayLen 的函数
+	fn := &bytecode.Function{
+		Name:       "getArrayLen",
+		Arity:      1,
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 2,
+	}
+	
+	chunk := fn.Chunk
+	// load local 1 (数组参数)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(1, 1)
+	// arraylen
+	chunk.WriteOp(bytecode.OpArrayLen, 2)
+	// return
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	// 构建 IR
+	builder := NewIRBuilder()
+	irFunc, err := builder.Build(fn)
+	if err != nil {
+		t.Fatalf("IR build failed: %v", err)
+	}
+	
+	t.Logf("IR for getArrayLen:\n%s", irFunc.String())
+	
+	// 验证生成了 ArrayLen 指令
+	hasArrayLen := false
+	for _, block := range irFunc.Blocks {
+		for _, instr := range block.Instrs {
+			if instr.Op == OpArrayLen {
+				hasArrayLen = true
+				break
+			}
+		}
+	}
+	
+	if !hasArrayLen {
+		t.Error("IR should contain ArrayLen instruction")
+	}
+}
+
+// TestArrayGetSetIRBuilder 测试 ArrayGet/ArraySet 的 IR 构建
+func TestArrayGetSetIRBuilder(t *testing.T) {
+	// 创建带 ArrayGet 的函数
+	fn := &bytecode.Function{
+		Name:       "getArrayElement",
+		Arity:      2, // arr, index
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 3,
+	}
+	
+	chunk := fn.Chunk
+	// load local 1 (数组)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(1, 1)
+	// load local 2 (索引)
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(2, 1)
+	// arrayget
+	chunk.WriteOp(bytecode.OpArrayGet, 2)
+	// return
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	builder := NewIRBuilder()
+	irFunc, err := builder.Build(fn)
+	if err != nil {
+		t.Fatalf("IR build failed: %v", err)
+	}
+	
+	t.Logf("IR for getArrayElement:\n%s", irFunc.String())
+	
+	// 验证生成了 ArrayGet 指令
+	hasArrayGet := false
+	for _, block := range irFunc.Blocks {
+		for _, instr := range block.Instrs {
+			if instr.Op == OpArrayGet {
+				hasArrayGet = true
+				// 验证参数数量
+				if len(instr.Args) != 2 {
+					t.Errorf("ArrayGet should have 2 args, got %d", len(instr.Args))
+				}
+				break
+			}
+		}
+	}
+	
+	if !hasArrayGet {
+		t.Error("IR should contain ArrayGet instruction")
+	}
+}
+
+// TestRuntimeHelpers 测试运行时辅助函数
+func TestRuntimeHelpers(t *testing.T) {
+	// 测试 ArrayLenHelper
+	t.Run("ArrayLenHelper", func(t *testing.T) {
+		// 创建测试数组
+		arr := bytecode.Value{
+			Type: bytecode.ValArray,
+			Data: []bytecode.Value{
+				bytecode.NewInt(1),
+				bytecode.NewInt(2),
+				bytecode.NewInt(3),
+			},
+		}
+		
+		// 获取数组指针
+		arrPtr := uintptr(unsafe.Pointer(&arr))
+		
+		// 调用辅助函数
+		length := ArrayLenHelper(arrPtr)
+		
+		if length != 3 {
+			t.Errorf("Expected length 3, got %d", length)
+		}
+		
+		// 测试空指针
+		length = ArrayLenHelper(0)
+		if length != -1 {
+			t.Errorf("Expected -1 for nil pointer, got %d", length)
+		}
+		
+		// 测试非数组类型
+		notArr := bytecode.NewInt(42)
+		notArrPtr := uintptr(unsafe.Pointer(&notArr))
+		length = ArrayLenHelper(notArrPtr)
+		if length != -1 {
+			t.Errorf("Expected -1 for non-array, got %d", length)
+		}
+	})
+	
+	// 测试 ArrayGetHelper
+	t.Run("ArrayGetHelper", func(t *testing.T) {
+		arr := bytecode.Value{
+			Type: bytecode.ValArray,
+			Data: []bytecode.Value{
+				bytecode.NewInt(10),
+				bytecode.NewInt(20),
+				bytecode.NewInt(30),
+			},
+		}
+		arrPtr := uintptr(unsafe.Pointer(&arr))
+		
+		// 正常访问
+		value, ok := ArrayGetHelper(arrPtr, 1)
+		if ok != 1 {
+			t.Error("ArrayGetHelper should return ok=1 for valid index")
+		}
+		if value != 20 {
+			t.Errorf("Expected 20, got %d", value)
+		}
+		
+		// 越界访问
+		_, ok = ArrayGetHelper(arrPtr, 10)
+		if ok != 0 {
+			t.Error("ArrayGetHelper should return ok=0 for out of bounds")
+		}
+		
+		// 负索引
+		_, ok = ArrayGetHelper(arrPtr, -1)
+		if ok != 0 {
+			t.Error("ArrayGetHelper should return ok=0 for negative index")
+		}
+	})
+	
+	// 测试 ArraySetHelper
+	t.Run("ArraySetHelper", func(t *testing.T) {
+		arr := bytecode.Value{
+			Type: bytecode.ValArray,
+			Data: []bytecode.Value{
+				bytecode.NewInt(10),
+				bytecode.NewInt(20),
+				bytecode.NewInt(30),
+			},
+		}
+		arrPtr := uintptr(unsafe.Pointer(&arr))
+		
+		// 正常设置
+		ok := ArraySetHelper(arrPtr, 1, 99)
+		if ok != 1 {
+			t.Error("ArraySetHelper should return 1 for valid index")
+		}
+		
+		// 验证值已更改
+		elements := arr.Data.([]bytecode.Value)
+		if elements[1].AsInt() != 99 {
+			t.Errorf("Expected 99, got %d", elements[1].AsInt())
+		}
+		
+		// 越界设置
+		ok = ArraySetHelper(arrPtr, 10, 100)
+		if ok != 0 {
+			t.Error("ArraySetHelper should return 0 for out of bounds")
+		}
+	})
+}
+
+// TestArrayCodeGeneration 测试数组操作的代码生成
+func TestArrayCodeGeneration(t *testing.T) {
+	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		t.Skip("Skipping on unsupported architecture")
+	}
+	
+	// 创建带 ArrayLen 的函数
+	fn := &bytecode.Function{
+		Name:       "testArrayLen",
+		Arity:      1,
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 2,
+	}
+	
+	chunk := fn.Chunk
+	chunk.WriteOp(bytecode.OpLoadLocal, 1)
+	chunk.WriteU16(1, 1)
+	chunk.WriteOp(bytecode.OpArrayLen, 2)
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	// 构建 IR
+	builder := NewIRBuilder()
+	irFunc, err := builder.Build(fn)
+	if err != nil {
+		t.Fatalf("IR build failed: %v", err)
+	}
+	
+	// 寄存器分配
+	regalloc := NewRegisterAllocator(10)
+	alloc := regalloc.Allocate(irFunc)
+	
+	// 代码生成
+	var codegen CodeGenerator
+	switch runtime.GOARCH {
+	case "amd64":
+		codegen = NewX64CodeGenerator()
+	case "arm64":
+		codegen = NewARM64CodeGenerator()
+	default:
+		t.Skip("Unsupported architecture")
+	}
+	
+	code, err := codegen.Generate(irFunc, alloc)
+	if err != nil {
+		t.Fatalf("Code generation failed: %v", err)
+	}
+	
+	if len(code) == 0 {
+		t.Fatal("Generated code is empty")
+	}
+	
+	t.Logf("Generated %d bytes of code for array operation", len(code))
+}
+
+// TestGetHelperPtrs 测试获取辅助函数指针
+func TestGetHelperPtrs(t *testing.T) {
+	lenPtr := GetArrayLenHelperPtr()
+	if lenPtr == 0 {
+		t.Error("ArrayLenHelper pointer should not be 0")
+	}
+	
+	getPtr := GetArrayGetHelperPtr()
+	if getPtr == 0 {
+		t.Error("ArrayGetHelper pointer should not be 0")
+	}
+	
+	setPtr := GetArraySetHelperPtr()
+	if setPtr == 0 {
+		t.Error("ArraySetHelper pointer should not be 0")
+	}
+	
+	// 三个指针应该不同
+	if lenPtr == getPtr || getPtr == setPtr || lenPtr == setPtr {
+		t.Error("Helper function pointers should be different")
+	}
+	
+	t.Logf("ArrayLenHelper: %#x", lenPtr)
+	t.Logf("ArrayGetHelper: %#x", getPtr)
+	t.Logf("ArraySetHelper: %#x", setPtr)
 }

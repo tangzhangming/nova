@@ -205,6 +205,12 @@ func (cg *X64CodeGenerator) emitInstr(instr *IRInstr) {
 		cg.emitIntToFloat(instr)
 	case OpFloatToInt:
 		cg.emitFloatToInt(instr)
+	case OpArrayLen:
+		cg.emitArrayLen(instr)
+	case OpArrayGet:
+		cg.emitArrayGet(instr)
+	case OpArraySet:
+		cg.emitArraySet(instr)
 	case OpPhi:
 		// Phi 节点在代码生成阶段已经通过寄存器分配处理，不需要额外代码
 	case OpNop:
@@ -825,4 +831,122 @@ func (cg *X64CodeGenerator) emitFloatToInt(instr *IRInstr) {
 		offset := cg.getSpillOffset(slot)
 		cg.asm.MovMemReg(RBP, offset, dst)
 	}
+}
+
+// ============================================================================
+// 数组操作指令生成
+// ============================================================================
+
+// emitArrayLen 生成数组长度操作
+// 调用 ArrayLenHelper(arrPtr) -> int64
+func (cg *X64CodeGenerator) emitArrayLen(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) == 0 {
+		return
+	}
+	
+	// 加载数组指针到 RCX（Windows x64 第一个参数）
+	arr := cg.loadValue(instr.Args[0], RCX)
+	if arr != RCX {
+		cg.asm.MovRegReg(RCX, arr)
+	}
+	
+	// 调用 ArrayLenHelper
+	// 获取辅助函数地址
+	helperAddr := GetArrayLenHelperPtr()
+	cg.emitCallHelper(helperAddr)
+	
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitArrayGet 生成数组取元素操作
+// 调用 ArrayGetHelper(arrPtr, index) -> (value, ok)
+func (cg *X64CodeGenerator) emitArrayGet(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+	
+	// 加载数组指针到 RCX
+	arr := cg.loadValue(instr.Args[0], RCX)
+	if arr != RCX {
+		cg.asm.MovRegReg(RCX, arr)
+	}
+	
+	// 加载索引到 RDX
+	index := cg.loadValue(instr.Args[1], RDX)
+	if index != RDX {
+		cg.asm.MovRegReg(RDX, index)
+	}
+	
+	// 调用 ArrayGetHelper
+	helperAddr := GetArrayGetHelperPtr()
+	cg.emitCallHelper(helperAddr)
+	
+	// 结果在 RAX（值），RDX（成功标志）
+	// 简化处理：只使用值，忽略成功标志
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitArraySet 生成数组设元素操作
+// 调用 ArraySetHelper(arrPtr, index, value) -> ok
+func (cg *X64CodeGenerator) emitArraySet(instr *IRInstr) {
+	if len(instr.Args) < 3 {
+		return
+	}
+	
+	// 加载数组指针到 RCX
+	arr := cg.loadValue(instr.Args[0], RCX)
+	if arr != RCX {
+		cg.asm.MovRegReg(RCX, arr)
+	}
+	
+	// 加载索引到 RDX
+	index := cg.loadValue(instr.Args[1], RDX)
+	if index != RDX {
+		cg.asm.MovRegReg(RDX, index)
+	}
+	
+	// 加载值到 R8
+	value := cg.loadValue(instr.Args[2], R8)
+	if value != R8 {
+		cg.asm.MovRegReg(R8, value)
+	}
+	
+	// 调用 ArraySetHelper
+	helperAddr := GetArraySetHelperPtr()
+	cg.emitCallHelper(helperAddr)
+	
+	// 结果在 RAX（成功标志），可以忽略
+}
+
+// emitCallHelper 生成调用运行时辅助函数的代码
+// Windows x64 调用约定：
+// - 参数: RCX, RDX, R8, R9
+// - 返回值: RAX
+// - 需要 32 字节 shadow space
+func (cg *X64CodeGenerator) emitCallHelper(addr uintptr) {
+	// 分配 shadow space (32 字节) + 对齐
+	// 确保栈 16 字节对齐
+	cg.asm.SubRegImm32(RSP, 40) // 32 shadow + 8 对齐
+	
+	// 将地址加载到 RAX 并调用
+	cg.asm.MovRegImm64(RAX, uint64(addr))
+	cg.asm.Call(RAX)
+	
+	// 恢复栈
+	cg.asm.AddRegImm32(RSP, 40)
 }

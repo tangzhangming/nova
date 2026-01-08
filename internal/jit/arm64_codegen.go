@@ -182,6 +182,12 @@ func (cg *ARM64CodeGenerator) emitInstr(instr *IRInstr) {
 		cg.emitBranch(instr)
 	case OpReturn:
 		cg.emitReturn(instr)
+	case OpArrayLen:
+		cg.emitArrayLen(instr)
+	case OpArrayGet:
+		cg.emitArrayGet(instr)
+	case OpArraySet:
+		cg.emitArraySet(instr)
 	case OpNop:
 		// 空操作
 	default:
@@ -658,4 +664,111 @@ func (cg *ARM64CodeGenerator) getSpillOffset(slot int) int32 {
 		paramSpace = 64
 	}
 	return int32(-(paramSpace + (slot+1)*8))
+}
+
+// ============================================================================
+// 数组操作指令生成
+// ============================================================================
+
+// emitArrayLen 生成数组长度操作
+func (cg *ARM64CodeGenerator) emitArrayLen(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) == 0 {
+		return
+	}
+	
+	// 加载数组指针到 X0（AAPCS64 第一个参数）
+	arr := cg.loadValue(instr.Args[0], X0)
+	if arr != X0 {
+		cg.asm.MovRegReg(X0, arr)
+	}
+	
+	// 调用 ArrayLenHelper
+	helperAddr := GetArrayLenHelperPtr()
+	cg.emitCallHelper(helperAddr)
+	
+	// 结果在 X0
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != ARM64RegNone && dst != X0 {
+		cg.asm.MovRegReg(dst, X0)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.StrRegMem(X0, X29, offset)
+	}
+}
+
+// emitArrayGet 生成数组取元素操作
+func (cg *ARM64CodeGenerator) emitArrayGet(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+	
+	// 加载数组指针到 X0
+	arr := cg.loadValue(instr.Args[0], X0)
+	if arr != X0 {
+		cg.asm.MovRegReg(X0, arr)
+	}
+	
+	// 加载索引到 X1
+	index := cg.loadValue(instr.Args[1], X1)
+	if index != X1 {
+		cg.asm.MovRegReg(X1, index)
+	}
+	
+	// 调用 ArrayGetHelper
+	helperAddr := GetArrayGetHelperPtr()
+	cg.emitCallHelper(helperAddr)
+	
+	// 结果在 X0（值），X1（成功标志）
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != ARM64RegNone && dst != X0 {
+		cg.asm.MovRegReg(dst, X0)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.StrRegMem(X0, X29, offset)
+	}
+}
+
+// emitArraySet 生成数组设元素操作
+func (cg *ARM64CodeGenerator) emitArraySet(instr *IRInstr) {
+	if len(instr.Args) < 3 {
+		return
+	}
+	
+	// 加载数组指针到 X0
+	arr := cg.loadValue(instr.Args[0], X0)
+	if arr != X0 {
+		cg.asm.MovRegReg(X0, arr)
+	}
+	
+	// 加载索引到 X1
+	index := cg.loadValue(instr.Args[1], X1)
+	if index != X1 {
+		cg.asm.MovRegReg(X1, index)
+	}
+	
+	// 加载值到 X2
+	value := cg.loadValue(instr.Args[2], X2)
+	if value != X2 {
+		cg.asm.MovRegReg(X2, value)
+	}
+	
+	// 调用 ArraySetHelper
+	helperAddr := GetArraySetHelperPtr()
+	cg.emitCallHelper(helperAddr)
+	
+	// 结果在 X0（成功标志），可以忽略
+}
+
+// emitCallHelper 生成调用运行时辅助函数的代码
+// AAPCS64 调用约定：
+// - 参数: X0-X7
+// - 返回值: X0, X1
+// - 调用者保存: X0-X18
+func (cg *ARM64CodeGenerator) emitCallHelper(addr uintptr) {
+	// 保存返回地址（如果需要）
+	// 将地址加载到 X9（临时寄存器）并调用
+	cg.asm.MovRegImm64(X9, uint64(addr))
+	cg.asm.Blr(X9)
 }

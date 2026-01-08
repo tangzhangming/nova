@@ -53,13 +53,16 @@ func CanJIT(fn *bytecode.Function) bool {
 		case bytecode.OpCall, bytecode.OpTailCall,
 			bytecode.OpCallMethod, bytecode.OpCallStatic,
 			bytecode.OpNewObject, bytecode.OpGetField, bytecode.OpSetField,
-			bytecode.OpNewArray, bytecode.OpArrayGet, bytecode.OpArraySet,
+			bytecode.OpNewArray, // 创建数组需要内存分配，暂不支持
 			bytecode.OpNewMap, bytecode.OpMapGet, bytecode.OpMapSet,
 			bytecode.OpClosure,
 			bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry,
 			bytecode.OpConcat,
 			bytecode.OpLoadGlobal, bytecode.OpStoreGlobal:
 			return false
+		// 数组操作现在已支持（通过运行时辅助函数）
+		case bytecode.OpArrayGet, bytecode.OpArraySet, bytecode.OpArrayLen:
+			// 已实现支持
 		// 控制流指令现在已支持
 		case bytecode.OpLoop, bytecode.OpJump, bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue:
 			// 已实现支持
