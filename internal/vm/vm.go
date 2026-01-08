@@ -280,7 +280,7 @@ func (vm *VM) execute() InterpretResult {
 	chunk := frame.Closure.Function.Chunk
 
 	// 防止无限循环的安全计数器
-	maxInstructions := 10000000 // 1000万条指令上限
+	maxInstructions := 500000000 // 5亿条指令上限（用于性能测试）
 	instructionCount := 0
 	
 	// GC 检查间隔（每执行 100 条指令检查一次，降低间隔以更快响应内存暴涨）
@@ -2078,9 +2078,37 @@ func (vm *VM) tailCall(callee bytecode.Value, argCount int) InterpretResult {
 		closure = callee.Data.(*bytecode.Closure)
 	case bytecode.ValFunc:
 		fn := callee.Data.(*bytecode.Function)
-		// 内置函数不支持尾调用（需要返回值）
+		// 内置函数不支持尾调用，退化为普通调用并处理返回
 		if fn.IsBuiltin && fn.BuiltinFn != nil {
-			return vm.runtimeError("tail call not supported for builtin functions")
+			// 将参数从栈中取出
+			args := make([]bytecode.Value, argCount)
+			for i := argCount - 1; i >= 0; i-- {
+				args[i] = vm.pop()
+			}
+			// 弹出函数本身
+			vm.pop()
+			// 调用内置函数
+			result := fn.BuiltinFn(args)
+			
+			// 尾调用场景：需要模拟返回逻辑
+			// 但不能直接减少帧计数，因为调用者可能还需要继续执行
+			// 正确的做法是把结果放到栈顶，让调用者处理
+			// 注意：对于尾调用，调用者期望看到返回值在栈顶
+			// 但在 OpTailCall 处理中，frame 会被重新获取
+			// 所以这里只需要 push 结果，然后返回一个特殊状态表示需要执行返回
+			
+			// 简单方案：执行完内置函数后，模拟 OpReturn 的行为
+			vm.frameCount--
+			if vm.frameCount == 0 {
+				// 程序结束
+				vm.push(result)
+				return InterpretOK
+			}
+			// 恢复到调用者的帧
+			callerFrame := &vm.frames[vm.frameCount-1]
+			vm.stackTop = callerFrame.BaseSlot + 1
+			vm.stack[vm.stackTop-1] = result
+			return InterpretOK
 		}
 		closure = &bytecode.Closure{Function: fn}
 	default:

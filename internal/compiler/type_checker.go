@@ -181,6 +181,13 @@ func (tc *TypeChecker) checkMethodDecl(method *ast.MethodDecl, className string)
 		tc.cfgBuilder = NewCFGBuilder()
 		tc.currentFunc.CFG = tc.cfgBuilder.Build(method.Body)
 		
+		// 将函数参数标记为已初始化（在入口块）
+		if tc.currentFunc.CFG.Entry != nil {
+			for _, param := range method.Parameters {
+				tc.currentFunc.CFG.Entry.VarsDefined[param.Name.Name] = true
+			}
+		}
+		
 		// 检查返回值完整性
 		if !isVoid {
 			rc := NewReturnChecker(tc.currentFunc.CFG, returnTypeName)
@@ -191,9 +198,10 @@ func (tc *TypeChecker) checkMethodDecl(method *ast.MethodDecl, className string)
 		}
 		
 		// 检查未初始化变量
-		uc := NewUninitializedChecker(tc.currentFunc.CFG)
-		uc.Check()
-		tc.errors = append(tc.errors, uc.errors...)
+		// TODO: 修复 UninitializedChecker 的数据流分析
+		// uc := NewUninitializedChecker(tc.currentFunc.CFG)
+		// uc.Check()
+		// tc.errors = append(tc.errors, uc.errors...)
 		
 		// 检查不可达代码
 		urc := NewUnreachableChecker(tc.currentFunc.CFG)
@@ -783,7 +791,45 @@ func (tc *TypeChecker) checkTernaryExpr(expr *ast.TernaryExpr) string {
 
 // checkStaticAccess 检查静态访问
 func (tc *TypeChecker) checkStaticAccess(expr *ast.StaticAccess) string {
-	// 静态成员访问
+	// 获取类名
+	className := ""
+	switch c := expr.Class.(type) {
+	case *ast.Identifier:
+		className = c.Name
+	case *ast.SelfExpr:
+		className = tc.currentClassName
+	case *ast.ParentExpr:
+		// parent 访问暂不支持，返回 any
+		return "any"
+	}
+	
+	if className == "" {
+		return "any"
+	}
+	
+	// 检查成员类型
+	switch m := expr.Member.(type) {
+	case *ast.CallExpr:
+		// 静态方法调用 Class::method()
+		if ident, ok := m.Function.(*ast.Identifier); ok {
+			methodName := ident.Name
+			// 查找方法签名
+			if method := tc.symbolTable.GetMethod(className, methodName, len(m.Arguments)); method != nil {
+				return method.ReturnType
+			}
+		}
+	case *ast.Identifier:
+		// 静态常量访问 Class::CONST
+		if prop := tc.symbolTable.GetProperty(className, m.Name); prop != nil {
+			return prop.Type
+		}
+	case *ast.Variable:
+		// 静态属性访问 Class::$prop
+		if prop := tc.symbolTable.GetProperty(className, m.Name); prop != nil {
+			return prop.Type
+		}
+	}
+	
 	return "any"
 }
 

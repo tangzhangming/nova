@@ -680,6 +680,18 @@ func (c *Compiler) hasSideEffect(expr ast.Expression) bool {
 	}
 }
 
+// isSimpleLiteral 检查表达式是否是简单字面量
+// 简单字面量不需要 CSE 缓存，因为它们已经很高效
+func (c *Compiler) isSimpleLiteral(expr ast.Expression) bool {
+	switch expr.(type) {
+	case *ast.IntegerLiteral, *ast.FloatLiteral, *ast.StringLiteral,
+		*ast.BoolLiteral, *ast.NullLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
 // CompileClosure 编译带 use 的闭包（无返回类型检查）
 func (c *Compiler) CompileClosure(name string, params []*ast.Parameter, useVars []*ast.Variable, body *ast.BlockStmt) *bytecode.Function {
 	return c.CompileClosureWithReturnType(name, params, useVars, body, nil)
@@ -1985,7 +1997,8 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	c.currentLine = expr.Pos().Line
 	
 	// CSE: 检查是否可以复用已计算的表达式
-	if c.cseEnabled && !c.hasSideEffect(expr) && c.loopDepth == 0 {
+	// 注意：简单字面量不需要 CSE，因为它们已经很高效
+	if c.cseEnabled && !c.hasSideEffect(expr) && c.loopDepth > 0 && !c.isSimpleLiteral(expr) {
 		sig := c.computeExprSignature(expr)
 		if sig != "" {
 			if slot, exists := c.exprCache[sig]; exists {
@@ -1997,9 +2010,10 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	}
 	
 	// 记录是否需要缓存（在表达式编译完成后）
+	// 注意：简单字面量不需要缓存，只缓存复杂表达式
 	var needCache bool
 	var cacheSig string
-	if c.cseEnabled && !c.hasSideEffect(expr) && c.loopDepth == 0 {
+	if c.cseEnabled && !c.hasSideEffect(expr) && c.loopDepth > 0 && !c.isSimpleLiteral(expr) {
 		cacheSig = c.computeExprSignature(expr)
 		if cacheSig != "" {
 			needCache = true
