@@ -1,4 +1,4 @@
-// Sola 标准库 - Session
+﻿// Sola 标准库 - Session
 namespace sola.net.http.session
 
 use sola.lang.Str;
@@ -8,10 +8,10 @@ use sola.lang.Str;
  */
 public class FlashEntry {
     public string $key;
-    public mixed $value;
+    public dynamic $value;
     public bool $keep;
     
-    public function __construct(string $key, mixed $value) {
+    public function __construct(string $key, dynamic $value) {
         $this->key = $key;
         $this->value = $value;
         $this->keep = false;
@@ -119,7 +119,7 @@ public class Session {
     /**
      * 设置数据
      */
-    public function set(string $key, mixed $value): void {
+    public function set(string $key, dynamic $value): void {
         $this->data->set($key, $value);
         $this->modified = true;
     }
@@ -127,7 +127,7 @@ public class Session {
     /**
      * 获取数据
      */
-    public function get(string $key, mixed $default = null): mixed {
+    public function get(string $key, dynamic $default = null): dynamic {
         return $this->data->get($key, $default);
     }
     
@@ -168,7 +168,7 @@ public class Session {
     /**
      * 设置 Flash 数据
      */
-    public function flash(string $key, mixed $value): void {
+    public function flash(string $key, dynamic $value): void {
         $this->newFlash[$this->newFlashCount] = new FlashEntry($key, $value);
         $this->newFlashCount++;
         $this->modified = true;
@@ -177,7 +177,7 @@ public class Session {
     /**
      * 获取 Flash 数据
      */
-    public function getFlash(string $key, mixed $default = null): mixed {
+    public function getFlash(string $key, dynamic $default = null): dynamic {
         for ($i := 0; $i < $this->flashCount; $i++) {
             if ($this->flash[$i]->key == $key) {
                 return $this->flash[$i]->value;

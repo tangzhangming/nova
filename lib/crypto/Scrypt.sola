@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - Scrypt
  * 内存困难密码派生函数
  */
@@ -25,7 +25,7 @@ class Scrypt {
     
     /**
      * Scrypt密钥派生
-     * @param mixed $password 密码
+     * @param dynamic $password 密码
      * @param byte[] $salt 盐值
      * @param int $n CPU/内存成本参数（必须是2的幂，推荐2^15-2^20）
      * @param int $r 块大小参数（推荐8）
@@ -38,7 +38,7 @@ class Scrypt {
      * byte[] $key = Scrypt::derive("password", $salt, 32768, 8, 1, 32);
      */
     public static function derive(
-        mixed $password,
+        dynamic $password,
         byte[] $salt,
         int $n = 32768,
         int $r = 8,
@@ -112,21 +112,21 @@ class Scrypt {
     /**
      * 低成本派生（适用于低性能设备）
      */
-    public static function deriveLow(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+    public static function deriveLow(dynamic $password, byte[] $salt, int $keyLength = 32): byte[] {
         return self::derive($password, $salt, 16384, 8, 1, $keyLength);  // N = 2^14
     }
     
     /**
      * 标准成本派生
      */
-    public static function deriveStandard(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+    public static function deriveStandard(dynamic $password, byte[] $salt, int $keyLength = 32): byte[] {
         return self::derive($password, $salt, 32768, 8, 1, $keyLength);  // N = 2^15
     }
     
     /**
      * 高成本派生（高安全性场景）
      */
-    public static function deriveHigh(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+    public static function deriveHigh(dynamic $password, byte[] $salt, int $keyLength = 32): byte[] {
         return self::derive($password, $salt, 65536, 8, 1, $keyLength);  // N = 2^16
     }
     

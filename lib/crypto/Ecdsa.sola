@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - ECDSA
  * 椭圆曲线数字签名算法库
  */
@@ -168,14 +168,14 @@ class Ecdsa {
     
     /**
      * ECDSA签名
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param EcdsaPrivateKey $privateKey 私钥
      * @return byte[] 签名
      * 
      * @example
      * byte[] $signature = Ecdsa::sign("message", $keys->getPrivateKey());
      */
-    public static function sign(mixed $message, EcdsaPrivateKey $privateKey): byte[] {
+    public static function sign(dynamic $message, EcdsaPrivateKey $privateKey): byte[] {
         byte[] $result = native_crypto_ecdsa_sign($message, $privateKey->getHandle());
         if (count($result) == 0) {
             throw new CryptoException("ECDSA signing failed", CryptoException::SIGNATURE_FAILED);
@@ -185,12 +185,12 @@ class Ecdsa {
     
     /**
      * ECDSA验签
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param byte[] $signature 签名
      * @param EcdsaPublicKey $publicKey 公钥
      * @return bool 验证是否通过
      */
-    public static function verify(mixed $message, byte[] $signature, EcdsaPublicKey $publicKey): bool {
+    public static function verify(dynamic $message, byte[] $signature, EcdsaPublicKey $publicKey): bool {
         return native_crypto_ecdsa_verify($message, $signature, $publicKey->getHandle());
     }
 }

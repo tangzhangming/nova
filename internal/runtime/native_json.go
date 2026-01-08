@@ -67,7 +67,7 @@ func nativeJsonEncode(args []bytecode.Value) bytecode.Value {
 }
 
 // nativeJsonDecode 将JSON字符串解码为Sola值
-// native_json_decode(json string) -> mixed
+// native_json_decode(json string) -> dynamic
 func nativeJsonDecode(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.Value{Type: ValNull}

@@ -309,7 +309,7 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 	case p.matchAny(token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
 		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
 		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
-		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.OBJECT):
+		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.UNKNOWN, token.DYNAMIC):
 		baseType = &ast.SimpleType{
 			Token: p.previous(),
 			Name:  p.previous().Literal,
@@ -686,7 +686,7 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 	case token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
 		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
 		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
-		token.BOOL_TYPE, token.STRING_TYPE, token.OBJECT:
+		token.BOOL_TYPE, token.STRING_TYPE, token.UNKNOWN, token.DYNAMIC:
 		return p.parseTypedArrayLiteral()
 	// Go 风格 Map 字面量: map[K]V{...}
 	case token.MAP:
@@ -886,7 +886,7 @@ func (p *Parser) tryParseArrowFuncParams() bool {
 	for !p.check(token.RPAREN) && !p.isAtEnd() {
 		// 跳过类型
 		if p.checkAny(token.INT_TYPE, token.STRING_TYPE, token.BOOL_TYPE, token.FLOAT_TYPE,
-			token.VOID, token.OBJECT, token.IDENT, token.QUESTION) {
+			token.VOID, token.UNKNOWN, token.DYNAMIC, token.IDENT, token.QUESTION) {
 			p.advance()
 			// 处理数组类型
 			if p.check(token.LBRACKET) {
@@ -1634,7 +1634,7 @@ func (p *Parser) isTypeStart() bool {
 	if p.checkAny(token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
 		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
 		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
-		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.OBJECT,
+		token.BOOL_TYPE, token.STRING_TYPE, token.VOID, token.UNKNOWN, token.DYNAMIC,
 		token.MAP, token.FUNC_TYPE, token.QUESTION) {
 		return true
 	}

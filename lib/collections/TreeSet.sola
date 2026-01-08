@@ -1,4 +1,4 @@
-// Sola 标准库 - 有序集合
+﻿// Sola 标准库 - 有序集合
 namespace sola.collections
 
 /**
@@ -76,7 +76,7 @@ public class TreeSet<T> implements ISet<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         return $this->binarySearch($element) >= 0;
     }
     
@@ -89,7 +89,7 @@ public class TreeSet<T> implements ISet<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $index := $this->findInsertIndex($element);
         
         // 检查是否已存在
@@ -117,7 +117,7 @@ public class TreeSet<T> implements ISet<T> {
         return $modified;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         $index := $this->binarySearch($element);
         if ($index < 0) {
             return false;
@@ -267,7 +267,7 @@ public class TreeSet<T> implements ISet<T> {
      * 
      * @throws NoSuchElementException 如果集合为空
      */
-    public function first(): mixed {
+    public function first(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Set is empty");
         }
@@ -279,7 +279,7 @@ public class TreeSet<T> implements ISet<T> {
      * 
      * @throws NoSuchElementException 如果集合为空
      */
-    public function last(): mixed {
+    public function last(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Set is empty");
         }
@@ -292,7 +292,7 @@ public class TreeSet<T> implements ISet<T> {
      * @param element 参考元素
      * @return 小于该元素的最大元素，如果不存在返回 null
      */
-    public function lower(mixed $element): mixed {
+    public function lower(dynamic $element): dynamic {
         $index := $this->findInsertIndex($element);
         if ($index == 0) {
             return null;
@@ -306,7 +306,7 @@ public class TreeSet<T> implements ISet<T> {
      * @param element 参考元素
      * @return 大于该元素的最小元素，如果不存在返回 null
      */
-    public function higher(mixed $element): mixed {
+    public function higher(dynamic $element): dynamic {
         $index := $this->findInsertIndex($element);
         // 如果元素存在，跳过它
         if ($index < $this->count && $this->compare($this->data[$index], $element) == 0) {
@@ -324,7 +324,7 @@ public class TreeSet<T> implements ISet<T> {
      * @param element 参考元素
      * @return 小于等于该元素的最大元素，如果不存在返回 null
      */
-    public function floor(mixed $element): mixed {
+    public function floor(dynamic $element): dynamic {
         $index := $this->binarySearch($element);
         if ($index >= 0) {
             return $this->data[$index];
@@ -343,7 +343,7 @@ public class TreeSet<T> implements ISet<T> {
      * @param element 参考元素
      * @return 大于等于该元素的最小元素，如果不存在返回 null
      */
-    public function ceiling(mixed $element): mixed {
+    public function ceiling(dynamic $element): dynamic {
         $index := $this->binarySearch($element);
         if ($index >= 0) {
             return $this->data[$index];
@@ -359,7 +359,7 @@ public class TreeSet<T> implements ISet<T> {
     /**
      * 移除并返回最小元素
      */
-    public function pollFirst(): mixed {
+    public function pollFirst(): dynamic {
         if ($this->count == 0) {
             return null;
         }
@@ -371,7 +371,7 @@ public class TreeSet<T> implements ISet<T> {
     /**
      * 移除并返回最大元素
      */
-    public function pollLast(): mixed {
+    public function pollLast(): dynamic {
         if ($this->count == 0) {
             return null;
         }
@@ -387,7 +387,7 @@ public class TreeSet<T> implements ISet<T> {
      * @param fromElement 起始元素（包含）
      * @param toElement 结束元素（不包含）
      */
-    public function subSet(mixed $fromElement, mixed $toElement): TreeSet<T> {
+    public function subSet(dynamic $fromElement, dynamic $toElement): TreeSet<T> {
         $result := new TreeSet<T>($this->comparator);
         foreach ($this as $item) {
             if ($this->compare($item, $fromElement) >= 0 && $this->compare($item, $toElement) < 0) {
@@ -402,7 +402,7 @@ public class TreeSet<T> implements ISet<T> {
      * 
      * @param toElement 结束元素（不包含）
      */
-    public function headSet(mixed $toElement): TreeSet<T> {
+    public function headSet(dynamic $toElement): TreeSet<T> {
         $result := new TreeSet<T>($this->comparator);
         foreach ($this as $item) {
             if ($this->compare($item, $toElement) < 0) {
@@ -417,7 +417,7 @@ public class TreeSet<T> implements ISet<T> {
      * 
      * @param fromElement 起始元素（包含）
      */
-    public function tailSet(mixed $fromElement): TreeSet<T> {
+    public function tailSet(dynamic $fromElement): TreeSet<T> {
         $result := new TreeSet<T>($this->comparator);
         foreach ($this as $item) {
             if ($this->compare($item, $fromElement) >= 0) {
@@ -477,7 +477,7 @@ public class TreeSet<T> implements ISet<T> {
     // 内部方法
     // ========================================================================
     
-    private function compare(mixed $a, mixed $b): int {
+    private function compare(dynamic $a, dynamic $b): int {
         if ($this->comparator != null) {
             return $this->comparator->compare($a, $b);
         }
@@ -490,7 +490,7 @@ public class TreeSet<T> implements ISet<T> {
         return 0;
     }
     
-    private function binarySearch(mixed $element): int {
+    private function binarySearch(dynamic $element): int {
         $low := 0;
         $high := $this->count - 1;
         
@@ -510,7 +510,7 @@ public class TreeSet<T> implements ISet<T> {
         return -1;
     }
     
-    private function findInsertIndex(mixed $element): int {
+    private function findInsertIndex(dynamic $element): int {
         $low := 0;
         $high := $this->count;
         
@@ -547,7 +547,7 @@ public class TreeSetIterator<T> implements IIterator<T> {
         return $this->index < $this->set->size();
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();
@@ -588,7 +588,7 @@ public class TreeSetDescendingIterator<T> implements IIterator<T> {
         return $this->index >= 0;
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

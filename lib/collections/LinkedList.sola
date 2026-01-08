@@ -1,4 +1,4 @@
-// Sola 标准库 - 双向链表
+﻿// Sola 标准库 - 双向链表
 namespace sola.collections
 
 use sola.lang.IndexOutOfBoundsException;
@@ -76,7 +76,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         return $this->indexOf($element) >= 0;
     }
     
@@ -89,7 +89,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $this->addLast($element);
         return true;
     }
@@ -103,7 +103,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return $modified;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         $node := $this->head;
         while ($node != null) {
             if ($node->value == $element) {
@@ -162,18 +162,18 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
     // IList 实现
     // ========================================================================
     
-    public function get(int $index): mixed {
+    public function get(int $index): dynamic {
         return $this->node($index)->value;
     }
     
-    public function set(int $index, mixed $element): mixed {
+    public function set(int $index, dynamic $element): dynamic {
         $node := $this->node($index);
         $old := $node->value;
         $node->value = $element;
         return $old;
     }
     
-    public function insert(int $index, mixed $element): void {
+    public function insert(int $index, dynamic $element): void {
         if ($index == $this->count) {
             $this->addLast($element);
         } else {
@@ -196,11 +196,11 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return true;
     }
     
-    public function removeAt(int $index): mixed {
+    public function removeAt(int $index): dynamic {
         return $this->unlink($this->node($index));
     }
     
-    public function indexOf(mixed $element): int {
+    public function indexOf(dynamic $element): int {
         $index := 0;
         $node := $this->head;
         while ($node != null) {
@@ -213,7 +213,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return -1;
     }
     
-    public function lastIndexOf(mixed $element): int {
+    public function lastIndexOf(dynamic $element): int {
         $index := $this->count - 1;
         $node := $this->tail;
         while ($node != null) {
@@ -264,14 +264,14 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         $this->modCount++;
     }
     
-    public function first(): mixed {
+    public function first(): dynamic {
         if ($this->head == null) {
             throw new NoSuchElementException("List is empty");
         }
         return $this->head->value;
     }
     
-    public function last(): mixed {
+    public function last(): dynamic {
         if ($this->tail == null) {
             throw new NoSuchElementException("List is empty");
         }
@@ -282,7 +282,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
     // IDeque 实现
     // ========================================================================
     
-    public function addFirst(mixed $element): void {
+    public function addFirst(dynamic $element): void {
         $newNode := new LinkedListNode<T>($element);
         if ($this->head == null) {
             $this->head = $newNode;
@@ -296,37 +296,37 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         $this->modCount++;
     }
     
-    public function offerFirst(mixed $element): bool {
+    public function offerFirst(dynamic $element): bool {
         $this->addFirst($element);
         return true;
     }
     
-    public function removeFirst(): mixed {
+    public function removeFirst(): dynamic {
         if ($this->head == null) {
             throw new NoSuchElementException("List is empty");
         }
         return $this->unlinkFirst();
     }
     
-    public function pollFirst(): mixed {
+    public function pollFirst(): dynamic {
         if ($this->head == null) {
             return null;
         }
         return $this->unlinkFirst();
     }
     
-    public function getFirst(): mixed {
+    public function getFirst(): dynamic {
         return $this->first();
     }
     
-    public function peekFirst(): mixed {
+    public function peekFirst(): dynamic {
         if ($this->head == null) {
             return null;
         }
         return $this->head->value;
     }
     
-    public function addLast(mixed $element): void {
+    public function addLast(dynamic $element): void {
         $newNode := new LinkedListNode<T>($element);
         if ($this->tail == null) {
             $this->head = $newNode;
@@ -340,30 +340,30 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         $this->modCount++;
     }
     
-    public function offerLast(mixed $element): bool {
+    public function offerLast(dynamic $element): bool {
         $this->addLast($element);
         return true;
     }
     
-    public function removeLast(): mixed {
+    public function removeLast(): dynamic {
         if ($this->tail == null) {
             throw new NoSuchElementException("List is empty");
         }
         return $this->unlinkLast();
     }
     
-    public function pollLast(): mixed {
+    public function pollLast(): dynamic {
         if ($this->tail == null) {
             return null;
         }
         return $this->unlinkLast();
     }
     
-    public function getLast(): mixed {
+    public function getLast(): dynamic {
         return $this->last();
     }
     
-    public function peekLast(): mixed {
+    public function peekLast(): dynamic {
         if ($this->tail == null) {
             return null;
         }
@@ -374,28 +374,28 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
     // IQueue 实现
     // ========================================================================
     
-    public function enqueue(mixed $element): bool {
+    public function enqueue(dynamic $element): bool {
         $this->addLast($element);
         return true;
     }
     
-    public function offer(mixed $element): bool {
+    public function offer(dynamic $element): bool {
         return $this->offerLast($element);
     }
     
-    public function dequeue(): mixed {
+    public function dequeue(): dynamic {
         return $this->removeFirst();
     }
     
-    public function poll(): mixed {
+    public function poll(): dynamic {
         return $this->pollFirst();
     }
     
-    public function front(): mixed {
+    public function front(): dynamic {
         return $this->getFirst();
     }
     
-    public function peek(): mixed {
+    public function peek(): dynamic {
         return $this->peekFirst();
     }
     
@@ -403,11 +403,11 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
     // Stack 操作
     // ========================================================================
     
-    public function push(mixed $element): void {
+    public function push(dynamic $element): void {
         $this->addFirst($element);
     }
     
-    public function pop(): mixed {
+    public function pop(): dynamic {
         return $this->removeFirst();
     }
     
@@ -471,7 +471,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         }
     }
     
-    private function linkBefore(mixed $element, LinkedListNode<T> $succ): void {
+    private function linkBefore(dynamic $element, LinkedListNode<T> $succ): void {
         $pred := $succ->prev;
         $newNode := new LinkedListNode<T>($element);
         $newNode->next = $succ;
@@ -488,7 +488,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         $this->modCount++;
     }
     
-    private function unlink(LinkedListNode<T> $node): mixed {
+    private function unlink(LinkedListNode<T> $node): dynamic {
         $value := $node->value;
         $prev := $node->prev;
         $next := $node->next;
@@ -510,7 +510,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return $value;
     }
     
-    private function unlinkFirst(): mixed {
+    private function unlinkFirst(): dynamic {
         $value := $this->head->value;
         $next := $this->head->next;
         
@@ -526,7 +526,7 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
         return $value;
     }
     
-    private function unlinkLast(): mixed {
+    private function unlinkLast(): dynamic {
         $value := $this->tail->value;
         $prev := $this->tail->prev;
         
@@ -573,11 +573,11 @@ public class LinkedList<T> implements IList<T>, IDeque<T> {
  * 链表节点
  */
 public class LinkedListNode<T> {
-    public mixed $value;
+    public dynamic $value;
     public LinkedListNode<T> $prev;
     public LinkedListNode<T> $next;
     
-    public function __construct(mixed $value) {
+    public function __construct(dynamic $value) {
         $this->value = $value;
         $this->prev = null;
         $this->next = null;
@@ -604,7 +604,7 @@ public class LinkedListIterator<T> implements IIterator<T> {
         return $this->current != null;
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

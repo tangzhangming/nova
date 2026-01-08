@@ -1,4 +1,4 @@
-// Sola 标准库 - 队列
+﻿// Sola 标准库 - 队列
 namespace sola.collections
 
 /**
@@ -68,7 +68,7 @@ public class Queue<T> implements IQueue<T> {
     // IQueue 实现
     // ========================================================================
     
-    public function enqueue(mixed $element): bool {
+    public function enqueue(dynamic $element): bool {
         $this->data[$this->tail] = $element;
         $this->tail++;
         $this->count++;
@@ -76,11 +76,11 @@ public class Queue<T> implements IQueue<T> {
         return true;
     }
     
-    public function offer(mixed $element): bool {
+    public function offer(dynamic $element): bool {
         return $this->enqueue($element);
     }
     
-    public function dequeue(): mixed {
+    public function dequeue(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Queue is empty");
         }
@@ -100,21 +100,21 @@ public class Queue<T> implements IQueue<T> {
         return $element;
     }
     
-    public function poll(): mixed {
+    public function poll(): dynamic {
         if ($this->count == 0) {
             return null;
         }
         return $this->dequeue();
     }
     
-    public function front(): mixed {
+    public function front(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Queue is empty");
         }
         return $this->data[$this->head];
     }
     
-    public function peek(): mixed {
+    public function peek(): dynamic {
         if ($this->count == 0) {
             return null;
         }
@@ -133,7 +133,7 @@ public class Queue<T> implements IQueue<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         for ($i := $this->head; $i < $this->tail; $i++) {
             if ($this->data[$i] == $element) {
                 return true;
@@ -151,7 +151,7 @@ public class Queue<T> implements IQueue<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         return $this->enqueue($element);
     }
     
@@ -162,7 +162,7 @@ public class Queue<T> implements IQueue<T> {
         return true;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         // 查找并移除第一个匹配的元素
         $newData := [];
         $newIndex := 0;
@@ -313,7 +313,7 @@ public class QueueIterator<T> implements IIterator<T> {
         return $this->index < $this->queue->getTail();
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

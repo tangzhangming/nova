@@ -1,4 +1,4 @@
-// Sola 标准库 - 动态数组
+﻿// Sola 标准库 - 动态数组
 namespace sola.collections
 
 use sola.lang.IndexOutOfBoundsException;
@@ -95,7 +95,7 @@ public class ArrayList<T> implements IList<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         return $this->indexOf($element) >= 0;
     }
     
@@ -108,7 +108,7 @@ public class ArrayList<T> implements IList<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $this->data[$this->count] = $element;
         $this->count++;
         $this->modCount++;
@@ -124,7 +124,7 @@ public class ArrayList<T> implements IList<T> {
         return $modified;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         $index := $this->indexOf($element);
         if ($index >= 0) {
             $this->removeAt($index);
@@ -175,19 +175,19 @@ public class ArrayList<T> implements IList<T> {
     // IList 实现
     // ========================================================================
     
-    public function get(int $index): mixed {
+    public function get(int $index): dynamic {
         $this->checkIndex($index);
         return $this->data[$index];
     }
     
-    public function set(int $index, mixed $element): mixed {
+    public function set(int $index, dynamic $element): dynamic {
         $this->checkIndex($index);
         $old := $this->data[$index];
         $this->data[$index] = $element;
         return $old;
     }
     
-    public function insert(int $index, mixed $element): void {
+    public function insert(int $index, dynamic $element): void {
         $this->checkIndexForAdd($index);
         
         // 移动元素
@@ -225,7 +225,7 @@ public class ArrayList<T> implements IList<T> {
         return true;
     }
     
-    public function removeAt(int $index): mixed {
+    public function removeAt(int $index): dynamic {
         $this->checkIndex($index);
         
         $old := $this->data[$index];
@@ -240,7 +240,7 @@ public class ArrayList<T> implements IList<T> {
         return $old;
     }
     
-    public function indexOf(mixed $element): int {
+    public function indexOf(dynamic $element): int {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->data[$i] == $element) {
                 return $i;
@@ -249,7 +249,7 @@ public class ArrayList<T> implements IList<T> {
         return -1;
     }
     
-    public function lastIndexOf(mixed $element): int {
+    public function lastIndexOf(dynamic $element): int {
         for ($i := $this->count - 1; $i >= 0; $i--) {
             if ($this->data[$i] == $element) {
                 return $i;
@@ -303,14 +303,14 @@ public class ArrayList<T> implements IList<T> {
         $this->modCount++;
     }
     
-    public function first(): mixed {
+    public function first(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("List is empty");
         }
         return $this->data[0];
     }
     
-    public function last(): mixed {
+    public function last(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("List is empty");
         }
@@ -407,7 +407,7 @@ public class ArrayList<T> implements IList<T> {
      * @param predicate 条件函数
      * @return 满足条件的元素，如果没有返回 null
      */
-    public function find(function(T $item): bool $predicate): mixed {
+    public function find(function(T $item): bool $predicate): dynamic {
         foreach ($this as $item) {
             if ($predicate($item)) {
                 return $item;
@@ -538,7 +538,7 @@ public class ArrayListIterator<T> implements IIterator<T> {
         return $this->cursor < $this->list->size();
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

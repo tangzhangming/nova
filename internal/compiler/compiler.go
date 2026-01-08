@@ -1598,8 +1598,8 @@ func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 
 	// 推断迭代对象类型，用于确定 key 和 value 的类型
 	iterableType := c.inferExprType(s.Iterable)
-	keyType := "any"
-	valueType := "any"
+	keyType := "dynamic"
+	valueType := "dynamic"
 	
 	// 根据可迭代对象类型确定 key/value 类型
 	if strings.HasSuffix(iterableType, "[]") {
@@ -1613,7 +1613,7 @@ func (c *Compiler) compileForeachStmt(s *ast.ForeachStmt) {
 			valueType = iterableType[idx+1:]
 		}
 	}
-	// superarray 和其他类型使用默认的 "any"
+	// SuperArray 和其他类型使用默认的 "dynamic"
 
 	// 编译迭代对象并创建迭代器
 	c.compileExpr(s.Iterable)
@@ -2402,7 +2402,7 @@ func (c *Compiler) compileAssignExpr(e *ast.AssignExpr) {
 		objType := c.inferExprType(prop.Object)
 		if objType != "" {
 			propSig := c.symbolTable.GetProperty(objType, prop.Property.Name)
-			if propSig != nil && propSig.Type != "" && propSig.Type != "any" {
+			if propSig != nil && propSig.Type != "" && propSig.Type != "dynamic" {
 				rightType := c.inferExprType(e.Right)
 				if rightType != "" && !c.isTypeCompatible(rightType, propSig.Type) {
 					c.error(e.Right.Pos(), i18n.T(i18n.ErrCannotAssign, rightType, propSig.Type))
@@ -2850,8 +2850,8 @@ func (c *Compiler) checkCallArgTypes(e *ast.CallExpr) {
 			break // 可变参数情况
 		}
 		expectedType := sig.ParamTypes[i]
-		if expectedType == "any" || expectedType == "mixed" {
-			continue // any 类型接受任何值
+		if expectedType == "dynamic" || expectedType == "unknown" {
+			continue // dynamic/unknown 类型接受任何值
 		}
 		
 		actualType := c.inferExprType(arg)
@@ -3064,7 +3064,7 @@ func (c *Compiler) checkMethodCallArgTypes(e *ast.MethodCall) {
 			break
 		}
 		expectedType := sig.ParamTypes[i]
-		if expectedType == "any" || expectedType == "mixed" {
+		if expectedType == "dynamic" || expectedType == "unknown" {
 			continue
 		}
 		
@@ -3262,7 +3262,7 @@ func (c *Compiler) checkStaticMethodArgTypes(className, methodName string, args 
 			break
 		}
 		expectedType := sig.ParamTypes[i]
-		if expectedType == "any" || expectedType == "mixed" {
+		if expectedType == "dynamic" || expectedType == "unknown" {
 			continue
 		}
 		
@@ -3400,7 +3400,7 @@ func (c *Compiler) checkConstructorArgTypes(e *ast.NewExpr) {
 			break
 		}
 		expectedType := sig.ParamTypes[i]
-		if expectedType == "any" || expectedType == "mixed" {
+		if expectedType == "dynamic" || expectedType == "unknown" {
 			continue
 		}
 		
@@ -4009,7 +4009,7 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 			if elemType == "error" {
 				return "error"
 			}
-			if elemType != "" && elemType != "any" {
+			if elemType != "" && elemType != "dynamic" {
 				elemTypes = append(elemTypes, elemType)
 			}
 		}
@@ -4068,10 +4068,10 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 				return "error"
 			}
 			
-			if keyType != "" && keyType != "any" {
+			if keyType != "" && keyType != "dynamic" {
 				keyTypes = append(keyTypes, keyType)
 			}
-			if valueType != "" && valueType != "any" {
+			if valueType != "" && valueType != "dynamic" {
 				valueTypes = append(valueTypes, valueType)
 			}
 		}
@@ -4092,7 +4092,7 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		return "map[" + keyTypes[0] + "]" + valueTypes[0]
 	case *ast.SuperArrayLiteral:
 		// PHP 风格万能数组，类型固定为 superarray
-		return "superarray"
+		return "SuperArray"
 	case *ast.BinaryExpr:
 		leftType := c.inferExprType(e.Left)
 		rightType := c.inferExprType(e.Right)
@@ -4138,7 +4138,7 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		if c.currentClassName != "" {
 			return c.currentClassName
 		}
-		return "object"
+		return "unknown"
 	case *ast.CallExpr:
 		// 从符号表查询函数返回类型
 		return c.inferCallExprType(e)
@@ -4191,11 +4191,11 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 			}
 		}
 		// 静态类型系统：索引目标类型必须明确
-		if objType == "" || objType == "any" {
+		if objType == "" || objType == "dynamic" {
 			c.error(e.Pos(), i18n.T(i18n.ErrIndexTargetUnknown))
 			return "error"
 		}
-		return "any"
+		return "dynamic"
 	case *ast.PropertyAccess:
 		// 属性访问：从符号表获取属性类型
 		return c.inferPropertyAccessType(e)
@@ -4453,7 +4453,7 @@ func (c *Compiler) inferTypeParamFromArg(paramType, argType string, typeParams [
 	for _, typeParam := range typeParams {
 		// 直接匹配：T 和 int
 		if paramType == typeParam {
-			if argType != "" && argType != "any" && argType != "error" {
+			if argType != "" && argType != "dynamic" && argType != "error" {
 				typeArgMap[typeParam] = argType
 			}
 			continue
@@ -4464,7 +4464,7 @@ func (c *Compiler) inferTypeParamFromArg(paramType, argType string, typeParams [
 			paramElemType := strings.TrimSuffix(paramType, "[]")
 			argElemType := strings.TrimSuffix(argType, "[]")
 			if paramElemType == typeParam {
-				if argElemType != "" && argElemType != "any" && argElemType != "error" {
+				if argElemType != "" && argElemType != "dynamic" && argElemType != "error" {
 					typeArgMap[typeParam] = argElemType
 				}
 			}
@@ -4475,10 +4475,10 @@ func (c *Compiler) inferTypeParamFromArg(paramType, argType string, typeParams [
 			paramKeyType, paramValueType := c.parseMapType(paramType)
 			argKeyType, argValueType := c.parseMapType(argType)
 			
-			if paramKeyType == typeParam && argKeyType != "" && argKeyType != "any" {
+			if paramKeyType == typeParam && argKeyType != "" && argKeyType != "dynamic" {
 				typeArgMap[typeParam] = argKeyType
 			}
-			if paramValueType == typeParam && argValueType != "" && argValueType != "any" {
+			if paramValueType == typeParam && argValueType != "" && argValueType != "dynamic" {
 				typeArgMap[typeParam] = argValueType
 			}
 		}
@@ -4653,10 +4653,10 @@ func (c *Compiler) inferClosureParamTypes(params []*ast.Parameter) string {
 				if defaultType != "error" && defaultType != "" {
 					paramTypes = append(paramTypes, defaultType)
 				} else {
-					paramTypes = append(paramTypes, "any")
+					paramTypes = append(paramTypes, "dynamic")
 				}
 			} else {
-				paramTypes = append(paramTypes, "any")
+				paramTypes = append(paramTypes, "dynamic")
 			}
 		}
 	}
@@ -4724,7 +4724,7 @@ func (c *Compiler) inferGenericNewExpr(e *ast.NewExpr) string {
 	if methods == nil {
 		// 没有显式构造函数，尝试从第一个参数推断
 		firstArgType := c.inferExprType(e.Arguments[0])
-		if firstArgType != "" && firstArgType != "any" && firstArgType != "error" {
+		if firstArgType != "" && firstArgType != "dynamic" && firstArgType != "error" {
 			return e.ClassName.Name + "<" + firstArgType + ">"
 		}
 		return e.ClassName.Name
@@ -4743,7 +4743,7 @@ func (c *Compiler) inferGenericNewExpr(e *ast.NewExpr) string {
 		}
 		
 		argType := c.inferExprType(e.Arguments[i])
-		if argType == "" || argType == "any" || argType == "error" {
+		if argType == "" || argType == "dynamic" || argType == "error" {
 			continue
 		}
 		
@@ -4886,8 +4886,8 @@ func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
 		c.error(e.Pos(), i18n.T(i18n.ErrStaticMemberNotFound, className, "$"+member.Name))
 		return "error"
 	case *ast.Identifier:
-		// 类常量 - 暂时返回 any，后续可以增强常量类型追踪
-		return "any"
+		// 类常量 - 暂时返回 dynamic，后续可以增强常量类型追踪
+		return "dynamic"
 	case *ast.CallExpr:
 		// 静态方法调用
 		if fn, ok := member.Function.(*ast.Identifier); ok {
@@ -4918,9 +4918,9 @@ func (c *Compiler) inferPropertyAccessType(e *ast.PropertyAccess) string {
 		return "error"
 	}
 	
-	// any 类型允许任何属性访问
-	if objType == "any" || objType == "mixed" {
-		return "any"
+	// dynamic 类型允许任何属性访问
+	if objType == "dynamic" || objType == "unknown" {
+		return "dynamic"
 	}
 	
 	// 特殊属性
@@ -5153,12 +5153,12 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
-	// any/mixed 类型接受任何值
-	if expected == "any" || expected == "mixed" {
+	// dynamic/unknown 类型接受任何值
+	if expected == "dynamic" || expected == "unknown" {
 		return true
 	}
 	
-	// 泛型类型参数（单个大写字母如 T, K, V, E, R）视为 any 类型
+	// 泛型类型参数（单个大写字母如 T, K, V, E, R）视为 dynamic 类型
 	// 这实现了类型擦除：在编译时泛型参数可以接受任何类型
 	if c.isTypeParameter(expected) {
 		return true
@@ -5289,11 +5289,9 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
-	// object 类型可以接受任何对象
-	if expected == "object" {
-		if _, exists := c.symbolTable.ClassMethods[actual]; exists {
-			return true
-		}
+	// unknown 类型可以接受任何值
+	if expected == "unknown" {
+		return true
 	}
 	
 	// 命名空间匹配：sola.net.tcp\TcpClient 与 TcpClient 应匹配

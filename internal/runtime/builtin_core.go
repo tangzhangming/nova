@@ -50,9 +50,13 @@ func builtinTypeof(args []bytecode.Value) bytecode.Value {
 	case bytecode.ValMap:
 		return bytecode.NewString("map")
 	case bytecode.ValSuperArray:
-		return bytecode.NewString("superarray")
+		return bytecode.NewString("SuperArray")
 	case bytecode.ValObject:
-		return bytecode.NewString("object")
+		obj := args[0].AsObject()
+		if obj != nil && obj.Class != nil {
+			return bytecode.NewString(obj.Class.Name)
+		}
+		return bytecode.NewString("unknown")
 	case bytecode.ValFunc, bytecode.ValClosure:
 		return bytecode.NewString("function")
 	default:

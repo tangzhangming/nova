@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - PBKDF2
  * 密码派生密钥函数（Password-Based Key Derivation Function 2）
  */
@@ -29,7 +29,7 @@ class Pbkdf2 {
     
     /**
      * 从密码派生密钥
-     * @param mixed $password 密码（string或byte[]）
+     * @param dynamic $password 密码（string或byte[]）
      * @param byte[] $salt 盐值
      * @param int $iterations 迭代次数（推荐100000以上）
      * @param int $keyLength 输出密钥长度
@@ -41,7 +41,7 @@ class Pbkdf2 {
      * byte[] $key = Pbkdf2::derive("password", $salt, 100000, 32, "sha256");
      */
     public static function derive(
-        mixed $password, 
+        dynamic $password, 
         byte[] $salt, 
         int $iterations = 100000, 
         int $keyLength = 32, 
@@ -125,14 +125,14 @@ class Pbkdf2 {
     /**
      * 使用SHA256派生密钥
      */
-    public static function deriveSha256(mixed $password, byte[] $salt, int $iterations = 100000, int $keyLength = 32): byte[] {
+    public static function deriveSha256(dynamic $password, byte[] $salt, int $iterations = 100000, int $keyLength = 32): byte[] {
         return self::derive($password, $salt, $iterations, $keyLength, "sha256");
     }
     
     /**
      * 使用SHA512派生密钥
      */
-    public static function deriveSha512(mixed $password, byte[] $salt, int $iterations = 100000, int $keyLength = 64): byte[] {
+    public static function deriveSha512(dynamic $password, byte[] $salt, int $iterations = 100000, int $keyLength = 64): byte[] {
         return self::derive($password, $salt, $iterations, $keyLength, "sha512");
     }
     

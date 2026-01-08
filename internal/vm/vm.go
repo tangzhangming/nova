@@ -3982,7 +3982,7 @@ func (vm *VM) getValueTypeName(v bytecode.Value) string {
 		if obj != nil && obj.Class != nil {
 			return obj.Class.Name
 		}
-		return "object"
+		return "unknown"
 	case bytecode.ValClosure:
 		return "function"
 	case bytecode.ValIterator:
@@ -4002,7 +4002,7 @@ func (vm *VM) getValueTypeName(v bytecode.Value) string {
 //   - null 被视为可赋值给任何类型（运行时不做非空约束）
 //   - float 兼容 int（数值提升）
 //   - array 与 bytes 互相兼容（为历史/语义便利做的折中）
-//   - mixed/any 匹配所有类型
+//   - dynamic/unknown 匹配所有类型
 //
 // 对象类型：
 //   - 通过 checkClassHierarchy 检查继承链与接口实现关系
@@ -4038,7 +4038,7 @@ func (vm *VM) checkValueType(v bytecode.Value, expectedType string) bool {
 		return actualType == "float" || actualType == "int"
 	case "number":
 		return actualType == "int" || actualType == "float"
-	case "mixed", "any":
+	case "dynamic", "unknown":
 		return true
 	case "array":
 		// bytes 也被视为数组的兼容类型

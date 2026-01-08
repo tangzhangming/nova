@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - Argon2
  * 现代密码哈希和密钥派生函数
  */
@@ -27,7 +27,7 @@ class Argon2 {
     
     /**
      * Argon2id密钥派生（推荐）
-     * @param mixed $password 密码
+     * @param dynamic $password 密码
      * @param byte[] $salt 盐值（至少16字节）
      * @param int $time 迭代次数
      * @param int $memory 内存使用（KB）
@@ -40,7 +40,7 @@ class Argon2 {
      * byte[] $key = Argon2::deriveId("password", $salt, 3, 65536, 4, 32);
      */
     public static function deriveId(
-        mixed $password,
+        dynamic $password,
         byte[] $salt,
         int $time = 3,
         int $memory = 65536,
@@ -64,7 +64,7 @@ class Argon2 {
      * Argon2i密钥派生（抗侧信道攻击）
      */
     public static function deriveI(
-        mixed $password,
+        dynamic $password,
         byte[] $salt,
         int $time = 3,
         int $memory = 65536,
@@ -162,7 +162,7 @@ class Argon2 {
      * 低成本派生（适用于低性能设备）
      * 时间：1次迭代，内存：16MB
      */
-    public static function deriveLow(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+    public static function deriveLow(dynamic $password, byte[] $salt, int $keyLength = 32): byte[] {
         return self::deriveId($password, $salt, 1, 16384, 2, $keyLength);
     }
     
@@ -170,7 +170,7 @@ class Argon2 {
      * 标准成本派生
      * 时间：3次迭代，内存：64MB
      */
-    public static function deriveStandard(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+    public static function deriveStandard(dynamic $password, byte[] $salt, int $keyLength = 32): byte[] {
         return self::deriveId($password, $salt, 3, 65536, 4, $keyLength);
     }
     
@@ -178,7 +178,7 @@ class Argon2 {
      * 高成本派生（高安全性场景）
      * 时间：4次迭代，内存：128MB
      */
-    public static function deriveHigh(mixed $password, byte[] $salt, int $keyLength = 32): byte[] {
+    public static function deriveHigh(dynamic $password, byte[] $salt, int $keyLength = 32): byte[] {
         return self::deriveId($password, $salt, 4, 131072, 4, $keyLength);
     }
     

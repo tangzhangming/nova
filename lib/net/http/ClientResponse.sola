@@ -1,4 +1,4 @@
-// Sola 标准库 - HTTP 客户端响应
+﻿// Sola 标准库 - HTTP 客户端响应
 namespace sola.net.http
 
 use sola.lang.{Str, Bytes};
@@ -174,10 +174,10 @@ public class ClientResponse {
     /**
      * 解析响应体为 JSON
      * 
-     * @return mixed 解析后的 JSON 数据
+     * @return dynamic 解析后的 JSON 数据
      * @throws JsonException 如果 JSON 格式无效
      */
-    public function json(): mixed {
+    public function json(): dynamic {
         $text := $this->text();
         if ($text == "") {
             return null;

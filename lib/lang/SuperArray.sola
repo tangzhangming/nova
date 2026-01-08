@@ -1,4 +1,4 @@
-// Sola 标准库 - 万能数组类
+﻿// Sola 标准库 - 万能数组类
 namespace sola.lang
 
 /**
@@ -78,7 +78,7 @@ public class SuperArray {
      * 获取元素，支持默认值
      * @param $key 要获取的键
      * @param $default 默认值（可选）
-     * @return mixed 对应的值，如果不存在返回默认值或 null
+     * @return dynamic 对应的值，如果不存在返回默认值或 null
      */
     public function get($key, $default = null) {
         // 内置实现
@@ -118,7 +118,7 @@ public class SuperArray {
     
     /**
      * 移除并返回最后一个元素
-     * @return mixed 最后一个元素，如果数组为空返回 null
+     * @return dynamic 最后一个元素，如果数组为空返回 null
      */
     public function pop() {
         // 内置实现
@@ -126,7 +126,7 @@ public class SuperArray {
     
     /**
      * 移除并返回第一个元素
-     * @return mixed 第一个元素，如果数组为空返回 null
+     * @return dynamic 第一个元素，如果数组为空返回 null
      */
     public function shift() {
         // 内置实现

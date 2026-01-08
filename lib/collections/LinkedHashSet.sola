@@ -1,4 +1,4 @@
-// Sola 标准库 - 有序哈希集合
+﻿// Sola 标准库 - 有序哈希集合
 namespace sola.collections
 
 /**
@@ -74,7 +74,7 @@ public class LinkedHashSet<T> implements ISet<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         $key := $this->hashKey($element);
         return isset($this->index[$key]);
     }
@@ -88,7 +88,7 @@ public class LinkedHashSet<T> implements ISet<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $key := $this->hashKey($element);
         if (isset($this->index[$key])) {
             return false;
@@ -111,7 +111,7 @@ public class LinkedHashSet<T> implements ISet<T> {
         return $modified;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         $key := $this->hashKey($element);
         if (!isset($this->index[$key])) {
             return false;
@@ -274,7 +274,7 @@ public class LinkedHashSet<T> implements ISet<T> {
     /**
      * 获取第一个元素
      */
-    public function first(): mixed {
+    public function first(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Set is empty");
         }
@@ -284,7 +284,7 @@ public class LinkedHashSet<T> implements ISet<T> {
     /**
      * 获取最后一个元素
      */
-    public function last(): mixed {
+    public function last(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Set is empty");
         }
@@ -312,7 +312,7 @@ public class LinkedHashSet<T> implements ISet<T> {
     // 内部方法
     // ========================================================================
     
-    private function hashKey(mixed $element): string {
+    private function hashKey(dynamic $element): string {
         return "_" + $element;
     }
 }
@@ -335,7 +335,7 @@ public class LinkedHashSetIterator<T> implements IIterator<T> {
         return $this->index < $this->set->size();
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

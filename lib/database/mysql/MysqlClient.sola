@@ -1,4 +1,4 @@
-// Sola 标准�?- MySQL 客户端（简�?API�?
+﻿// Sola 标准�?- MySQL 客户端（简�?API�?
 namespace sola.database.mysql
 
 use sola.lang.Str;
@@ -110,10 +110,10 @@ public class MysqlClient {
      * 执行事务
      * 
      * @param callable $callback 事务回调函数，接�?MysqlConnection 参数
-     * @return mixed 回调函数的返回�?
+     * @return dynamic 回调函数的返回�?
      * @throws DatabaseException 如果事务失败
      */
-    public function transaction(callable $callback): mixed {
+    public function transaction(callable $callback): dynamic {
         $conn := $this->pool->get();
         try {
             $conn->begin();

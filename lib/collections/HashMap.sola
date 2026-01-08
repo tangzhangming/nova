@@ -1,4 +1,4 @@
-// Sola 标准库 - 哈希映射
+﻿// Sola 标准库 - 哈希映射
 namespace sola.collections
 
 /**
@@ -84,12 +84,12 @@ public class HashMap<K, V> implements IMap<K, V> {
         return $this->count == 0;
     }
     
-    public function containsKey(mixed $key): bool {
+    public function containsKey(dynamic $key): bool {
         $hashKey := $this->hashKey($key);
         return isset($this->keys[$hashKey]);
     }
     
-    public function containsValue(mixed $value): bool {
+    public function containsValue(dynamic $value): bool {
         foreach ($this->values as $v) {
             if ($v == $value) {
                 return true;
@@ -98,7 +98,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return false;
     }
     
-    public function get(mixed $key): mixed {
+    public function get(dynamic $key): dynamic {
         $hashKey := $this->hashKey($key);
         if (!isset($this->values[$hashKey])) {
             return null;
@@ -106,7 +106,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return $this->values[$hashKey];
     }
     
-    public function getOrDefault(mixed $key, mixed $defaultValue): mixed {
+    public function getOrDefault(dynamic $key, dynamic $defaultValue): dynamic {
         $hashKey := $this->hashKey($key);
         if (!isset($this->values[$hashKey])) {
             return $defaultValue;
@@ -114,7 +114,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return $this->values[$hashKey];
     }
     
-    public function put(mixed $key, mixed $value): mixed {
+    public function put(dynamic $key, dynamic $value): dynamic {
         $hashKey := $this->hashKey($key);
         $old := null;
         
@@ -131,7 +131,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return $old;
     }
     
-    public function putIfAbsent(mixed $key, mixed $value): mixed {
+    public function putIfAbsent(dynamic $key, dynamic $value): dynamic {
         $hashKey := $this->hashKey($key);
         if (isset($this->values[$hashKey])) {
             return $this->values[$hashKey];
@@ -151,7 +151,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         });
     }
     
-    public function remove(mixed $key): mixed {
+    public function remove(dynamic $key): dynamic {
         $hashKey := $this->hashKey($key);
         if (!isset($this->values[$hashKey])) {
             return null;
@@ -166,7 +166,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return $old;
     }
     
-    public function removeIf(mixed $key, mixed $value): bool {
+    public function removeIf(dynamic $key, dynamic $value): bool {
         $hashKey := $this->hashKey($key);
         if (!isset($this->values[$hashKey]) || $this->values[$hashKey] != $value) {
             return false;
@@ -180,7 +180,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return true;
     }
     
-    public function replace(mixed $key, mixed $value): mixed {
+    public function replace(dynamic $key, dynamic $value): dynamic {
         $hashKey := $this->hashKey($key);
         if (!isset($this->values[$hashKey])) {
             return null;
@@ -193,7 +193,7 @@ public class HashMap<K, V> implements IMap<K, V> {
         return $old;
     }
     
-    public function replaceIf(mixed $key, mixed $oldValue, mixed $newValue): bool {
+    public function replaceIf(dynamic $key, dynamic $oldValue, dynamic $newValue): bool {
         $hashKey := $this->hashKey($key);
         if (!isset($this->values[$hashKey]) || $this->values[$hashKey] != $oldValue) {
             return false;
@@ -279,7 +279,7 @@ public class HashMap<K, V> implements IMap<K, V> {
      * @param key 键
      * @param remapper 映射函数
      */
-    public function compute(mixed $key, function(K $k, V $v): V $remapper): mixed {
+    public function compute(dynamic $key, function(K $k, V $v): V $remapper): dynamic {
         $oldValue := $this->get($key);
         $newValue := $remapper($key, $oldValue);
         
@@ -297,7 +297,7 @@ public class HashMap<K, V> implements IMap<K, V> {
     /**
      * 如果键不存在则计算并存储
      */
-    public function computeIfAbsent(mixed $key, function(K $k): V $mapper): mixed {
+    public function computeIfAbsent(dynamic $key, function(K $k): V $mapper): dynamic {
         $value := $this->get($key);
         if ($value != null) {
             return $value;
@@ -354,7 +354,7 @@ public class HashMap<K, V> implements IMap<K, V> {
     /**
      * 更新值（供 Entry 使用）
      */
-    public function updateValue(string $hashKey, mixed $value): void {
+    public function updateValue(string $hashKey, dynamic $value): void {
         $this->values[$hashKey] = $value;
         $this->modCount++;
     }
@@ -363,7 +363,7 @@ public class HashMap<K, V> implements IMap<K, V> {
     // 内部方法
     // ========================================================================
     
-    private function hashKey(mixed $key): string {
+    private function hashKey(dynamic $key): string {
         return "_" + $key;
     }
 }
@@ -372,27 +372,27 @@ public class HashMap<K, V> implements IMap<K, V> {
  * HashMap 条目
  */
 public class HashMapEntry<K, V> implements MapEntry<K, V> {
-    private mixed $key;
-    private mixed $value;
+    private dynamic $key;
+    private dynamic $value;
     private HashMap<K, V> $map;
     private string $hashKey;
     
-    public function __construct(mixed $key, mixed $value, HashMap<K, V> $map, string $hashKey) {
+    public function __construct(dynamic $key, dynamic $value, HashMap<K, V> $map, string $hashKey) {
         $this->key = $key;
         $this->value = $value;
         $this->map = $map;
         $this->hashKey = $hashKey;
     }
     
-    public function getKey(): mixed {
+    public function getKey(): dynamic {
         return $this->key;
     }
     
-    public function getValue(): mixed {
+    public function getValue(): dynamic {
         return $this->value;
     }
     
-    public function setValue(mixed $value): mixed {
+    public function setValue(dynamic $value): dynamic {
         $old := $this->value;
         $this->value = $value;
         $this->map->updateValue($this->hashKey, $value);

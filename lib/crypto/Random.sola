@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - Random
  * 加密安全随机数生成器
  */
@@ -137,7 +137,7 @@ class Random {
         for (int $i = $len - 1; $i > 0; $i--) {
             int $j = native_crypto_random_int(0, $i + 1);
             // 交换
-            mixed $temp = $result[$i];
+            dynamic $temp = $result[$i];
             $result[$i] = $result[$j];
             $result[$j] = $temp;
         }
@@ -148,9 +148,9 @@ class Random {
     /**
      * 从数组中随机选择一个元素
      * @param array $arr 数组
-     * @return mixed 随机选择的元素
+     * @return dynamic 随机选择的元素
      */
-    public static function choice(array $arr): mixed {
+    public static function choice(array $arr): dynamic {
         int $len = count($arr);
         if ($len == 0) {
             return null;

@@ -1,4 +1,4 @@
-// Sola 标准库 - 栈
+﻿// Sola 标准库 - 栈
 namespace sola.collections
 
 /**
@@ -60,13 +60,13 @@ public class Stack<T> implements IStack<T> {
     // IStack 实现
     // ========================================================================
     
-    public function push(mixed $element): void {
+    public function push(dynamic $element): void {
         $this->data[$this->count] = $element;
         $this->count++;
         $this->modCount++;
     }
     
-    public function pop(): mixed {
+    public function pop(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Stack is empty");
         }
@@ -77,28 +77,28 @@ public class Stack<T> implements IStack<T> {
         return $element;
     }
     
-    public function peek(): mixed {
+    public function peek(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Stack is empty");
         }
         return $this->data[$this->count - 1];
     }
     
-    public function tryPop(): mixed {
+    public function tryPop(): dynamic {
         if ($this->count == 0) {
             return null;
         }
         return $this->pop();
     }
     
-    public function tryPeek(): mixed {
+    public function tryPeek(): dynamic {
         if ($this->count == 0) {
             return null;
         }
         return $this->peek();
     }
     
-    public function search(mixed $element): int {
+    public function search(dynamic $element): int {
         for ($i := $this->count - 1; $i >= 0; $i--) {
             if ($this->data[$i] == $element) {
                 return $this->count - $i;  // 1-based position from top
@@ -119,7 +119,7 @@ public class Stack<T> implements IStack<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->data[$i] == $element) {
                 return true;
@@ -137,7 +137,7 @@ public class Stack<T> implements IStack<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $this->push($element);
         return true;
     }
@@ -149,7 +149,7 @@ public class Stack<T> implements IStack<T> {
         return true;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->data[$i] == $element) {
                 // 移动元素
@@ -282,7 +282,7 @@ public class StackIterator<T> implements IIterator<T> {
         return $this->index >= 0;
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

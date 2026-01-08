@@ -1,4 +1,4 @@
-// Sola 标准库 - 哈希集合
+﻿// Sola 标准库 - 哈希集合
 namespace sola.collections
 
 /**
@@ -80,7 +80,7 @@ public class HashSet<T> implements ISet<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         $key := $this->hashKey($element);
         return isset($this->data[$key]);
     }
@@ -94,7 +94,7 @@ public class HashSet<T> implements ISet<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $key := $this->hashKey($element);
         if (isset($this->data[$key])) {
             return false;  // 已存在
@@ -115,7 +115,7 @@ public class HashSet<T> implements ISet<T> {
         return $modified;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         $key := $this->hashKey($element);
         if (!isset($this->data[$key])) {
             return false;
@@ -319,7 +319,7 @@ public class HashSet<T> implements ISet<T> {
     // 内部方法
     // ========================================================================
     
-    private function hashKey(mixed $element): string {
+    private function hashKey(dynamic $element): string {
         // 使用字符串表示作为键
         return "_" + $element;
     }
@@ -333,7 +333,7 @@ public class HashSetIterator<T> implements IIterator<T> {
     private array $keys;
     private int $index;
     private int $expectedModCount;
-    private mixed $lastReturned;
+    private dynamic $lastReturned;
     
     public function __construct(HashSet<T> $set) {
         $this->set = $set;
@@ -355,7 +355,7 @@ public class HashSetIterator<T> implements IIterator<T> {
         return $this->index < len($this->keys);
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

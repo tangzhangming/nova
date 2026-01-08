@@ -1,4 +1,4 @@
-// Sola 标准库 - 双端队列
+﻿// Sola 标准库 - 双端队列
 namespace sola.collections
 
 /**
@@ -61,7 +61,7 @@ public class ArrayDeque<T> implements IDeque<T> {
     // IDeque 实现
     // ========================================================================
     
-    public function addFirst(mixed $element): void {
+    public function addFirst(dynamic $element): void {
         // 移动所有元素
         for ($i := $this->count; $i > 0; $i--) {
             $this->data[$i] = $this->data[$i - 1];
@@ -71,12 +71,12 @@ public class ArrayDeque<T> implements IDeque<T> {
         $this->modCount++;
     }
     
-    public function offerFirst(mixed $element): bool {
+    public function offerFirst(dynamic $element): bool {
         $this->addFirst($element);
         return true;
     }
     
-    public function removeFirst(): mixed {
+    public function removeFirst(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Deque is empty");
         }
@@ -90,39 +90,39 @@ public class ArrayDeque<T> implements IDeque<T> {
         return $element;
     }
     
-    public function pollFirst(): mixed {
+    public function pollFirst(): dynamic {
         if ($this->count == 0) {
             return null;
         }
         return $this->removeFirst();
     }
     
-    public function getFirst(): mixed {
+    public function getFirst(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Deque is empty");
         }
         return $this->data[0];
     }
     
-    public function peekFirst(): mixed {
+    public function peekFirst(): dynamic {
         if ($this->count == 0) {
             return null;
         }
         return $this->data[0];
     }
     
-    public function addLast(mixed $element): void {
+    public function addLast(dynamic $element): void {
         $this->data[$this->count] = $element;
         $this->count++;
         $this->modCount++;
     }
     
-    public function offerLast(mixed $element): bool {
+    public function offerLast(dynamic $element): bool {
         $this->addLast($element);
         return true;
     }
     
-    public function removeLast(): mixed {
+    public function removeLast(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Deque is empty");
         }
@@ -133,21 +133,21 @@ public class ArrayDeque<T> implements IDeque<T> {
         return $element;
     }
     
-    public function pollLast(): mixed {
+    public function pollLast(): dynamic {
         if ($this->count == 0) {
             return null;
         }
         return $this->removeLast();
     }
     
-    public function getLast(): mixed {
+    public function getLast(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Deque is empty");
         }
         return $this->data[$this->count - 1];
     }
     
-    public function peekLast(): mixed {
+    public function peekLast(): dynamic {
         if ($this->count == 0) {
             return null;
         }
@@ -158,11 +158,11 @@ public class ArrayDeque<T> implements IDeque<T> {
     // Stack 操作
     // ========================================================================
     
-    public function push(mixed $element): void {
+    public function push(dynamic $element): void {
         $this->addFirst($element);
     }
     
-    public function pop(): mixed {
+    public function pop(): dynamic {
         return $this->removeFirst();
     }
     
@@ -170,28 +170,28 @@ public class ArrayDeque<T> implements IDeque<T> {
     // IQueue 实现
     // ========================================================================
     
-    public function enqueue(mixed $element): bool {
+    public function enqueue(dynamic $element): bool {
         $this->addLast($element);
         return true;
     }
     
-    public function offer(mixed $element): bool {
+    public function offer(dynamic $element): bool {
         return $this->offerLast($element);
     }
     
-    public function dequeue(): mixed {
+    public function dequeue(): dynamic {
         return $this->removeFirst();
     }
     
-    public function poll(): mixed {
+    public function poll(): dynamic {
         return $this->pollFirst();
     }
     
-    public function front(): mixed {
+    public function front(): dynamic {
         return $this->getFirst();
     }
     
-    public function peek(): mixed {
+    public function peek(): dynamic {
         return $this->peekFirst();
     }
     
@@ -207,7 +207,7 @@ public class ArrayDeque<T> implements IDeque<T> {
         return $this->count == 0;
     }
     
-    public function contains(mixed $element): bool {
+    public function contains(dynamic $element): bool {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->data[$i] == $element) {
                 return true;
@@ -225,7 +225,7 @@ public class ArrayDeque<T> implements IDeque<T> {
         return true;
     }
     
-    public function add(mixed $element): bool {
+    public function add(dynamic $element): bool {
         $this->addLast($element);
         return true;
     }
@@ -237,7 +237,7 @@ public class ArrayDeque<T> implements IDeque<T> {
         return true;
     }
     
-    public function remove(mixed $element): bool {
+    public function remove(dynamic $element): bool {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->data[$i] == $element) {
                 for ($j := $i; $j < $this->count - 1; $j++) {
@@ -369,7 +369,7 @@ public class ArrayDequeIterator<T> implements IIterator<T> {
         return $this->index < $this->deque->size();
     }
     
-    public function next(): mixed {
+    public function next(): dynamic {
         $this->checkForComodification();
         if (!$this->hasNext()) {
             throw new NoSuchElementException();

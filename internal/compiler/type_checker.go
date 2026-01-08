@@ -169,7 +169,7 @@ func (tc *TypeChecker) checkMethodDecl(method *ast.MethodDecl, className string)
 	
 	// 添加参数到作用域
 	for _, param := range method.Parameters {
-		paramType := "any"
+		paramType := "dynamic"
 		if param.Type != nil {
 			paramType = tc.getTypeName(param.Type)
 		}
@@ -289,7 +289,7 @@ func (tc *TypeChecker) checkMultiVarDeclStmt(stmt *ast.MultiVarDeclStmt) {
 	
 	// 声明所有变量（多返回值解构，总是已初始化）
 	for _, name := range stmt.Names {
-		tc.declareVariable(name.Name, "any", name.Pos(), true)
+		tc.declareVariable(name.Name, "dynamic", name.Pos(), true)
 	}
 }
 
@@ -370,8 +370,8 @@ func (tc *TypeChecker) checkForeachStmt(stmt *ast.ForeachStmt) {
 	defer tc.exitScope()
 	
 	// 推断 key 和 value 类型
-	keyType := "any"
-	valueType := "any"
+	keyType := "dynamic"
+	valueType := "dynamic"
 	
 	if strings.HasSuffix(iterableType, "[]") {
 		keyType = "int"
@@ -524,7 +524,7 @@ func (tc *TypeChecker) checkExpression(expr ast.Expression) string {
 	case *ast.NullCoalesceExpr:
 		return tc.checkNullCoalesceExpr(e)
 	default:
-		return "any"
+		return "dynamic"
 	}
 }
 
@@ -581,7 +581,7 @@ func (tc *TypeChecker) checkBinaryExpr(expr *ast.BinaryExpr) string {
 		return "int"
 		
 	default:
-		return "any"
+		return "dynamic"
 	}
 }
 
@@ -645,7 +645,7 @@ func (tc *TypeChecker) checkCallExpr(expr *ast.CallExpr) string {
 		}
 	}
 	
-	return "any"
+	return "dynamic"
 }
 
 // checkPropertyAccess 检查属性访问
@@ -666,7 +666,7 @@ func (tc *TypeChecker) checkPropertyAccess(expr *ast.PropertyAccess) string {
 		return prop.Type
 	}
 	
-	return "any"
+	return "dynamic"
 }
 
 // checkMethodCall 检查方法调用
@@ -692,7 +692,7 @@ func (tc *TypeChecker) checkMethodCall(expr *ast.MethodCall) string {
 		return method.ReturnType
 	}
 	
-	return "any"
+	return "dynamic"
 }
 
 // checkIndexExpr 检查索引表达式
@@ -712,7 +712,7 @@ func (tc *TypeChecker) checkIndexExpr(expr *ast.IndexExpr) string {
 		}
 	}
 	
-	return "any"
+	return "dynamic"
 }
 
 // checkArrayLiteral 检查数组字面量
@@ -800,11 +800,11 @@ func (tc *TypeChecker) checkStaticAccess(expr *ast.StaticAccess) string {
 		className = tc.currentClassName
 	case *ast.ParentExpr:
 		// parent 访问暂不支持，返回 any
-		return "any"
+		return "dynamic"
 	}
 	
 	if className == "" {
-		return "any"
+		return "dynamic"
 	}
 	
 	// 检查成员类型
@@ -830,7 +830,7 @@ func (tc *TypeChecker) checkStaticAccess(expr *ast.StaticAccess) string {
 		}
 	}
 	
-	return "any"
+	return "dynamic"
 }
 
 // checkSafePropertyAccess 检查安全属性访问 ($obj?.prop)
@@ -1060,7 +1060,7 @@ func (tc *TypeChecker) isTypeNarrowed(expr ast.Expression) bool {
 // getTypeName 获取类型名称
 func (tc *TypeChecker) getTypeName(typeNode ast.TypeNode) string {
 	if typeNode == nil {
-		return "any"
+		return "dynamic"
 	}
 	
 	switch t := typeNode.(type) {
@@ -1087,7 +1087,7 @@ func (tc *TypeChecker) getTypeName(typeNode ast.TypeNode) string {
 	case *ast.ClassType:
 		return t.Name.Literal
 	default:
-		return "any"
+		return "dynamic"
 	}
 }
 
@@ -1101,7 +1101,7 @@ func (tc *TypeChecker) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
-	if expected == "any" || expected == "mixed" {
+	if expected == "dynamic" || expected == "unknown" {
 		return true
 	}
 	

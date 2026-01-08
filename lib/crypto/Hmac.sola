@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - HMAC
  * HMAC消息认证码库
  */
@@ -10,10 +10,10 @@ namespace sola.crypto;
 interface IHmac {
     /**
      * 更新HMAC数据
-     * @param mixed $data 数据（string或byte[]）
+     * @param dynamic $data 数据（string或byte[]）
      * @return IHmac 返回自身以支持链式调用
      */
-    public function update(mixed $data): IHmac;
+    public function update(dynamic $data): IHmac;
     
     /**
      * 完成HMAC并返回十六进制结果
@@ -36,7 +36,7 @@ class HmacInstance implements IHmac {
         this->handle = $handle;
     }
     
-    public function update(mixed $data): IHmac {
+    public function update(dynamic $data): IHmac {
         if (this->finalized) {
             throw new CryptoException("HMAC already finalized", CryptoException::HASH_FAILED);
         }
@@ -63,24 +63,24 @@ class Hmac {
     
     /**
      * 计算HMAC-MD5
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return string HMAC结果（十六进制）
      * 
      * @example
      * string $mac = Hmac::md5("message", "secret-key");
      */
-    public static function md5(mixed $message, mixed $key): string {
+    public static function md5(dynamic $message, dynamic $key): string {
         return native_crypto_hmac("md5", $message, $key);
     }
     
     /**
      * 计算HMAC-MD5（返回字节）
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return byte[] HMAC结果（字节数组）
      */
-    public static function md5Bytes(mixed $message, mixed $key): byte[] {
+    public static function md5Bytes(dynamic $message, dynamic $key): byte[] {
         return native_crypto_hmac_bytes("md5", $message, $key);
     }
     
@@ -88,18 +88,18 @@ class Hmac {
     
     /**
      * 计算HMAC-SHA1
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return string HMAC结果（十六进制）
      */
-    public static function sha1(mixed $message, mixed $key): string {
+    public static function sha1(dynamic $message, dynamic $key): string {
         return native_crypto_hmac("sha1", $message, $key);
     }
     
     /**
      * 计算HMAC-SHA1（返回字节）
      */
-    public static function sha1Bytes(mixed $message, mixed $key): byte[] {
+    public static function sha1Bytes(dynamic $message, dynamic $key): byte[] {
         return native_crypto_hmac_bytes("sha1", $message, $key);
     }
     
@@ -107,21 +107,21 @@ class Hmac {
     
     /**
      * 计算HMAC-SHA256
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return string HMAC结果（十六进制）
      * 
      * @example
      * string $mac = Hmac::sha256("message", "secret-key");
      */
-    public static function sha256(mixed $message, mixed $key): string {
+    public static function sha256(dynamic $message, dynamic $key): string {
         return native_crypto_hmac("sha256", $message, $key);
     }
     
     /**
      * 计算HMAC-SHA256（返回字节）
      */
-    public static function sha256Bytes(mixed $message, mixed $key): byte[] {
+    public static function sha256Bytes(dynamic $message, dynamic $key): byte[] {
         return native_crypto_hmac_bytes("sha256", $message, $key);
     }
     
@@ -129,18 +129,18 @@ class Hmac {
     
     /**
      * 计算HMAC-SHA384
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return string HMAC结果（十六进制）
      */
-    public static function sha384(mixed $message, mixed $key): string {
+    public static function sha384(dynamic $message, dynamic $key): string {
         return native_crypto_hmac("sha384", $message, $key);
     }
     
     /**
      * 计算HMAC-SHA384（返回字节）
      */
-    public static function sha384Bytes(mixed $message, mixed $key): byte[] {
+    public static function sha384Bytes(dynamic $message, dynamic $key): byte[] {
         return native_crypto_hmac_bytes("sha384", $message, $key);
     }
     
@@ -148,18 +148,18 @@ class Hmac {
     
     /**
      * 计算HMAC-SHA512
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return string HMAC结果（十六进制）
      */
-    public static function sha512(mixed $message, mixed $key): string {
+    public static function sha512(dynamic $message, dynamic $key): string {
         return native_crypto_hmac("sha512", $message, $key);
     }
     
     /**
      * 计算HMAC-SHA512（返回字节）
      */
-    public static function sha512Bytes(mixed $message, mixed $key): byte[] {
+    public static function sha512Bytes(dynamic $message, dynamic $key): byte[] {
         return native_crypto_hmac_bytes("sha512", $message, $key);
     }
     
@@ -168,51 +168,51 @@ class Hmac {
     /**
      * 使用指定算法计算HMAC
      * @param string $algorithm 算法名称: "md5", "sha1", "sha256", "sha384", "sha512"
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @return string HMAC结果（十六进制）
      */
-    public static function compute(string $algorithm, mixed $message, mixed $key): string {
+    public static function compute(string $algorithm, dynamic $message, dynamic $key): string {
         return native_crypto_hmac($algorithm, $message, $key);
     }
     
     /**
      * 使用指定算法计算HMAC（返回字节）
      */
-    public static function computeBytes(string $algorithm, mixed $message, mixed $key): byte[] {
+    public static function computeBytes(string $algorithm, dynamic $message, dynamic $key): byte[] {
         return native_crypto_hmac_bytes($algorithm, $message, $key);
     }
     
     /**
      * 验证HMAC
      * @param string $algorithm 算法名称
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @param string $expectedMac 预期HMAC值（十六进制）
      * @return bool 是否验证通过
      * 
      * @example
      * bool $valid = Hmac::verify("sha256", "message", "key", $mac);
      */
-    public static function verify(string $algorithm, mixed $message, mixed $key, string $expectedMac): bool {
+    public static function verify(string $algorithm, dynamic $message, dynamic $key, string $expectedMac): bool {
         return native_crypto_hmac_verify($algorithm, $message, $key, $expectedMac);
     }
     
     /**
      * 验证HMAC-SHA256
-     * @param mixed $message 消息
-     * @param mixed $key 密钥
+     * @param dynamic $message 消息
+     * @param dynamic $key 密钥
      * @param string $expectedMac 预期HMAC值
      * @return bool 是否验证通过
      */
-    public static function verifySha256(mixed $message, mixed $key, string $expectedMac): bool {
+    public static function verifySha256(dynamic $message, dynamic $key, string $expectedMac): bool {
         return native_crypto_hmac_verify("sha256", $message, $key, $expectedMac);
     }
     
     /**
      * 创建流式HMAC
      * @param string $algorithm 算法名称
-     * @param mixed $key 密钥
+     * @param dynamic $key 密钥
      * @return IHmac HMAC实例
      * 
      * @example
@@ -220,7 +220,7 @@ class Hmac {
      * $hmac->update("part1")->update("part2");
      * string $mac = $hmac->finalize();
      */
-    public static function create(string $algorithm, mixed $key): IHmac {
+    public static function create(string $algorithm, dynamic $key): IHmac {
         int $handle = native_crypto_hmac_create($algorithm, $key);
         if ($handle < 0) {
             throw new CryptoException("Failed to create HMAC: " + $algorithm, CryptoException::INVALID_ALGORITHM);
@@ -231,14 +231,14 @@ class Hmac {
     /**
      * 创建HMAC-SHA256流式实例
      */
-    public static function createSha256(mixed $key): IHmac {
+    public static function createSha256(dynamic $key): IHmac {
         return self::create("sha256", $key);
     }
     
     /**
      * 创建HMAC-SHA512流式实例
      */
-    public static function createSha512(mixed $key): IHmac {
+    public static function createSha512(dynamic $key): IHmac {
         return self::create("sha512", $key);
     }
 }

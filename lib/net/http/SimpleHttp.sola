@@ -1,4 +1,4 @@
-// Sola 标准库 - HTTP 客户端（简化版）
+﻿// Sola 标准库 - HTTP 客户端（简化版）
 namespace sola.net.http
 
 use sola.lang.Str;
@@ -79,10 +79,10 @@ public class SimpleHttp {
      * 快速 POST 请求
      * 
      * @param string $url 请求 URL
-     * @param mixed $data 请求数据（可选）
+     * @param dynamic $data 请求数据（可选）
      * @return ClientResponse 响应对象
      */
-    public static function post(string $url, mixed $data = null): ClientResponse {
+    public static function post(string $url, dynamic $data = null): ClientResponse {
         $http := new SimpleHttp();
         return $http->doPost($url, $data);
     }
@@ -91,10 +91,10 @@ public class SimpleHttp {
      * 快速 POST JSON 请求
      * 
      * @param string $url 请求 URL
-     * @param mixed $data 请求数据（自动序列化为 JSON）
+     * @param dynamic $data 请求数据（自动序列化为 JSON）
      * @return ClientResponse 响应对象
      */
-    public static function postJson(string $url, mixed $data): ClientResponse {
+    public static function postJson(string $url, dynamic $data): ClientResponse {
         $http := new SimpleHttp();
         $http->asJson();
         return $http->doPost($url, $data);
@@ -104,10 +104,10 @@ public class SimpleHttp {
      * 快速 POST 表单请求
      * 
      * @param string $url 请求 URL
-     * @param mixed $data 表单数据（万能数组）
+     * @param dynamic $data 表单数据（万能数组）
      * @return ClientResponse 响应对象
      */
-    public static function postForm(string $url, mixed $data): ClientResponse {
+    public static function postForm(string $url, dynamic $data): ClientResponse {
         $http := new SimpleHttp();
         $http->asForm();
         return $http->doPost($url, $data);
@@ -117,10 +117,10 @@ public class SimpleHttp {
      * 快速 PUT 请求
      * 
      * @param string $url 请求 URL
-     * @param mixed $data 请求数据（可选）
+     * @param dynamic $data 请求数据（可选）
      * @return ClientResponse 响应对象
      */
-    public static function put(string $url, mixed $data = null): ClientResponse {
+    public static function put(string $url, dynamic $data = null): ClientResponse {
         $http := new SimpleHttp();
         return $http->doPut($url, $data);
     }
@@ -129,10 +129,10 @@ public class SimpleHttp {
      * 快速 PATCH 请求
      * 
      * @param string $url 请求 URL
-     * @param mixed $data 请求数据（可选）
+     * @param dynamic $data 请求数据（可选）
      * @return ClientResponse 响应对象
      */
-    public static function patch(string $url, mixed $data = null): ClientResponse {
+    public static function patch(string $url, dynamic $data = null): ClientResponse {
         $http := new SimpleHttp();
         return $http->doPatch($url, $data);
     }
@@ -187,10 +187,10 @@ public class SimpleHttp {
     /**
      * 批量添加请求头（万能数组）
      * 
-     * @param mixed $headers 头部映射（万能数组）
+     * @param dynamic $headers 头部映射（万能数组）
      * @return SimpleHttp 返回自身用于链式调用
      */
-    public function withHeaders(mixed $headers): SimpleHttp {
+    public function withHeaders(dynamic $headers): SimpleHttp {
         if ($headers == null) {
             return $this;
         }
@@ -248,10 +248,10 @@ public class SimpleHttp {
     /**
      * 添加查询参数（万能数组）
      * 
-     * @param mixed $params 查询参数映射（万能数组）
+     * @param dynamic $params 查询参数映射（万能数组）
      * @return SimpleHttp 返回自身用于链式调用
      */
-    public function withQuery(mixed $params): SimpleHttp {
+    public function withQuery(dynamic $params): SimpleHttp {
         if ($params == null) {
             return $this;
         }
@@ -354,10 +354,10 @@ public class SimpleHttp {
      * POST 请求
      * 
      * @param string $url 请求 URL（相对或绝对）
-     * @param mixed $data 请求数据（可选）
+     * @param dynamic $data 请求数据（可选）
      * @return ClientResponse 响应对象
      */
-    public function doPost(string $url, mixed $data = null): ClientResponse {
+    public function doPost(string $url, dynamic $data = null): ClientResponse {
         $request := $this->buildRequest("POST", $url, $data);
         return $this->client->send($request);
     }
@@ -366,10 +366,10 @@ public class SimpleHttp {
      * PUT 请求
      * 
      * @param string $url 请求 URL（相对或绝对）
-     * @param mixed $data 请求数据（可选）
+     * @param dynamic $data 请求数据（可选）
      * @return ClientResponse 响应对象
      */
-    public function doPut(string $url, mixed $data = null): ClientResponse {
+    public function doPut(string $url, dynamic $data = null): ClientResponse {
         $request := $this->buildRequest("PUT", $url, $data);
         return $this->client->send($request);
     }
@@ -378,10 +378,10 @@ public class SimpleHttp {
      * PATCH 请求
      * 
      * @param string $url 请求 URL（相对或绝对）
-     * @param mixed $data 请求数据（可选）
+     * @param dynamic $data 请求数据（可选）
      * @return ClientResponse 响应对象
      */
-    public function doPatch(string $url, mixed $data = null): ClientResponse {
+    public function doPatch(string $url, dynamic $data = null): ClientResponse {
         $request := $this->buildRequest("PATCH", $url, $data);
         return $this->client->send($request);
     }
@@ -428,10 +428,10 @@ public class SimpleHttp {
      * 
      * @param string $method HTTP 方法
      * @param string $url 请求 URL
-     * @param mixed $data 请求数据
+     * @param dynamic $data 请求数据
      * @return ClientRequest 请求对象
      */
-    private function buildRequest(string $method, string $url, mixed $data): ClientRequest {
+    private function buildRequest(string $method, string $url, dynamic $data): ClientRequest {
         // 处理 URL
         $fullUrl := $this->resolveUrl($url);
         
@@ -520,10 +520,10 @@ public class SimpleHttp {
     /**
      * 将万能数组转换为 UrlValues
      * 
-     * @param mixed $data 万能数组
+     * @param dynamic $data 万能数组
      * @return UrlValues UrlValues 对象
      */
-    private static function arrayToUrlValues(mixed $data): UrlValues {
+    private static function arrayToUrlValues(dynamic $data): UrlValues {
         $form := new UrlValues();
         
         if ($data == null) {

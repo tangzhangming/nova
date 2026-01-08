@@ -1,4 +1,4 @@
-// Sola 标准库 - HTTP 请求
+﻿// Sola 标准库 - HTTP 请求
 namespace sola.net.http
 
 use sola.lang.{Str, Bytes};
@@ -21,9 +21,9 @@ public class QueryParam {
  */
 public class ContextEntry {
     public string $key;
-    public mixed $value;
+    public dynamic $value;
     
-    public function __construct(string $key, mixed $value) {
+    public function __construct(string $key, dynamic $value) {
         $this->key = $key;
         $this->value = $value;
     }
@@ -663,7 +663,7 @@ public class Request {
     // 上下文存储
     // ========================================================================
     
-    public function set(string $key, mixed $value): void {
+    public function set(string $key, dynamic $value): void {
         // 检查是否已存在
         for ($i := 0; $i < $this->contextCount; $i++) {
             if ($this->context[$i]->key == $key) {
@@ -677,7 +677,7 @@ public class Request {
         $this->contextCount++;
     }
     
-    public function get(string $key, mixed $default = null): mixed {
+    public function get(string $key, dynamic $default = null): dynamic {
         for ($i := 0; $i < $this->contextCount; $i++) {
             if ($this->context[$i]->key == $key) {
                 return $this->context[$i]->value;

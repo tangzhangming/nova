@@ -1,4 +1,4 @@
-// Sola 标准库 - JSON 处理类
+﻿// Sola 标准库 - JSON 处理类
 namespace sola.json
 
 use sola.lang.Str;
@@ -38,7 +38,7 @@ public class Json {
     /**
      * 将任意值编码为JSON字符串
      * 
-     * @param mixed $value 要编码的值
+     * @param dynamic $value 要编码的值
      * @return string JSON字符串
      * 
      * 类型映射规则：
@@ -50,18 +50,18 @@ public class Json {
      * - bool -> true/false
      * - null -> null
      */
-    public static function encode(mixed $value): string {
+    public static function encode(dynamic $value): string {
         return native_json_encode($value, false, "");
     }
     
     /**
      * 将任意值编码为格式化的JSON字符串
      * 
-     * @param mixed $value 要编码的值
+     * @param dynamic $value 要编码的值
      * @param string $indent 缩进字符串，默认为两个空格
      * @return string 格式化的JSON字符串
      */
-    public static function encodePretty(mixed $value, string $indent = "  "): string {
+    public static function encodePretty(dynamic $value, string $indent = "  "): string {
         return native_json_encode($value, true, $indent);
     }
     
@@ -89,7 +89,7 @@ public class Json {
      * 将JSON字符串解码为Sola值
      * 
      * @param string $json JSON字符串
-     * @return mixed 解码后的值
+     * @return dynamic 解码后的值
      * 
      * 类型映射规则：
      * - JSON对象 {...} -> SuperArray（字符串键）
@@ -102,7 +102,7 @@ public class Json {
      * 
      * @throws JsonException 如果JSON格式无效
      */
-    public static function decode(string $json): mixed {
+    public static function decode(string $json): dynamic {
         $result := native_json_decode($json);
         if ($result == null && $json != "null" && !Json::isValid($json)) {
             throw new JsonException("Invalid JSON string");
@@ -115,9 +115,9 @@ public class Json {
      * 
      * @param string $json JSON字符串
      * @param bool $assoc 是否返回关联数组（默认true）
-     * @return mixed 解码后的值
+     * @return dynamic 解码后的值
      */
-    public static function decodeAssoc(string $json, bool $assoc = true): mixed {
+    public static function decodeAssoc(string $json, bool $assoc = true): dynamic {
         return Json::decode($json);
     }
     
@@ -144,9 +144,9 @@ public class Json {
      * 
      * @param string $json JSON字符串
      * @param string $key 键名
-     * @return mixed 指定键的值，如果不存在返回null
+     * @return dynamic 指定键的值，如果不存在返回null
      */
-    public static function get(string $json, string $key): mixed {
+    public static function get(string $json, string $key): dynamic {
         $data := Json::decode($json);
         if ($data == null) {
             return null;

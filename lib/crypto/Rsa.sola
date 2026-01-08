@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - RSA
  * RSA非对称加密库
  */
@@ -205,14 +205,14 @@ class Rsa {
     
     /**
      * RSA-OAEP加密
-     * @param mixed $plaintext 明文
+     * @param dynamic $plaintext 明文
      * @param RsaPublicKey $publicKey 公钥
      * @return byte[] 密文
      * 
      * @example
      * byte[] $encrypted = Rsa::encrypt("secret message", $publicKey);
      */
-    public static function encrypt(mixed $plaintext, RsaPublicKey $publicKey): byte[] {
+    public static function encrypt(dynamic $plaintext, RsaPublicKey $publicKey): byte[] {
         byte[] $result = native_crypto_rsa_encrypt($plaintext, $publicKey->getHandle());
         if (count($result) == 0) {
             throw new CryptoException("RSA encryption failed", CryptoException::ENCRYPTION_FAILED);
@@ -238,11 +238,11 @@ class Rsa {
     
     /**
      * RSA-PKCS1v15加密
-     * @param mixed $plaintext 明文
+     * @param dynamic $plaintext 明文
      * @param RsaPublicKey $publicKey 公钥
      * @return byte[] 密文
      */
-    public static function encryptPkcs1(mixed $plaintext, RsaPublicKey $publicKey): byte[] {
+    public static function encryptPkcs1(dynamic $plaintext, RsaPublicKey $publicKey): byte[] {
         byte[] $result = native_crypto_rsa_encrypt_pkcs1($plaintext, $publicKey->getHandle());
         if (count($result) == 0) {
             throw new CryptoException("RSA PKCS1 encryption failed", CryptoException::ENCRYPTION_FAILED);
@@ -268,7 +268,7 @@ class Rsa {
     
     /**
      * RSA-PSS签名
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param RsaPrivateKey $privateKey 私钥
      * @param string $hashAlgo 哈希算法（sha256, sha384, sha512）
      * @return byte[] 签名
@@ -276,7 +276,7 @@ class Rsa {
      * @example
      * byte[] $signature = Rsa::sign("message", $privateKey, "sha256");
      */
-    public static function sign(mixed $message, RsaPrivateKey $privateKey, string $hashAlgo = "sha256"): byte[] {
+    public static function sign(dynamic $message, RsaPrivateKey $privateKey, string $hashAlgo = "sha256"): byte[] {
         byte[] $result = native_crypto_rsa_sign($message, $privateKey->getHandle(), $hashAlgo);
         if (count($result) == 0) {
             throw new CryptoException("RSA signing failed", CryptoException::SIGNATURE_FAILED);
@@ -286,13 +286,13 @@ class Rsa {
     
     /**
      * RSA-PSS验签
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param byte[] $signature 签名
      * @param RsaPublicKey $publicKey 公钥
      * @param string $hashAlgo 哈希算法
      * @return bool 验证是否通过
      */
-    public static function verify(mixed $message, byte[] $signature, RsaPublicKey $publicKey, string $hashAlgo = "sha256"): bool {
+    public static function verify(dynamic $message, byte[] $signature, RsaPublicKey $publicKey, string $hashAlgo = "sha256"): bool {
         return native_crypto_rsa_verify($message, $signature, $publicKey->getHandle(), $hashAlgo);
     }
     
@@ -300,12 +300,12 @@ class Rsa {
     
     /**
      * RSA-PKCS1v15签名
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param RsaPrivateKey $privateKey 私钥
      * @param string $hashAlgo 哈希算法
      * @return byte[] 签名
      */
-    public static function signPkcs1(mixed $message, RsaPrivateKey $privateKey, string $hashAlgo = "sha256"): byte[] {
+    public static function signPkcs1(dynamic $message, RsaPrivateKey $privateKey, string $hashAlgo = "sha256"): byte[] {
         byte[] $result = native_crypto_rsa_sign_pkcs1($message, $privateKey->getHandle(), $hashAlgo);
         if (count($result) == 0) {
             throw new CryptoException("RSA PKCS1 signing failed", CryptoException::SIGNATURE_FAILED);
@@ -315,13 +315,13 @@ class Rsa {
     
     /**
      * RSA-PKCS1v15验签
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param byte[] $signature 签名
      * @param RsaPublicKey $publicKey 公钥
      * @param string $hashAlgo 哈希算法
      * @return bool 验证是否通过
      */
-    public static function verifyPkcs1(mixed $message, byte[] $signature, RsaPublicKey $publicKey, string $hashAlgo = "sha256"): bool {
+    public static function verifyPkcs1(dynamic $message, byte[] $signature, RsaPublicKey $publicKey, string $hashAlgo = "sha256"): bool {
         return native_crypto_rsa_verify_pkcs1($message, $signature, $publicKey->getHandle(), $hashAlgo);
     }
 }

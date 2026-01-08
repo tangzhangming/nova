@@ -1,4 +1,4 @@
-// Sola 标准库 - Session 存储接口
+﻿// Sola 标准库 - Session 存储接口
 namespace sola.net.http.session
 
 /**
@@ -6,9 +6,9 @@ namespace sola.net.http.session
  */
 public class SessionEntry {
     public string $key;
-    public mixed $value;
+    public dynamic $value;
     
-    public function __construct(string $key, mixed $value) {
+    public function __construct(string $key, dynamic $value) {
         $this->key = $key;
         $this->value = $value;
     }
@@ -30,7 +30,7 @@ public class SessionData {
         $this->lastAccessedAt = 0;
     }
     
-    public function set(string $key, mixed $value): void {
+    public function set(string $key, dynamic $value): void {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->entries[$i]->key == $key) {
                 $this->entries[$i]->value = $value;
@@ -42,7 +42,7 @@ public class SessionData {
         $this->count++;
     }
     
-    public function get(string $key, mixed $default = null): mixed {
+    public function get(string $key, dynamic $default = null): dynamic {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->entries[$i]->key == $key) {
                 return $this->entries[$i]->value;

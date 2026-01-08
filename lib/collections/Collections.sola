@@ -1,4 +1,4 @@
-// Sola 标准库 - 集合工具类
+﻿// Sola 标准库 - 集合工具类
 namespace sola.collections
 
 /**
@@ -129,7 +129,7 @@ public class Collections {
      * @return 最大元素
      * @throws NoSuchElementException 如果集合为空
      */
-    public static function max<T>(ICollection<T> $collection, IComparator<T> $comparator = null): mixed {
+    public static function max<T>(ICollection<T> $collection, IComparator<T> $comparator = null): dynamic {
         if ($collection->isEmpty()) {
             throw new NoSuchElementException("Collection is empty");
         }
@@ -159,7 +159,7 @@ public class Collections {
      * @return 最小元素
      * @throws NoSuchElementException 如果集合为空
      */
-    public static function min<T>(ICollection<T> $collection, IComparator<T> $comparator = null): mixed {
+    public static function min<T>(ICollection<T> $collection, IComparator<T> $comparator = null): dynamic {
         if ($collection->isEmpty()) {
             throw new NoSuchElementException("Collection is empty");
         }
@@ -184,7 +184,7 @@ public class Collections {
     /**
      * 返回数组中的最大元素
      */
-    public static function maxArray<T>(array $arr, IComparator<T> $comparator = null): mixed {
+    public static function maxArray<T>(array $arr, IComparator<T> $comparator = null): dynamic {
         $n := len($arr);
         if ($n == 0) {
             throw new NoSuchElementException("Array is empty");
@@ -202,7 +202,7 @@ public class Collections {
     /**
      * 返回数组中的最小元素
      */
-    public static function minArray<T>(array $arr, IComparator<T> $comparator = null): mixed {
+    public static function minArray<T>(array $arr, IComparator<T> $comparator = null): dynamic {
         $n := len($arr);
         if ($n == 0) {
             throw new NoSuchElementException("Array is empty");
@@ -534,7 +534,7 @@ public class Collections {
     // 内部方法
     // ========================================================================
     
-    private static function compareElements<T>(mixed $a, mixed $b, IComparator<T> $comparator): int {
+    private static function compareElements<T>(dynamic $a, dynamic $b, IComparator<T> $comparator): int {
         if ($comparator != null) {
             return $comparator->compare($a, $b);
         }

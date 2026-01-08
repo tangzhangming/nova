@@ -1260,7 +1260,7 @@ func (gc *GC) getTypeName(v bytecode.Value) string {
 		if obj := v.AsObject(); obj != nil && obj.Class != nil {
 			return obj.Class.Name
 		}
-		return "object"
+		return "unknown"
 	case bytecode.ValClosure:
 		return "closure"
 	case bytecode.ValFunc:
@@ -1293,7 +1293,7 @@ func (gc *GC) valueTypeName(t bytecode.ValueType) string {
 	case bytecode.ValMap:
 		return "map"
 	case bytecode.ValObject:
-		return "object"
+		return "unknown"
 	case bytecode.ValFunc:
 		return "function"
 	case bytecode.ValClosure:

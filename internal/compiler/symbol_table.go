@@ -114,14 +114,14 @@ func NewSymbolTable() *SymbolTable {
 // registerBuiltinFunctions 注册内置函数签名
 func (st *SymbolTable) registerBuiltinFunctions() {
 	// 核心内置函数
-	st.Functions["print"] = &FunctionSignature{Name: "print", ParamTypes: []string{"any"}, ReturnType: "void", IsVariadic: true}
-	st.Functions["echo"] = &FunctionSignature{Name: "echo", ParamTypes: []string{"any"}, ReturnType: "void"}
-	st.Functions["len"] = &FunctionSignature{Name: "len", ParamTypes: []string{"any"}, ReturnType: "int"}
-	st.Functions["type"] = &FunctionSignature{Name: "type", ParamTypes: []string{"any"}, ReturnType: "string"}
-	st.Functions["isset"] = &FunctionSignature{Name: "isset", ParamTypes: []string{"any"}, ReturnType: "bool"}
-	st.Functions["empty"] = &FunctionSignature{Name: "empty", ParamTypes: []string{"any"}, ReturnType: "bool"}
-	st.Functions["unset"] = &FunctionSignature{Name: "unset", ParamTypes: []string{"any"}, ReturnType: "void"}
-	st.Functions["var_dump"] = &FunctionSignature{Name: "var_dump", ParamTypes: []string{"any"}, ReturnType: "void"}
+	st.Functions["print"] = &FunctionSignature{Name: "print", ParamTypes: []string{"dynamic"}, ReturnType: "void", IsVariadic: true}
+	st.Functions["echo"] = &FunctionSignature{Name: "echo", ParamTypes: []string{"dynamic"}, ReturnType: "void"}
+	st.Functions["len"] = &FunctionSignature{Name: "len", ParamTypes: []string{"dynamic"}, ReturnType: "int"}
+	st.Functions["type"] = &FunctionSignature{Name: "type", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
+	st.Functions["isset"] = &FunctionSignature{Name: "isset", ParamTypes: []string{"dynamic"}, ReturnType: "bool"}
+	st.Functions["empty"] = &FunctionSignature{Name: "empty", ParamTypes: []string{"dynamic"}, ReturnType: "bool"}
+	st.Functions["unset"] = &FunctionSignature{Name: "unset", ParamTypes: []string{"dynamic"}, ReturnType: "void"}
+	st.Functions["var_dump"] = &FunctionSignature{Name: "var_dump", ParamTypes: []string{"dynamic"}, ReturnType: "void"}
 	st.Functions["die"] = &FunctionSignature{Name: "die", ParamTypes: []string{"string"}, ReturnType: "void", MinArity: 0}
 	st.Functions["exit"] = &FunctionSignature{Name: "exit", ParamTypes: []string{"int"}, ReturnType: "void", MinArity: 0}
 
@@ -191,35 +191,35 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_regex_split"] = &FunctionSignature{Name: "native_regex_split", ParamTypes: []string{"string", "string"}, ReturnType: "string[]"}
 
 	// JSON 函数 (native_json_*)
-	st.Functions["native_json_encode"] = &FunctionSignature{Name: "native_json_encode", ParamTypes: []string{"any", "bool", "string"}, ReturnType: "string", MinArity: 1}
-	st.Functions["native_json_decode"] = &FunctionSignature{Name: "native_json_decode", ParamTypes: []string{"string"}, ReturnType: "any"}
+	st.Functions["native_json_encode"] = &FunctionSignature{Name: "native_json_encode", ParamTypes: []string{"dynamic", "bool", "string"}, ReturnType: "string", MinArity: 1}
+	st.Functions["native_json_decode"] = &FunctionSignature{Name: "native_json_decode", ParamTypes: []string{"string"}, ReturnType: "dynamic"}
 	st.Functions["native_json_is_valid"] = &FunctionSignature{Name: "native_json_is_valid", ParamTypes: []string{"string"}, ReturnType: "bool"}
-	st.Functions["native_json_encode_object"] = &FunctionSignature{Name: "native_json_encode_object", ParamTypes: []string{"object", "any"}, ReturnType: "string", MinArity: 1}
+	st.Functions["native_json_encode_object"] = &FunctionSignature{Name: "native_json_encode_object", ParamTypes: []string{"unknown", "dynamic"}, ReturnType: "string", MinArity: 1}
 
 	// Crypto 哈希函数 (native_crypto_*)
-	st.Functions["native_crypto_md5"] = &FunctionSignature{Name: "native_crypto_md5", ParamTypes: []string{"any"}, ReturnType: "string"}
-	st.Functions["native_crypto_md5_bytes"] = &FunctionSignature{Name: "native_crypto_md5_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_sha1"] = &FunctionSignature{Name: "native_crypto_sha1", ParamTypes: []string{"any"}, ReturnType: "string"}
-	st.Functions["native_crypto_sha1_bytes"] = &FunctionSignature{Name: "native_crypto_sha1_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_sha256"] = &FunctionSignature{Name: "native_crypto_sha256", ParamTypes: []string{"any"}, ReturnType: "string"}
-	st.Functions["native_crypto_sha256_bytes"] = &FunctionSignature{Name: "native_crypto_sha256_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_sha384"] = &FunctionSignature{Name: "native_crypto_sha384", ParamTypes: []string{"any"}, ReturnType: "string"}
-	st.Functions["native_crypto_sha384_bytes"] = &FunctionSignature{Name: "native_crypto_sha384_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_sha512"] = &FunctionSignature{Name: "native_crypto_sha512", ParamTypes: []string{"any"}, ReturnType: "string"}
-	st.Functions["native_crypto_sha512_bytes"] = &FunctionSignature{Name: "native_crypto_sha512_bytes", ParamTypes: []string{"any"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_md5"] = &FunctionSignature{Name: "native_crypto_md5", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
+	st.Functions["native_crypto_md5_bytes"] = &FunctionSignature{Name: "native_crypto_md5_bytes", ParamTypes: []string{"dynamic"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha1"] = &FunctionSignature{Name: "native_crypto_sha1", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha1_bytes"] = &FunctionSignature{Name: "native_crypto_sha1_bytes", ParamTypes: []string{"dynamic"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha256"] = &FunctionSignature{Name: "native_crypto_sha256", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha256_bytes"] = &FunctionSignature{Name: "native_crypto_sha256_bytes", ParamTypes: []string{"dynamic"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha384"] = &FunctionSignature{Name: "native_crypto_sha384", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha384_bytes"] = &FunctionSignature{Name: "native_crypto_sha384_bytes", ParamTypes: []string{"dynamic"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_sha512"] = &FunctionSignature{Name: "native_crypto_sha512", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
+	st.Functions["native_crypto_sha512_bytes"] = &FunctionSignature{Name: "native_crypto_sha512_bytes", ParamTypes: []string{"dynamic"}, ReturnType: "byte[]"}
 
 	// Crypto 流式哈希函数
 	st.Functions["native_crypto_hash_create"] = &FunctionSignature{Name: "native_crypto_hash_create", ParamTypes: []string{"string"}, ReturnType: "int"}
-	st.Functions["native_crypto_hash_update"] = &FunctionSignature{Name: "native_crypto_hash_update", ParamTypes: []string{"int", "any"}, ReturnType: "bool"}
+	st.Functions["native_crypto_hash_update"] = &FunctionSignature{Name: "native_crypto_hash_update", ParamTypes: []string{"int", "dynamic"}, ReturnType: "bool"}
 	st.Functions["native_crypto_hash_finalize"] = &FunctionSignature{Name: "native_crypto_hash_finalize", ParamTypes: []string{"int"}, ReturnType: "string"}
 	st.Functions["native_crypto_hash_finalize_bytes"] = &FunctionSignature{Name: "native_crypto_hash_finalize_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
 
 	// Crypto HMAC函数
-	st.Functions["native_crypto_hmac"] = &FunctionSignature{Name: "native_crypto_hmac", ParamTypes: []string{"string", "any", "any"}, ReturnType: "string"}
-	st.Functions["native_crypto_hmac_bytes"] = &FunctionSignature{Name: "native_crypto_hmac_bytes", ParamTypes: []string{"string", "any", "any"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_hmac_verify"] = &FunctionSignature{Name: "native_crypto_hmac_verify", ParamTypes: []string{"string", "any", "any", "string"}, ReturnType: "bool"}
-	st.Functions["native_crypto_hmac_create"] = &FunctionSignature{Name: "native_crypto_hmac_create", ParamTypes: []string{"string", "any"}, ReturnType: "int"}
-	st.Functions["native_crypto_hmac_update"] = &FunctionSignature{Name: "native_crypto_hmac_update", ParamTypes: []string{"int", "any"}, ReturnType: "bool"}
+	st.Functions["native_crypto_hmac"] = &FunctionSignature{Name: "native_crypto_hmac", ParamTypes: []string{"string", "dynamic", "dynamic"}, ReturnType: "string"}
+	st.Functions["native_crypto_hmac_bytes"] = &FunctionSignature{Name: "native_crypto_hmac_bytes", ParamTypes: []string{"string", "dynamic", "dynamic"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_hmac_verify"] = &FunctionSignature{Name: "native_crypto_hmac_verify", ParamTypes: []string{"string", "dynamic", "dynamic", "string"}, ReturnType: "bool"}
+	st.Functions["native_crypto_hmac_create"] = &FunctionSignature{Name: "native_crypto_hmac_create", ParamTypes: []string{"string", "dynamic"}, ReturnType: "int"}
+	st.Functions["native_crypto_hmac_update"] = &FunctionSignature{Name: "native_crypto_hmac_update", ParamTypes: []string{"int", "dynamic"}, ReturnType: "bool"}
 	st.Functions["native_crypto_hmac_finalize"] = &FunctionSignature{Name: "native_crypto_hmac_finalize", ParamTypes: []string{"int"}, ReturnType: "string"}
 
 	// Crypto AES函数
@@ -237,25 +237,25 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_crypto_triple_des_decrypt"] = &FunctionSignature{Name: "native_crypto_triple_des_decrypt", ParamTypes: []string{"byte[]", "byte[]", "byte[]"}, ReturnType: "byte[]"}
 
 	// Crypto RSA函数
-	st.Functions["native_crypto_rsa_generate"] = &FunctionSignature{Name: "native_crypto_rsa_generate", ParamTypes: []string{"int"}, ReturnType: "any", MinArity: 0}
+	st.Functions["native_crypto_rsa_generate"] = &FunctionSignature{Name: "native_crypto_rsa_generate", ParamTypes: []string{"int"}, ReturnType: "dynamic", MinArity: 0}
 	st.Functions["native_crypto_rsa_get_public_key_pem"] = &FunctionSignature{Name: "native_crypto_rsa_get_public_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
 	st.Functions["native_crypto_rsa_get_private_key_pem"] = &FunctionSignature{Name: "native_crypto_rsa_get_private_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
 	st.Functions["native_crypto_rsa_load_public_key"] = &FunctionSignature{Name: "native_crypto_rsa_load_public_key", ParamTypes: []string{"string"}, ReturnType: "int"}
 	st.Functions["native_crypto_rsa_load_private_key"] = &FunctionSignature{Name: "native_crypto_rsa_load_private_key", ParamTypes: []string{"string"}, ReturnType: "int"}
-	st.Functions["native_crypto_rsa_encrypt"] = &FunctionSignature{Name: "native_crypto_rsa_encrypt", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_encrypt"] = &FunctionSignature{Name: "native_crypto_rsa_encrypt", ParamTypes: []string{"dynamic", "int"}, ReturnType: "byte[]"}
 	st.Functions["native_crypto_rsa_decrypt"] = &FunctionSignature{Name: "native_crypto_rsa_decrypt", ParamTypes: []string{"byte[]", "int"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_rsa_sign"] = &FunctionSignature{Name: "native_crypto_rsa_sign", ParamTypes: []string{"any", "int", "string"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_rsa_verify"] = &FunctionSignature{Name: "native_crypto_rsa_verify", ParamTypes: []string{"any", "byte[]", "int", "string"}, ReturnType: "bool"}
-	st.Functions["native_crypto_rsa_sign_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_sign_pkcs1", ParamTypes: []string{"any", "int", "string"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_rsa_verify_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_verify_pkcs1", ParamTypes: []string{"any", "byte[]", "int", "string"}, ReturnType: "bool"}
-	st.Functions["native_crypto_rsa_encrypt_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_encrypt_pkcs1", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_sign"] = &FunctionSignature{Name: "native_crypto_rsa_sign", ParamTypes: []string{"dynamic", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_verify"] = &FunctionSignature{Name: "native_crypto_rsa_verify", ParamTypes: []string{"dynamic", "byte[]", "int", "string"}, ReturnType: "bool"}
+	st.Functions["native_crypto_rsa_sign_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_sign_pkcs1", ParamTypes: []string{"dynamic", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_rsa_verify_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_verify_pkcs1", ParamTypes: []string{"dynamic", "byte[]", "int", "string"}, ReturnType: "bool"}
+	st.Functions["native_crypto_rsa_encrypt_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_encrypt_pkcs1", ParamTypes: []string{"dynamic", "int"}, ReturnType: "byte[]"}
 	st.Functions["native_crypto_rsa_decrypt_pkcs1"] = &FunctionSignature{Name: "native_crypto_rsa_decrypt_pkcs1", ParamTypes: []string{"byte[]", "int"}, ReturnType: "byte[]"}
 	st.Functions["native_crypto_rsa_free"] = &FunctionSignature{Name: "native_crypto_rsa_free", ParamTypes: []string{"int"}, ReturnType: "bool"}
 
 	// Crypto ECDSA函数
-	st.Functions["native_crypto_ecdsa_generate"] = &FunctionSignature{Name: "native_crypto_ecdsa_generate", ParamTypes: []string{"string"}, ReturnType: "any", MinArity: 0}
-	st.Functions["native_crypto_ecdsa_sign"] = &FunctionSignature{Name: "native_crypto_ecdsa_sign", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_ecdsa_verify"] = &FunctionSignature{Name: "native_crypto_ecdsa_verify", ParamTypes: []string{"any", "byte[]", "int"}, ReturnType: "bool"}
+	st.Functions["native_crypto_ecdsa_generate"] = &FunctionSignature{Name: "native_crypto_ecdsa_generate", ParamTypes: []string{"string"}, ReturnType: "dynamic", MinArity: 0}
+	st.Functions["native_crypto_ecdsa_sign"] = &FunctionSignature{Name: "native_crypto_ecdsa_sign", ParamTypes: []string{"dynamic", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_ecdsa_verify"] = &FunctionSignature{Name: "native_crypto_ecdsa_verify", ParamTypes: []string{"dynamic", "byte[]", "int"}, ReturnType: "bool"}
 	st.Functions["native_crypto_ecdsa_get_public_key_pem"] = &FunctionSignature{Name: "native_crypto_ecdsa_get_public_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
 	st.Functions["native_crypto_ecdsa_get_private_key_pem"] = &FunctionSignature{Name: "native_crypto_ecdsa_get_private_key_pem", ParamTypes: []string{"int"}, ReturnType: "string"}
 	st.Functions["native_crypto_ecdsa_load_public_key"] = &FunctionSignature{Name: "native_crypto_ecdsa_load_public_key", ParamTypes: []string{"string"}, ReturnType: "int"}
@@ -263,9 +263,9 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_crypto_ecdsa_free"] = &FunctionSignature{Name: "native_crypto_ecdsa_free", ParamTypes: []string{"int"}, ReturnType: "bool"}
 
 	// Crypto Ed25519函数
-	st.Functions["native_crypto_ed25519_generate"] = &FunctionSignature{Name: "native_crypto_ed25519_generate", ParamTypes: []string{}, ReturnType: "any"}
-	st.Functions["native_crypto_ed25519_sign"] = &FunctionSignature{Name: "native_crypto_ed25519_sign", ParamTypes: []string{"any", "int"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_ed25519_verify"] = &FunctionSignature{Name: "native_crypto_ed25519_verify", ParamTypes: []string{"any", "byte[]", "int"}, ReturnType: "bool"}
+	st.Functions["native_crypto_ed25519_generate"] = &FunctionSignature{Name: "native_crypto_ed25519_generate", ParamTypes: []string{}, ReturnType: "dynamic"}
+	st.Functions["native_crypto_ed25519_sign"] = &FunctionSignature{Name: "native_crypto_ed25519_sign", ParamTypes: []string{"dynamic", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_ed25519_verify"] = &FunctionSignature{Name: "native_crypto_ed25519_verify", ParamTypes: []string{"dynamic", "byte[]", "int"}, ReturnType: "bool"}
 	st.Functions["native_crypto_ed25519_get_public_key_bytes"] = &FunctionSignature{Name: "native_crypto_ed25519_get_public_key_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
 	st.Functions["native_crypto_ed25519_get_private_key_bytes"] = &FunctionSignature{Name: "native_crypto_ed25519_get_private_key_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
 	st.Functions["native_crypto_ed25519_load_public_key"] = &FunctionSignature{Name: "native_crypto_ed25519_load_public_key", ParamTypes: []string{"byte[]"}, ReturnType: "int"}
@@ -273,11 +273,11 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_crypto_ed25519_free"] = &FunctionSignature{Name: "native_crypto_ed25519_free", ParamTypes: []string{"int"}, ReturnType: "bool"}
 
 	// Crypto 密钥派生函数
-	st.Functions["native_crypto_pbkdf2"] = &FunctionSignature{Name: "native_crypto_pbkdf2", ParamTypes: []string{"any", "byte[]", "int", "int", "string"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_pbkdf2"] = &FunctionSignature{Name: "native_crypto_pbkdf2", ParamTypes: []string{"dynamic", "byte[]", "int", "int", "string"}, ReturnType: "byte[]"}
 	st.Functions["native_crypto_hkdf"] = &FunctionSignature{Name: "native_crypto_hkdf", ParamTypes: []string{"byte[]", "byte[]", "byte[]", "int", "string"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_scrypt"] = &FunctionSignature{Name: "native_crypto_scrypt", ParamTypes: []string{"any", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_argon2id"] = &FunctionSignature{Name: "native_crypto_argon2id", ParamTypes: []string{"any", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
-	st.Functions["native_crypto_argon2i"] = &FunctionSignature{Name: "native_crypto_argon2i", ParamTypes: []string{"any", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_scrypt"] = &FunctionSignature{Name: "native_crypto_scrypt", ParamTypes: []string{"dynamic", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_argon2id"] = &FunctionSignature{Name: "native_crypto_argon2id", ParamTypes: []string{"dynamic", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
+	st.Functions["native_crypto_argon2i"] = &FunctionSignature{Name: "native_crypto_argon2i", ParamTypes: []string{"dynamic", "byte[]", "int", "int", "int", "int"}, ReturnType: "byte[]"}
 
 	// Crypto 随机数函数
 	st.Functions["native_crypto_random_bytes"] = &FunctionSignature{Name: "native_crypto_random_bytes", ParamTypes: []string{"int"}, ReturnType: "byte[]"}
@@ -370,40 +370,40 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_stream_eof"] = &FunctionSignature{Name: "native_stream_eof", ParamTypes: []string{"int"}, ReturnType: "bool"}
 
 	// 反射函数 (native_reflect_*)
-	st.Functions["native_reflect_get_class"] = &FunctionSignature{Name: "native_reflect_get_class", ParamTypes: []string{"object"}, ReturnType: "string"}
-	st.Functions["native_reflect_get_methods"] = &FunctionSignature{Name: "native_reflect_get_methods", ParamTypes: []string{"object"}, ReturnType: "string[]"}
-	st.Functions["native_reflect_get_properties"] = &FunctionSignature{Name: "native_reflect_get_properties", ParamTypes: []string{"object"}, ReturnType: "string[]"}
-	st.Functions["native_reflect_has_method"] = &FunctionSignature{Name: "native_reflect_has_method", ParamTypes: []string{"object", "string"}, ReturnType: "bool"}
-	st.Functions["native_reflect_has_property"] = &FunctionSignature{Name: "native_reflect_has_property", ParamTypes: []string{"object", "string"}, ReturnType: "bool"}
-	st.Functions["native_reflect_get_annotations"] = &FunctionSignature{Name: "native_reflect_get_annotations", ParamTypes: []string{"object"}, ReturnType: "map[string]any"}
-	st.Functions["native_reflect_get_parent_class"] = &FunctionSignature{Name: "native_reflect_get_parent_class", ParamTypes: []string{"object"}, ReturnType: "string"}
-	st.Functions["native_reflect_get_interfaces"] = &FunctionSignature{Name: "native_reflect_get_interfaces", ParamTypes: []string{"object"}, ReturnType: "string[]"}
-	st.Functions["native_reflect_is_instance_of"] = &FunctionSignature{Name: "native_reflect_is_instance_of", ParamTypes: []string{"object", "string"}, ReturnType: "bool"}
+	st.Functions["native_reflect_get_class"] = &FunctionSignature{Name: "native_reflect_get_class", ParamTypes: []string{"unknown"}, ReturnType: "string"}
+	st.Functions["native_reflect_get_methods"] = &FunctionSignature{Name: "native_reflect_get_methods", ParamTypes: []string{"unknown"}, ReturnType: "string[]"}
+	st.Functions["native_reflect_get_properties"] = &FunctionSignature{Name: "native_reflect_get_properties", ParamTypes: []string{"unknown"}, ReturnType: "string[]"}
+	st.Functions["native_reflect_has_method"] = &FunctionSignature{Name: "native_reflect_has_method", ParamTypes: []string{"unknown", "string"}, ReturnType: "bool"}
+	st.Functions["native_reflect_has_property"] = &FunctionSignature{Name: "native_reflect_has_property", ParamTypes: []string{"unknown", "string"}, ReturnType: "bool"}
+	st.Functions["native_reflect_get_annotations"] = &FunctionSignature{Name: "native_reflect_get_annotations", ParamTypes: []string{"unknown"}, ReturnType: "map[string]any"}
+	st.Functions["native_reflect_get_parent_class"] = &FunctionSignature{Name: "native_reflect_get_parent_class", ParamTypes: []string{"unknown"}, ReturnType: "string"}
+	st.Functions["native_reflect_get_interfaces"] = &FunctionSignature{Name: "native_reflect_get_interfaces", ParamTypes: []string{"unknown"}, ReturnType: "string[]"}
+	st.Functions["native_reflect_is_instance_of"] = &FunctionSignature{Name: "native_reflect_is_instance_of", ParamTypes: []string{"unknown", "string"}, ReturnType: "bool"}
 	
 	// typeof 函数
-	st.Functions["typeof"] = &FunctionSignature{Name: "typeof", ParamTypes: []string{"any"}, ReturnType: "string"}
+	st.Functions["typeof"] = &FunctionSignature{Name: "typeof", ParamTypes: []string{"dynamic"}, ReturnType: "string"}
 }
 
 // registerBuiltinTypeMethods 注册内置类型的方法签名
 func (st *SymbolTable) registerBuiltinTypeMethods() {
 	// SuperArray 万能数组方法
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "len", ParamTypes: []string{}, ReturnType: "int"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "hasKey", ParamTypes: []string{"any"}, ReturnType: "bool"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "get", ParamTypes: []string{"any"}, ReturnType: "any"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "get", ParamTypes: []string{"any", "any"}, ReturnType: "any"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "set", ParamTypes: []string{"any", "any"}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "keys", ParamTypes: []string{}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "values", ParamTypes: []string{}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "push", ParamTypes: []string{"any"}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "pop", ParamTypes: []string{}, ReturnType: "any"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "shift", ParamTypes: []string{}, ReturnType: "any"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "unshift", ParamTypes: []string{"any"}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "merge", ParamTypes: []string{"superarray"}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "slice", ParamTypes: []string{"int"}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "slice", ParamTypes: []string{"int", "int"}, ReturnType: "superarray"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "remove", ParamTypes: []string{"any"}, ReturnType: "bool"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "clear", ParamTypes: []string{}, ReturnType: "void"})
-	st.RegisterMethod(&MethodSignature{ClassName: "superarray", MethodName: "copy", ParamTypes: []string{}, ReturnType: "superarray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "len", ParamTypes: []string{}, ReturnType: "int"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "hasKey", ParamTypes: []string{"dynamic"}, ReturnType: "bool"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "get", ParamTypes: []string{"dynamic"}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "get", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "set", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "keys", ParamTypes: []string{}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "values", ParamTypes: []string{}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "push", ParamTypes: []string{"dynamic"}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "pop", ParamTypes: []string{}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "shift", ParamTypes: []string{}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "unshift", ParamTypes: []string{"dynamic"}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "merge", ParamTypes: []string{"SuperArray"}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "slice", ParamTypes: []string{"int"}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "slice", ParamTypes: []string{"int", "int"}, ReturnType: "SuperArray"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "remove", ParamTypes: []string{"dynamic"}, ReturnType: "bool"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "clear", ParamTypes: []string{}, ReturnType: "void"})
+	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "copy", ParamTypes: []string{}, ReturnType: "SuperArray"})
 }
 
 // RegisterFunction 注册函数签名
@@ -740,7 +740,7 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 	
 	// 收集属性
 	for _, prop := range decl.Properties {
-		propType := "any"
+		propType := "dynamic"
 		if prop.Type != nil {
 			propType = typeNodeToString(prop.Type)
 		}
@@ -770,7 +770,7 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 			if param.Type != nil {
 				paramTypes[i] = typeNodeToString(param.Type)
 			} else {
-				paramTypes[i] = "any"
+				paramTypes[i] = "dynamic"
 			}
 			if param.Default != nil && minArity == len(method.Parameters) {
 				minArity = i
@@ -855,7 +855,7 @@ func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl, namespace s
 			if param.Type != nil {
 				paramTypes[i] = typeNodeToString(param.Type)
 			} else {
-				paramTypes[i] = "any"
+				paramTypes[i] = "dynamic"
 			}
 		}
 		
@@ -879,7 +879,7 @@ func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl, namespace s
 // typeNodeToString 将类型节点转换为字符串
 func typeNodeToString(t ast.TypeNode) string {
 	if t == nil {
-		return "any"
+		return "dynamic"
 	}
 	
 	switch typ := t.(type) {
@@ -935,7 +935,7 @@ func typeNodeToString(t ast.TypeNode) string {
 		// 类型参数直接返回其名称
 		return typ.Name.Name
 	default:
-		return "any"
+		return "dynamic"
 	}
 }
 
@@ -1109,7 +1109,7 @@ func (st *SymbolTable) IsTypeCompatible(actualType, targetType string) bool {
 	}
 	
 	// any 类型与任何类型兼容
-	if actualType == "any" || targetType == "any" {
+	if actualType == "dynamic" || targetType == "dynamic" {
 		return true
 	}
 	

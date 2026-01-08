@@ -1,4 +1,4 @@
-// Sola 标准库 - 有序映射
+﻿// Sola 标准库 - 有序映射
 namespace sola.collections
 
 /**
@@ -70,11 +70,11 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return $this->count == 0;
     }
     
-    public function containsKey(mixed $key): bool {
+    public function containsKey(dynamic $key): bool {
         return $this->binarySearch($key) >= 0;
     }
     
-    public function containsValue(mixed $value): bool {
+    public function containsValue(dynamic $value): bool {
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->values[$i] == $value) {
                 return true;
@@ -83,7 +83,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return false;
     }
     
-    public function get(mixed $key): mixed {
+    public function get(dynamic $key): dynamic {
         $index := $this->binarySearch($key);
         if ($index < 0) {
             return null;
@@ -91,7 +91,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return $this->values[$index];
     }
     
-    public function getOrDefault(mixed $key, mixed $defaultValue): mixed {
+    public function getOrDefault(dynamic $key, dynamic $defaultValue): dynamic {
         $index := $this->binarySearch($key);
         if ($index < 0) {
             return $defaultValue;
@@ -99,7 +99,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return $this->values[$index];
     }
     
-    public function put(mixed $key, mixed $value): mixed {
+    public function put(dynamic $key, dynamic $value): dynamic {
         $index := $this->binarySearch($key);
         
         if ($index >= 0) {
@@ -126,7 +126,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return null;
     }
     
-    public function putIfAbsent(mixed $key, mixed $value): mixed {
+    public function putIfAbsent(dynamic $key, dynamic $value): dynamic {
         $index := $this->binarySearch($key);
         if ($index >= 0) {
             return $this->values[$index];
@@ -142,7 +142,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         });
     }
     
-    public function remove(mixed $key): mixed {
+    public function remove(dynamic $key): dynamic {
         $index := $this->binarySearch($key);
         if ($index < 0) {
             return null;
@@ -161,7 +161,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return $old;
     }
     
-    public function removeIf(mixed $key, mixed $value): bool {
+    public function removeIf(dynamic $key, dynamic $value): bool {
         $index := $this->binarySearch($key);
         if ($index < 0 || $this->values[$index] != $value) {
             return false;
@@ -171,7 +171,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return true;
     }
     
-    public function replace(mixed $key, mixed $value): mixed {
+    public function replace(dynamic $key, dynamic $value): dynamic {
         $index := $this->binarySearch($key);
         if ($index < 0) {
             return null;
@@ -184,7 +184,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return $old;
     }
     
-    public function replaceIf(mixed $key, mixed $oldValue, mixed $newValue): bool {
+    public function replaceIf(dynamic $key, dynamic $oldValue, dynamic $newValue): bool {
         $index := $this->binarySearch($key);
         if ($index < 0 || $this->values[$index] != $oldValue) {
             return false;
@@ -241,7 +241,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回最小键
      */
-    public function firstKey(): mixed {
+    public function firstKey(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Map is empty");
         }
@@ -251,7 +251,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回最大键
      */
-    public function lastKey(): mixed {
+    public function lastKey(): dynamic {
         if ($this->count == 0) {
             throw new NoSuchElementException("Map is empty");
         }
@@ -307,7 +307,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回小于指定键的最大键
      */
-    public function lowerKey(mixed $key): mixed {
+    public function lowerKey(dynamic $key): dynamic {
         $index := $this->findInsertIndex($key);
         if ($index == 0) {
             return null;
@@ -318,7 +318,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回大于指定键的最小键
      */
-    public function higherKey(mixed $key): mixed {
+    public function higherKey(dynamic $key): dynamic {
         $index := $this->findInsertIndex($key);
         if ($index < $this->count && $this->compare($this->keys[$index], $key) == 0) {
             $index++;
@@ -332,7 +332,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回小于等于指定键的最大键
      */
-    public function floorKey(mixed $key): mixed {
+    public function floorKey(dynamic $key): dynamic {
         $index := $this->binarySearch($key);
         if ($index >= 0) {
             return $this->keys[$index];
@@ -348,7 +348,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回大于等于指定键的最小键
      */
-    public function ceilingKey(mixed $key): mixed {
+    public function ceilingKey(dynamic $key): dynamic {
         $index := $this->binarySearch($key);
         if ($index >= 0) {
             return $this->keys[$index];
@@ -364,7 +364,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回指定范围的子映射
      */
-    public function subMap(mixed $fromKey, mixed $toKey): TreeMap<K, V> {
+    public function subMap(dynamic $fromKey, dynamic $toKey): TreeMap<K, V> {
         $result := new TreeMap<K, V>($this->comparator);
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->compare($this->keys[$i], $fromKey) >= 0 && 
@@ -378,7 +378,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回键小于指定键的子映射
      */
-    public function headMap(mixed $toKey): TreeMap<K, V> {
+    public function headMap(dynamic $toKey): TreeMap<K, V> {
         $result := new TreeMap<K, V>($this->comparator);
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->compare($this->keys[$i], $toKey) < 0) {
@@ -391,7 +391,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 返回键大于等于指定键的子映射
      */
-    public function tailMap(mixed $fromKey): TreeMap<K, V> {
+    public function tailMap(dynamic $fromKey): TreeMap<K, V> {
         $result := new TreeMap<K, V>($this->comparator);
         for ($i := 0; $i < $this->count; $i++) {
             if ($this->compare($this->keys[$i], $fromKey) >= 0) {
@@ -439,7 +439,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     /**
      * 更新指定索引的值
      */
-    public function updateValueAt(int $index, mixed $value): void {
+    public function updateValueAt(int $index, dynamic $value): void {
         if ($index >= 0 && $index < $this->count) {
             $this->values[$index] = $value;
             $this->modCount++;
@@ -450,7 +450,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
     // 内部方法
     // ========================================================================
     
-    private function compare(mixed $a, mixed $b): int {
+    private function compare(dynamic $a, dynamic $b): int {
         if ($this->comparator != null) {
             return $this->comparator->compare($a, $b);
         }
@@ -462,7 +462,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return 0;
     }
     
-    private function binarySearch(mixed $key): int {
+    private function binarySearch(dynamic $key): int {
         $low := 0;
         $high := $this->count - 1;
         
@@ -482,7 +482,7 @@ public class TreeMap<K, V> implements IMap<K, V> {
         return -1;
     }
     
-    private function findInsertIndex(mixed $key): int {
+    private function findInsertIndex(dynamic $key): int {
         $low := 0;
         $high := $this->count;
         
@@ -505,27 +505,27 @@ public class TreeMap<K, V> implements IMap<K, V> {
  * TreeMap 条目
  */
 public class TreeMapEntry<K, V> implements MapEntry<K, V> {
-    private mixed $key;
-    private mixed $value;
+    private dynamic $key;
+    private dynamic $value;
     private TreeMap<K, V> $map;
     private int $index;
     
-    public function __construct(mixed $key, mixed $value, TreeMap<K, V> $map, int $index) {
+    public function __construct(dynamic $key, dynamic $value, TreeMap<K, V> $map, int $index) {
         $this->key = $key;
         $this->value = $value;
         $this->map = $map;
         $this->index = $index;
     }
     
-    public function getKey(): mixed {
+    public function getKey(): dynamic {
         return $this->key;
     }
     
-    public function getValue(): mixed {
+    public function getValue(): dynamic {
         return $this->value;
     }
     
-    public function setValue(mixed $value): mixed {
+    public function setValue(dynamic $value): dynamic {
         $old := $this->value;
         $this->value = $value;
         $this->map->updateValueAt($this->index, $value);

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - Ed25519
  * Ed25519数字签名算法库
  * 
@@ -203,14 +203,14 @@ class Ed25519 {
     
     /**
      * Ed25519签名
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param Ed25519PrivateKey $privateKey 私钥
      * @return byte[] 64字节签名
      * 
      * @example
      * byte[] $signature = Ed25519::sign("message", $keys->getPrivateKey());
      */
-    public static function sign(mixed $message, Ed25519PrivateKey $privateKey): byte[] {
+    public static function sign(dynamic $message, Ed25519PrivateKey $privateKey): byte[] {
         byte[] $result = native_crypto_ed25519_sign($message, $privateKey->getHandle());
         if (count($result) == 0) {
             throw new CryptoException("Ed25519 signing failed", CryptoException::SIGNATURE_FAILED);
@@ -220,19 +220,19 @@ class Ed25519 {
     
     /**
      * Ed25519验签
-     * @param mixed $message 消息
+     * @param dynamic $message 消息
      * @param byte[] $signature 签名
      * @param Ed25519PublicKey $publicKey 公钥
      * @return bool 验证是否通过
      */
-    public static function verify(mixed $message, byte[] $signature, Ed25519PublicKey $publicKey): bool {
+    public static function verify(dynamic $message, byte[] $signature, Ed25519PublicKey $publicKey): bool {
         return native_crypto_ed25519_verify($message, $signature, $publicKey->getHandle());
     }
     
     /**
      * 签名并返回十六进制
      */
-    public static function signHex(mixed $message, Ed25519PrivateKey $privateKey): string {
+    public static function signHex(dynamic $message, Ed25519PrivateKey $privateKey): string {
         byte[] $sig = self::sign($message, $privateKey);
         return Hex::encode($sig);
     }
@@ -240,7 +240,7 @@ class Ed25519 {
     /**
      * 使用十六进制签名验签
      */
-    public static function verifyHex(mixed $message, string $signatureHex, Ed25519PublicKey $publicKey): bool {
+    public static function verifyHex(dynamic $message, string $signatureHex, Ed25519PublicKey $publicKey): bool {
         byte[] $sig = Hex::decode($signatureHex);
         return self::verify($message, $sig, $publicKey);
     }

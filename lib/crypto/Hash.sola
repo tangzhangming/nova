@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sola Crypto Library - Hash
  * 哈希算法库
  */
@@ -10,10 +10,10 @@ namespace sola.crypto
 interface IHasher {
     /**
      * 更新哈希数据
-     * @param mixed $data 数据（string或byte[]）
+     * @param dynamic $data 数据（string或byte[]）
      * @return IHasher 返回自身以支持链式调用
      */
-    public function update(mixed $data): IHasher;
+    public function update(dynamic $data): IHasher;
     
     /**
      * 完成哈希并返回十六进制结果
@@ -42,7 +42,7 @@ class Hasher implements IHasher {
         $this->handle = $handle;
     }
     
-    public function update(mixed $data): IHasher {
+    public function update(dynamic $data): IHasher {
         if ($this->finalized) {
             throw new CryptoException("Hasher already finalized", CryptoException::HASH_FAILED);
         }
@@ -77,22 +77,22 @@ class Hash {
     
     /**
      * 计算MD5哈希
-     * @param mixed $data 数据（string或byte[]）
+     * @param dynamic $data 数据（string或byte[]）
      * @return string 哈希结果（十六进制，32字符）
      * 
      * @example
      * string $hash = Hash::md5("hello");  // "5d41402abc4b2a76b9719d911017c592"
      */
-    public static function md5(mixed $data): string {
+    public static function md5(dynamic $data): string {
         return native_crypto_md5($data);
     }
     
     /**
      * 计算MD5哈希（返回字节）
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return byte[] 哈希结果（16字节）
      */
-    public static function md5Bytes(mixed $data): byte[] {
+    public static function md5Bytes(dynamic $data): byte[] {
         return native_crypto_md5_bytes($data);
     }
     
@@ -117,22 +117,22 @@ class Hash {
     
     /**
      * 计算SHA1哈希
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return string 哈希结果（十六进制，40字符）
      * 
      * @example
      * string $hash = Hash::sha1("hello");  // "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
      */
-    public static function sha1(mixed $data): string {
+    public static function sha1(dynamic $data): string {
         return native_crypto_sha1($data);
     }
     
     /**
      * 计算SHA1哈希（返回字节）
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return byte[] 哈希结果（20字节）
      */
-    public static function sha1Bytes(mixed $data): byte[] {
+    public static function sha1Bytes(dynamic $data): byte[] {
         return native_crypto_sha1_bytes($data);
     }
     
@@ -152,22 +152,22 @@ class Hash {
     
     /**
      * 计算SHA256哈希
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return string 哈希结果（十六进制，64字符）
      * 
      * @example
      * string $hash = Hash::sha256("hello");
      */
-    public static function sha256(mixed $data): string {
+    public static function sha256(dynamic $data): string {
         return native_crypto_sha256($data);
     }
     
     /**
      * 计算SHA256哈希（返回字节）
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return byte[] 哈希结果（32字节）
      */
-    public static function sha256Bytes(mixed $data): byte[] {
+    public static function sha256Bytes(dynamic $data): byte[] {
         return native_crypto_sha256_bytes($data);
     }
     
@@ -187,19 +187,19 @@ class Hash {
     
     /**
      * 计算SHA384哈希
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return string 哈希结果（十六进制，96字符）
      */
-    public static function sha384(mixed $data): string {
+    public static function sha384(dynamic $data): string {
         return native_crypto_sha384($data);
     }
     
     /**
      * 计算SHA384哈希（返回字节）
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return byte[] 哈希结果（48字节）
      */
-    public static function sha384Bytes(mixed $data): byte[] {
+    public static function sha384Bytes(dynamic $data): byte[] {
         return native_crypto_sha384_bytes($data);
     }
     
@@ -219,19 +219,19 @@ class Hash {
     
     /**
      * 计算SHA512哈希
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return string 哈希结果（十六进制，128字符）
      */
-    public static function sha512(mixed $data): string {
+    public static function sha512(dynamic $data): string {
         return native_crypto_sha512($data);
     }
     
     /**
      * 计算SHA512哈希（返回字节）
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return byte[] 哈希结果（64字节）
      */
-    public static function sha512Bytes(mixed $data): byte[] {
+    public static function sha512Bytes(dynamic $data): byte[] {
         return native_crypto_sha512_bytes($data);
     }
     
@@ -252,10 +252,10 @@ class Hash {
     /**
      * 使用指定算法计算哈希
      * @param string $algorithm 算法名称: "md5", "sha1", "sha256", "sha384", "sha512"
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @return string 哈希结果（十六进制）
      */
-    public static function hash(string $algorithm, mixed $data): string {
+    public static function hash(string $algorithm, dynamic $data): string {
         switch ($algorithm) {
             case "md5":
                 return self::md5($data);
@@ -299,11 +299,11 @@ class Hash {
     /**
      * 验证数据哈希
      * @param string $algorithm 算法名称
-     * @param mixed $data 数据
+     * @param dynamic $data 数据
      * @param string $expectedHash 预期哈希值
      * @return bool 是否匹配
      */
-    public static function verify(string $algorithm, mixed $data, string $expectedHash): bool {
+    public static function verify(string $algorithm, dynamic $data, string $expectedHash): bool {
         string $actualHash = self::hash($algorithm, $data);
         return Str::toLower($actualHash) == Str::toLower($expectedHash);
     }

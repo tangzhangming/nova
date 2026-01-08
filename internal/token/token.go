@@ -125,7 +125,8 @@ const (
 	BOOL_TYPE   // bool
 	STRING_TYPE // string
 	VOID        // void
-	OBJECT      // object
+	UNKNOWN     // unknown
+	DYNAMIC     // dynamic
 	FUNC_TYPE   // func
 
 	// ----------------------------------------------------------
@@ -298,7 +299,8 @@ var tokenNames = map[TokenType]string{
 	BOOL_TYPE:   "bool",
 	STRING_TYPE: "string",
 	VOID:        "void",
-	OBJECT:      "object",
+	UNKNOWN:     "unknown",
+	DYNAMIC:     "dynamic",
 	FUNC_TYPE:   "func",
 
 	// 值关键字
@@ -392,7 +394,8 @@ var keywords = map[string]TokenType{
 	"bool":   BOOL_TYPE,
 	"string": STRING_TYPE,
 	"void":   VOID,
-	"object": OBJECT,
+	"unknown": UNKNOWN,
+	"dynamic": DYNAMIC,
 	"func":   FUNC_TYPE,
 
 	// 值关键字
@@ -609,8 +612,10 @@ func LookupIdent(ident string) TokenType {
 			return PUBLIC
 		case "parent":
 			return PARENT
-		case "object":
-			return OBJECT
+		case "unknown":
+			return UNKNOWN
+		case "dynamic":
+			return DYNAMIC
 		case "elseif":
 			return ELSEIF
 		case "string":

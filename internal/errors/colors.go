@@ -249,7 +249,7 @@ var typeKeywords = map[string]bool{
 	"i8": true, "i16": true, "i32": true, "i64": true,
 	"u8": true, "u16": true, "u32": true, "u64": true,
 	"f32": true, "f64": true, "byte": true, "uint": true,
-	"object": true, "func": true, "map": true,
+	"unknown": true, "dynamic": true, "func": true, "map": true,
 }
 
 // HighlightLine 高亮代码行
