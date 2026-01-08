@@ -17,7 +17,6 @@ package jit
 import (
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
@@ -403,6 +402,10 @@ func (p *Profiler) getOrCreateProfile(fn *bytecode.Function) *FunctionProfile {
 }
 
 // fnKey 获取函数的唯一键
-func fnKey(fn *bytecode.Function) uintptr {
-	return uintptr(unsafe.Pointer(fn))
+// 使用函数名和类名的组合作为key，避免每次创建新Function对象导致key不同
+func fnKey(fn *bytecode.Function) string {
+	if fn.ClassName != "" {
+		return fn.ClassName + "::" + fn.Name
+	}
+	return fn.Name
 }

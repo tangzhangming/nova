@@ -113,14 +113,12 @@ func NewWithConfig(jitConfig *jit.Config) *VM {
 	vm.jitEnabled = vm.jitCompiler != nil && vm.jitCompiler.IsEnabled()
 	
 	// 设置热点检测回调
-	// 注意：暂时禁用自动热点检测，JIT框架已实现但需要更多集成工作
-	// TODO: 完成VM与JIT的完整集成后重新启用
-	// if vm.jitEnabled {
-	// 	profiler := vm.jitCompiler.GetProfiler()
-	// 	if profiler != nil {
-	// 		profiler.OnFunctionHot(vm.onJITFunctionHot)
-	// 	}
-	// }
+	if vm.jitEnabled {
+		profiler := vm.jitCompiler.GetProfiler()
+		if profiler != nil {
+			profiler.OnFunctionHot(vm.onJITFunctionHot)
+		}
+	}
 	
 	return vm
 }
@@ -2302,17 +2300,26 @@ func (vm *VM) callBuiltin(fn *bytecode.Function, argCount int) InterpretResult {
 func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	fn := closure.Function
 	
-	// 检查是否已 JIT 编译并可执行
+	// 记录函数调用到profiler（用于热点检测）
 	if vm.jitEnabled && vm.jitCompiler != nil {
-		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
-			// 尝试使用 JIT 编译的代码执行
-			result, ok := vm.executeNative(compiled, closure, argCount)
-			if ok {
-				return result
-			}
-			// JIT 执行失败，回退到解释执行
+		profiler := vm.jitCompiler.GetProfiler()
+		if profiler != nil {
+			profiler.RecordCall(fn)
 		}
 	}
+	
+	// 检查是否已 JIT 编译并可执行
+	// 注意：JIT编译已完成，但执行层暂时禁用（代码生成器需要进一步调试）
+	// if vm.jitEnabled && vm.jitCompiler != nil {
+	// 	if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
+	// 		// 尝试使用 JIT 编译的代码执行
+	// 		result, ok := vm.executeNative(compiled, closure, argCount)
+	// 		if ok {
+	// 			return result
+	// 		}
+	// 		// JIT 执行失败，回退到解释执行
+	// 	}
+	// }
 	
 	// 检查参数数量
 	if fn.IsVariadic {
