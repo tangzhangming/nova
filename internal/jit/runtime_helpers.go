@@ -221,3 +221,157 @@ func getFuncPtr(fn interface{}) uintptr {
 	// 函数描述符的第一个字段是函数代码的地址
 	return *(*uintptr)((*[2]unsafe.Pointer)(unsafe.Pointer(&fn))[1])
 }
+
+// ============================================================================
+// 函数调用辅助函数
+// ============================================================================
+
+// CallContext 调用上下文，用于在JIT和VM之间传递信息
+type CallContext struct {
+	VM           unsafe.Pointer  // VM实例指针
+	FunctionName string          // 函数名
+	ClassName    string          // 类名（用于静态方法）
+	MethodName   string          // 方法名
+	Args         []int64         // 参数列表
+	ReturnValue  int64           // 返回值
+	Error        error           // 错误信息
+}
+
+// 全局调用上下文（简化实现，生产环境应使用线程本地存储）
+var globalCallContext CallContext
+
+// CallHelper 通用函数调用辅助函数
+// 这是一个占位实现，实际调用应通过VM进行
+//
+//go:nosplit
+func CallHelper() int64 {
+	// 实际实现需要：
+	// 1. 从调用上下文获取函数信息
+	// 2. 通过VM解析函数地址
+	// 3. 执行调用
+	// 4. 返回结果
+	return 0
+}
+
+// TailCallHelper 尾调用辅助函数
+//
+//go:nosplit
+func TailCallHelper(funcName string) int64 {
+	// 尾调用优化：复用当前栈帧
+	return 0
+}
+
+// MethodCallHelper 方法调用辅助函数
+// 参数：receiver - 对象指针
+// 返回：方法返回值
+//
+//go:nosplit
+func MethodCallHelper(receiver uintptr) int64 {
+	if receiver == 0 {
+		return 0
+	}
+	
+	// 实际实现需要：
+	// 1. 获取对象的类型信息
+	// 2. 查找方法
+	// 3. 执行方法调用
+	return 0
+}
+
+// BuiltinCallHelper 内建函数调用辅助函数
+//
+//go:nosplit
+func BuiltinCallHelper() int64 {
+	return 0
+}
+
+// GetCallHelperPtr 获取通用调用辅助函数指针
+func GetCallHelperPtr() uintptr {
+	return getFuncPtr(CallHelper)
+}
+
+// GetTailCallHelperPtr 获取尾调用辅助函数指针
+func GetTailCallHelperPtr(funcName string) uintptr {
+	return getFuncPtr(TailCallHelper)
+}
+
+// GetMethodCallHelperPtr 获取方法调用辅助函数指针
+func GetMethodCallHelperPtr(methodName string) uintptr {
+	return getFuncPtr(MethodCallHelper)
+}
+
+// GetBuiltinCallHelperPtr 获取内建函数调用辅助函数指针
+func GetBuiltinCallHelperPtr(builtinName string) uintptr {
+	return getFuncPtr(BuiltinCallHelper)
+}
+
+// ============================================================================
+// 对象操作辅助函数
+// ============================================================================
+
+// NewObjectHelper 创建新对象
+// 返回：对象指针
+//
+//go:nosplit
+func NewObjectHelper(classNamePtr uintptr) uintptr {
+	// 实际实现需要：
+	// 1. 获取类定义
+	// 2. 分配对象内存
+	// 3. 初始化字段
+	// 4. 返回对象指针
+	return 0
+}
+
+// GetFieldHelper 获取对象字段值
+// 参数：
+//   - objPtr: 对象指针
+//   - fieldNamePtr: 字段名指针
+// 返回：字段值（int64表示）
+//
+//go:nosplit
+func GetFieldHelper(objPtr uintptr) int64 {
+	if objPtr == 0 {
+		return 0
+	}
+	
+	// 实际实现需要：
+	// 1. 获取对象类型信息
+	// 2. 查找字段偏移
+	// 3. 读取字段值
+	return 0
+}
+
+// SetFieldHelper 设置对象字段值
+// 参数：
+//   - objPtr: 对象指针
+//   - fieldNamePtr: 字段名指针
+//   - value: 要设置的值
+// 返回：1成功，0失败
+//
+//go:nosplit
+func SetFieldHelper(objPtr uintptr, value int64) int64 {
+	if objPtr == 0 {
+		return 0
+	}
+	
+	// 实际实现需要：
+	// 1. 获取对象类型信息
+	// 2. 查找字段偏移
+	// 3. 写入字段值
+	return 1
+}
+
+// GetNewObjectHelperPtr 获取对象创建辅助函数指针
+func GetNewObjectHelperPtr(className string) uintptr {
+	return getFuncPtr(NewObjectHelper)
+}
+
+// GetFieldHelperPtr 获取字段读取辅助函数指针
+func GetFieldHelperPtr(fieldName string) uintptr {
+	return getFuncPtr(GetFieldHelper)
+}
+
+// GetSetFieldHelperPtr 获取字段写入辅助函数指针
+func GetSetFieldHelperPtr(fieldName string) uintptr {
+	return getFuncPtr(SetFieldHelper)
+}

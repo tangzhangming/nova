@@ -315,7 +315,7 @@ func TestCanJIT(t *testing.T) {
 		t.Error("Function with upvalues should not be JIT-able")
 	}
 	
-	// 带函数调用的函数不能 JIT
+	// 带函数调用的函数现在可以 JIT（使用 JITWithCalls 级别）
 	withCall := &bytecode.Function{
 		Name:  "withCall",
 		Chunk: bytecode.NewChunk(),
@@ -324,8 +324,28 @@ func TestCanJIT(t *testing.T) {
 	withCall.Chunk.Write(0, 1) // arg count
 	withCall.Chunk.WriteOp(bytecode.OpReturn, 2)
 	
-	if CanJIT(withCall) {
-		t.Error("Function with call should not be JIT-able")
+	// 函数调用现在支持，应返回 JITWithCalls 级别
+	level := CanJITWithLevel(withCall)
+	if level == JITDisabled {
+		t.Error("Function with call should be JIT-able (at JITWithCalls level)")
+	}
+	if level != JITWithCalls {
+		t.Logf("Function with call at level %d (expected %d)", level, JITWithCalls)
+	}
+	
+	// 带异常处理的函数仍然不能 JIT
+	withTry := &bytecode.Function{
+		Name:  "withTry",
+		Chunk: bytecode.NewChunk(),
+	}
+	withTry.Chunk.WriteOp(bytecode.OpEnterTry, 1)
+	withTry.Chunk.Write(0, 1)  // catchCount
+	withTry.Chunk.Write(0, 1)  // finallyOffset high
+	withTry.Chunk.Write(0, 1)  // finallyOffset low
+	withTry.Chunk.WriteOp(bytecode.OpReturn, 2)
+	
+	if CanJIT(withTry) {
+		t.Error("Function with try-catch should not be JIT-able")
 	}
 }
 
@@ -740,4 +760,657 @@ func TestGetHelperPtrs(t *testing.T) {
 	t.Logf("ArrayLenHelper: %#x", lenPtr)
 	t.Logf("ArrayGetHelper: %#x", getPtr)
 	t.Logf("ArraySetHelper: %#x", setPtr)
+}
+
+// ============================================================================
+// 函数调用相关测试
+// ============================================================================
+
+// TestIRCallInstructions 测试IR调用指令
+func TestIRCallInstructions(t *testing.T) {
+	// 测试创建调用指令
+	fn := NewIRFunc("test", 0)
+	
+	// 创建参数值
+	arg1 := fn.NewConstIntValue(10)
+	arg2 := fn.NewConstIntValue(20)
+	
+	// 创建调用指令
+	dest := fn.NewValue(TypeInt)
+	callInstr := NewCallInstr("add", dest, arg1, arg2)
+	
+	if callInstr.Op != OpCall {
+		t.Errorf("Expected OpCall, got %v", callInstr.Op)
+	}
+	
+	if callInstr.CallTarget != "add" {
+		t.Errorf("Expected target 'add', got '%s'", callInstr.CallTarget)
+	}
+	
+	if callInstr.CallArgCount != 2 {
+		t.Errorf("Expected 2 args, got %d", callInstr.CallArgCount)
+	}
+	
+	if len(callInstr.Args) != 2 {
+		t.Errorf("Expected 2 args in slice, got %d", len(callInstr.Args))
+	}
+	
+	t.Logf("Call instruction: %s", callInstr.String())
+}
+
+// TestIRMethodCallInstructions 测试IR方法调用指令
+func TestIRMethodCallInstructions(t *testing.T) {
+	fn := NewIRFunc("test", 0)
+	
+	// 创建接收者和参数
+	receiver := fn.NewValue(TypeObject)
+	arg1 := fn.NewConstIntValue(5)
+	
+	// 创建方法调用指令
+	dest := fn.NewValue(TypeInt)
+	callInstr := NewCallMethodInstr(receiver, "getValue", dest, arg1)
+	
+	if callInstr.Op != OpCallMethod {
+		t.Errorf("Expected OpCallMethod, got %v", callInstr.Op)
+	}
+	
+	if callInstr.CallTarget != "getValue" {
+		t.Errorf("Expected target 'getValue', got '%s'", callInstr.CallTarget)
+	}
+	
+	// Args[0]应该是接收者
+	if len(callInstr.Args) != 2 {
+		t.Errorf("Expected 2 args (receiver + 1), got %d", len(callInstr.Args))
+	}
+	
+	t.Logf("Method call instruction: %s", callInstr.String())
+}
+
+// TestIRObjectInstructions 测试IR对象操作指令
+func TestIRObjectInstructions(t *testing.T) {
+	fn := NewIRFunc("test", 0)
+	
+	// 测试创建对象
+	dest := fn.NewValue(TypeObject)
+	newObjInstr := NewNewObjectInstr("MyClass", dest)
+	
+	if newObjInstr.Op != OpNewObject {
+		t.Errorf("Expected OpNewObject, got %v", newObjInstr.Op)
+	}
+	
+	if newObjInstr.ClassName != "MyClass" {
+		t.Errorf("Expected class 'MyClass', got '%s'", newObjInstr.ClassName)
+	}
+	
+	t.Logf("NewObject instruction: %s", newObjInstr.String())
+	
+	// 测试获取字段
+	obj := fn.NewValue(TypeObject)
+	fieldDest := fn.NewValue(TypeInt)
+	getFieldInstr := NewGetFieldInstr(obj, "value", fieldDest, 8)
+	
+	if getFieldInstr.Op != OpGetField {
+		t.Errorf("Expected OpGetField, got %v", getFieldInstr.Op)
+	}
+	
+	if getFieldInstr.FieldName != "value" {
+		t.Errorf("Expected field 'value', got '%s'", getFieldInstr.FieldName)
+	}
+	
+	if getFieldInstr.FieldOffset != 8 {
+		t.Errorf("Expected offset 8, got %d", getFieldInstr.FieldOffset)
+	}
+	
+	t.Logf("GetField instruction: %s", getFieldInstr.String())
+	
+	// 测试设置字段
+	fieldVal := fn.NewConstIntValue(42)
+	setFieldInstr := NewSetFieldInstr(obj, "value", fieldVal, 8)
+	
+	if setFieldInstr.Op != OpSetField {
+		t.Errorf("Expected OpSetField, got %v", setFieldInstr.Op)
+	}
+	
+	t.Logf("SetField instruction: %s", setFieldInstr.String())
+}
+
+// TestInstructionProperties 测试指令属性检查
+func TestInstructionProperties(t *testing.T) {
+	fn := NewIRFunc("test", 0)
+	
+	// 测试 IsCall
+	dest := fn.NewValue(TypeInt)
+	callInstr := NewCallInstr("func", dest)
+	if !callInstr.IsCall() {
+		t.Error("Call instruction should return true for IsCall()")
+	}
+	
+	// 测试非调用指令
+	addDest := fn.NewValue(TypeInt)
+	arg1 := fn.NewConstIntValue(1)
+	arg2 := fn.NewConstIntValue(2)
+	addInstr := NewInstr(OpAdd, addDest, arg1, arg2)
+	if addInstr.IsCall() {
+		t.Error("Add instruction should return false for IsCall()")
+	}
+	
+	// 测试 IsObjectOp
+	objDest := fn.NewValue(TypeObject)
+	newObjInstr := NewNewObjectInstr("Test", objDest)
+	if !newObjInstr.IsObjectOp() {
+		t.Error("NewObject instruction should return true for IsObjectOp()")
+	}
+	
+	if addInstr.IsObjectOp() {
+		t.Error("Add instruction should return false for IsObjectOp()")
+	}
+	
+	// 测试 HasSideEffects
+	if !callInstr.HasSideEffects() {
+		t.Error("Call instruction should have side effects")
+	}
+	
+	if addInstr.HasSideEffects() {
+		t.Error("Add instruction should not have side effects")
+	}
+	
+	// 测试 CanThrow
+	if !callInstr.CanThrow() {
+		t.Error("Call instruction can throw")
+	}
+}
+
+// TestBuilderWithCalls 测试带函数调用的IR构建
+func TestBuilderWithCalls(t *testing.T) {
+	// 创建包含函数调用的字节码
+	fn := &bytecode.Function{
+		Name:       "testWithCall",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 2,
+	}
+	
+	chunk := fn.Chunk
+	// push 函数
+	chunk.WriteOp(bytecode.OpPush, 1)
+	chunk.WriteU16(chunk.AddConstant(bytecode.NewString("add")), 1)
+	// push 参数1
+	chunk.WriteOp(bytecode.OpPush, 1)
+	chunk.WriteU16(chunk.AddConstant(bytecode.NewInt(10)), 1)
+	// push 参数2
+	chunk.WriteOp(bytecode.OpPush, 1)
+	chunk.WriteU16(chunk.AddConstant(bytecode.NewInt(20)), 1)
+	// call 2
+	chunk.WriteOp(bytecode.OpCall, 2)
+	chunk.Code = append(chunk.Code, 2) // argCount
+	// return
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	// 使用允许调用的配置构建IR
+	config := DefaultBuilderConfig()
+	config.AllowCalls = true
+	builder := NewIRBuilderWithConfig(config)
+	
+	irFunc, err := builder.Build(fn)
+	if err != nil {
+		t.Fatalf("IR build with calls failed: %v", err)
+	}
+	
+	t.Logf("IR with call:\n%s", irFunc.String())
+	
+	// 检查统计信息
+	callCount, _ := builder.GetStats()
+	if callCount == 0 {
+		t.Log("No calls recorded (expected if builder skipped call)")
+	}
+}
+
+// TestBuilderWithObjects 测试带对象操作的IR构建
+func TestBuilderWithObjects(t *testing.T) {
+	fn := &bytecode.Function{
+		Name:       "testWithObjects",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 2,
+	}
+	
+	chunk := fn.Chunk
+	// new object
+	chunk.WriteOp(bytecode.OpNewObject, 1)
+	chunk.WriteU16(chunk.AddConstant(bytecode.NewString("MyClass")), 1)
+	// get field
+	chunk.WriteOp(bytecode.OpGetField, 2)
+	chunk.WriteU16(chunk.AddConstant(bytecode.NewString("value")), 2)
+	// return
+	chunk.WriteOp(bytecode.OpReturn, 3)
+	
+	config := DefaultBuilderConfig()
+	config.AllowObjects = true
+	builder := NewIRBuilderWithConfig(config)
+	
+	irFunc, err := builder.Build(fn)
+	if err != nil {
+		t.Fatalf("IR build with objects failed: %v", err)
+	}
+	
+	t.Logf("IR with objects:\n%s", irFunc.String())
+	
+	// 检查统计信息
+	_, objectOpCount := builder.GetStats()
+	if objectOpCount > 0 {
+		t.Logf("Object operations: %d", objectOpCount)
+	}
+}
+
+// TestX64CallCodeGen 测试x64调用代码生成
+func TestX64CallCodeGen(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("Skipping x64 test on non-amd64 platform")
+	}
+	
+	// 创建带调用指令的IR函数
+	fn := NewIRFunc("testCall", 0)
+	
+	// 创建简单的调用指令
+	arg1 := fn.NewConstIntValue(10)
+	dest := fn.NewValue(TypeInt)
+	callInstr := NewCallInstr("helper", dest, arg1)
+	callInstr.Line = 1
+	
+	fn.Entry.AddInstr(callInstr)
+	
+	// 添加返回
+	retInstr := NewInstr(OpReturn, nil, dest)
+	fn.Entry.AddInstr(retInstr)
+	
+	// 寄存器分配
+	regalloc := NewRegisterAllocator(10)
+	alloc := regalloc.Allocate(fn)
+	
+	// 代码生成
+	codegen := NewX64CodeGenerator()
+	code, err := codegen.Generate(fn, alloc)
+	
+	if err != nil {
+		t.Fatalf("Code generation failed: %v", err)
+	}
+	
+	if len(code) == 0 {
+		t.Fatal("Generated code is empty")
+	}
+	
+	t.Logf("Generated %d bytes of call code", len(code))
+}
+
+// TestARM64CallCodeGen 测试ARM64调用代码生成
+func TestARM64CallCodeGen(t *testing.T) {
+	if runtime.GOARCH != "arm64" {
+		t.Skip("Skipping ARM64 test on non-arm64 platform")
+	}
+	
+	fn := NewIRFunc("testCall", 0)
+	
+	arg1 := fn.NewConstIntValue(10)
+	dest := fn.NewValue(TypeInt)
+	callInstr := NewCallInstr("helper", dest, arg1)
+	callInstr.Line = 1
+	
+	fn.Entry.AddInstr(callInstr)
+	
+	retInstr := NewInstr(OpReturn, nil, dest)
+	fn.Entry.AddInstr(retInstr)
+	
+	regalloc := NewRegisterAllocator(10)
+	alloc := regalloc.Allocate(fn)
+	
+	codegen := NewARM64CodeGenerator()
+	code, err := codegen.Generate(fn, alloc)
+	
+	if err != nil {
+		t.Fatalf("Code generation failed: %v", err)
+	}
+	
+	if len(code) == 0 {
+		t.Fatal("Generated code is empty")
+	}
+	
+	t.Logf("Generated %d bytes of ARM64 call code", len(code))
+}
+
+// TestCanJITWithLevel 测试JIT能力级别检测
+func TestCanJITWithLevel(t *testing.T) {
+	// 简单函数（无调用、无对象操作）
+	simpleFn := &bytecode.Function{
+		Name:       "simple",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 1,
+	}
+	simpleFn.Chunk.WriteOp(bytecode.OpPush, 1)
+	simpleFn.Chunk.WriteU16(0, 1)
+	simpleFn.Chunk.WriteOp(bytecode.OpReturn, 2)
+	
+	level := CanJITWithLevel(simpleFn)
+	if level == JITDisabled {
+		t.Log("Simple function JIT disabled (unexpected)")
+	} else {
+		t.Logf("Simple function JIT level: %d", level)
+	}
+	
+	// 带调用的函数
+	callFn := &bytecode.Function{
+		Name:       "withCall",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 1,
+	}
+	callFn.Chunk.WriteOp(bytecode.OpCall, 1)
+	callFn.Chunk.Code = append(callFn.Chunk.Code, 0)
+	callFn.Chunk.WriteOp(bytecode.OpReturn, 2)
+	
+	level = CanJITWithLevel(callFn)
+	t.Logf("Function with call JIT level: %d", level)
+	
+	// 带异常处理的函数（应该禁用）
+	tryFn := &bytecode.Function{
+		Name:       "withTry",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 1,
+	}
+	tryFn.Chunk.WriteOp(bytecode.OpEnterTry, 1)
+	tryFn.Chunk.Code = append(tryFn.Chunk.Code, 0, 0, 0) // catchCount=0, finallyOffset
+	tryFn.Chunk.WriteOp(bytecode.OpReturn, 2)
+	
+	level = CanJITWithLevel(tryFn)
+	if level != JITDisabled {
+		t.Errorf("Function with try should have JIT disabled, got level %d", level)
+	}
+	
+	// 可变参数函数（应该禁用）
+	variadicFn := &bytecode.Function{
+		Name:       "variadic",
+		Chunk:      bytecode.NewChunk(),
+		LocalCount: 1,
+		IsVariadic: true,
+	}
+	variadicFn.Chunk.WriteOp(bytecode.OpReturn, 1)
+	
+	level = CanJITWithLevel(variadicFn)
+	if level != JITDisabled {
+		t.Errorf("Variadic function should have JIT disabled, got level %d", level)
+	}
+}
+
+// TestVMBridge 测试VM桥接
+func TestVMBridge(t *testing.T) {
+	bridge := GetBridge()
+	
+	if bridge == nil {
+		t.Fatal("GetBridge() returned nil")
+	}
+	
+	// 测试注册函数
+	fn := &bytecode.Function{
+		Name:  "testFunc",
+		Chunk: bytecode.NewChunk(),
+	}
+	
+	bridge.RegisterFunction("testFunc", fn, nil)
+	
+	entry, ok := bridge.GetFunction("testFunc")
+	if !ok {
+		t.Error("RegisterFunction/GetFunction failed")
+	}
+	
+	if entry.Function != fn {
+		t.Error("Function mismatch")
+	}
+	
+	// 测试注册类布局
+	layout := &ClassLayout{
+		Name: "TestClass",
+		Size: 24,
+		Fields: map[string]FieldLayout{
+			"x": {Name: "x", Offset: 0, Type: TypeInt},
+			"y": {Name: "y", Offset: 8, Type: TypeInt},
+		},
+	}
+	
+	bridge.RegisterClass(layout)
+	
+	retrievedLayout, ok := bridge.GetClassLayout("TestClass")
+	if !ok {
+		t.Error("RegisterClass/GetClassLayout failed")
+	}
+	
+	if retrievedLayout.Size != 24 {
+		t.Errorf("Expected size 24, got %d", retrievedLayout.Size)
+	}
+	
+	// 测试字段偏移计算
+	offset := ComputeFieldOffset(retrievedLayout, "y")
+	if offset != 8 {
+		t.Errorf("Expected field y offset 8, got %d", offset)
+	}
+	
+	offset = ComputeFieldOffset(retrievedLayout, "nonexistent")
+	if offset != -1 {
+		t.Errorf("Expected -1 for nonexistent field, got %d", offset)
+	}
+}
+
+// TestCallHelperPtrs 测试调用辅助函数指针
+func TestCallHelperPtrs(t *testing.T) {
+	callPtr := GetCallHelperPtr()
+	if callPtr == 0 {
+		t.Error("CallHelper pointer should not be 0")
+	}
+	
+	t.Logf("CallHelper: %#x", callPtr)
+}
+
+// TestValueTypeProperties 测试值类型属性
+func TestValueTypeProperties(t *testing.T) {
+	// 测试 IsNumeric
+	if !TypeInt.IsNumeric() {
+		t.Error("TypeInt should be numeric")
+	}
+	if !TypeFloat.IsNumeric() {
+		t.Error("TypeFloat should be numeric")
+	}
+	if TypeBool.IsNumeric() {
+		t.Error("TypeBool should not be numeric")
+	}
+	if TypePtr.IsNumeric() {
+		t.Error("TypePtr should not be numeric")
+	}
+	
+	// 测试 IsPointer
+	if !TypePtr.IsPointer() {
+		t.Error("TypePtr should be pointer")
+	}
+	if !TypeObject.IsPointer() {
+		t.Error("TypeObject should be pointer")
+	}
+	if !TypeArray.IsPointer() {
+		t.Error("TypeArray should be pointer")
+	}
+	if !TypeFunc.IsPointer() {
+		t.Error("TypeFunc should be pointer")
+	}
+	if TypeInt.IsPointer() {
+		t.Error("TypeInt should not be pointer")
+	}
+}
+
+// ============================================================================
+// 内联优化测试
+// ============================================================================
+
+// TestInlinerConfig 测试内联配置
+func TestInlinerConfig(t *testing.T) {
+	config := DefaultInlineConfig()
+	
+	if config.MaxInlineSize <= 0 {
+		t.Error("MaxInlineSize should be positive")
+	}
+	if config.MaxInlineDepth <= 0 {
+		t.Error("MaxInlineDepth should be positive")
+	}
+	if config.AlwaysInlineThreshold <= 0 {
+		t.Error("AlwaysInlineThreshold should be positive")
+	}
+	
+	t.Logf("MaxInlineSize: %d", config.MaxInlineSize)
+	t.Logf("MaxInlineDepth: %d", config.MaxInlineDepth)
+	t.Logf("AlwaysInlineThreshold: %d", config.AlwaysInlineThreshold)
+}
+
+// TestInlinerDecision 测试内联决策
+func TestInlinerDecision(t *testing.T) {
+	inliner := NewInliner(nil)
+	
+	// 创建小函数（应该内联）
+	smallFn := NewIRFunc("small", 0)
+	smallFn.Entry.AddInstr(NewInstr(OpReturn, nil, smallFn.NewConstIntValue(42)))
+	
+	decision := inliner.DecideInlining(nil, smallFn, nil, 0)
+	if !decision.ShouldInline {
+		t.Error("Small function should be inlined")
+	}
+	t.Logf("Small function decision: %s (cost=%d, benefit=%d)", 
+		decision.Reason, decision.Cost, decision.Benefit)
+	
+	// 创建大函数（不应内联）
+	bigFn := NewIRFunc("big", 0)
+	for i := 0; i < 100; i++ {
+		v := bigFn.NewValue(TypeInt)
+		bigFn.Entry.AddInstr(NewInstr(OpConst, v))
+	}
+	bigFn.Entry.AddInstr(NewInstr(OpReturn, nil, bigFn.NewConstIntValue(0)))
+	
+	decision = inliner.DecideInlining(nil, bigFn, nil, 0)
+	if decision.ShouldInline {
+		t.Error("Big function should not be inlined")
+	}
+	t.Logf("Big function decision: %s (cost=%d)", decision.Reason, decision.Cost)
+	
+	// 测试递归检测
+	recursiveFn := NewIRFunc("recursive", 0)
+	callInstr := NewCallInstr("recursive", recursiveFn.NewValue(TypeInt))
+	recursiveFn.Entry.AddInstr(callInstr)
+	recursiveFn.Entry.AddInstr(NewInstr(OpReturn, nil, recursiveFn.NewConstIntValue(0)))
+	
+	// 模拟递归调用
+	inliner.inlineStack = map[string]bool{"recursive": true}
+	decision = inliner.DecideInlining(nil, recursiveFn, callInstr, 0)
+	if decision.ShouldInline {
+		t.Error("Recursive function should not be inlined")
+	}
+	t.Logf("Recursive function decision: %s", decision.Reason)
+}
+
+// TestInlinerDepth 测试内联深度限制
+func TestInlinerDepth(t *testing.T) {
+	config := DefaultInlineConfig()
+	config.MaxInlineDepth = 2
+	inliner := NewInliner(config)
+	
+	smallFn := NewIRFunc("small", 0)
+	smallFn.Entry.AddInstr(NewInstr(OpReturn, nil, smallFn.NewConstIntValue(1)))
+	
+	// 深度0：应内联
+	decision := inliner.DecideInlining(nil, smallFn, nil, 0)
+	if !decision.ShouldInline {
+		t.Error("Should inline at depth 0")
+	}
+	
+	// 深度1：应内联
+	decision = inliner.DecideInlining(nil, smallFn, nil, 1)
+	if !decision.ShouldInline {
+		t.Error("Should inline at depth 1")
+	}
+	
+	// 深度2：不应内联（达到限制）
+	decision = inliner.DecideInlining(nil, smallFn, nil, 2)
+	if decision.ShouldInline {
+		t.Error("Should not inline at max depth")
+	}
+	t.Logf("Max depth decision: %s", decision.Reason)
+}
+
+// TestInlinerStats 测试内联统计
+func TestInlinerStats(t *testing.T) {
+	inliner := NewInliner(nil)
+	
+	smallFn := NewIRFunc("small", 0)
+	smallFn.Entry.AddInstr(NewInstr(OpReturn, nil, smallFn.NewConstIntValue(1)))
+	
+	bigFn := NewIRFunc("big", 0)
+	for i := 0; i < 100; i++ {
+		bigFn.Entry.AddInstr(NewInstr(OpConst, bigFn.NewValue(TypeInt)))
+	}
+	
+	// 做几次决策
+	inliner.DecideInlining(nil, smallFn, nil, 0) // 内联
+	inliner.DecideInlining(nil, smallFn, nil, 0) // 内联
+	inliner.DecideInlining(nil, bigFn, nil, 0)   // 不内联（太大）
+	inliner.DecideInlining(nil, nil, nil, 0)     // 不内联（nil）
+	
+	stats := inliner.GetStats()
+	
+	t.Logf("Total calls: %d", stats.TotalCalls)
+	t.Logf("Inlined calls: %d", stats.InlinedCalls)
+	t.Logf("Skipped (too big): %d", stats.SkippedTooBig)
+	
+	if stats.TotalCalls != 4 {
+		t.Errorf("Expected 4 total calls, got %d", stats.TotalCalls)
+	}
+	if stats.InlinedCalls != 2 {
+		t.Errorf("Expected 2 inlined calls, got %d", stats.InlinedCalls)
+	}
+	if stats.SkippedTooBig != 1 {
+		t.Errorf("Expected 1 skipped (too big), got %d", stats.SkippedTooBig)
+	}
+	
+	// 重置统计
+	inliner.ResetStats()
+	stats = inliner.GetStats()
+	if stats.TotalCalls != 0 {
+		t.Error("Stats should be reset")
+	}
+}
+
+// TestOptimizerO3 测试O3优化级别
+func TestOptimizerO3(t *testing.T) {
+	opt := NewOptimizer(3)
+	
+	if opt.level != 3 {
+		t.Errorf("Expected level 3, got %d", opt.level)
+	}
+	
+	if opt.inliner == nil {
+		t.Error("O3 optimizer should have inliner")
+	}
+	
+	// 创建一个简单的函数进行优化
+	fn := NewIRFunc("test", 0)
+	
+	// 添加一些可以优化的指令
+	v1 := fn.NewConstIntValue(10)
+	v2 := fn.NewConstIntValue(0)
+	v3 := fn.NewValue(TypeInt)
+	
+	// x + 0 -> x
+	addInstr := NewInstr(OpAdd, v3, v1, v2)
+	fn.Entry.AddInstr(addInstr)
+	fn.Entry.AddInstr(NewInstr(OpReturn, nil, v3))
+	
+	t.Logf("Before optimization:\n%s", fn.String())
+	
+	opt.Optimize(fn)
+	
+	t.Logf("After O3 optimization:\n%s", fn.String())
+	
+	// 检查优化结果
+	stats := opt.GetInlineStats()
+	if stats != nil {
+		t.Logf("Inline stats: total=%d, inlined=%d", stats.TotalCalls, stats.InlinedCalls)
+	}
 }

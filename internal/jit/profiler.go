@@ -15,8 +15,10 @@
 package jit
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
@@ -408,4 +410,166 @@ func fnKey(fn *bytecode.Function) string {
 		return fn.ClassName + "::" + fn.Name
 	}
 	return fn.Name
+}
+
+// ============================================================================
+// 统一性能分析接口
+// ============================================================================
+
+// ProfileType 分析类型
+type ProfileType int
+
+const (
+	ProfileCPU ProfileType = 1 << iota
+	ProfileMemory
+	ProfileHotspot
+	ProfileAll = ProfileCPU | ProfileMemory | ProfileHotspot
+)
+
+// UnifiedProfiler 统一性能分析器
+// 集成热点检测、CPU分析和内存分析
+type UnifiedProfiler struct {
+	// 热点检测器
+	*Profiler
+	
+	// CPU 分析器
+	cpuProfiler *CPUProfiler
+	
+	// 内存分析器
+	memoryProfiler *MemoryProfiler
+	
+	// 会话管理
+	mu       sync.Mutex
+	sessions map[string]*ProfileSession
+}
+
+// ProfileSession 分析会话
+type ProfileSession struct {
+	ID          string
+	Types       ProfileType
+	StartTime   time.Time
+	EndTime     time.Time
+	CPUProfile  *CPUProfile
+	MemProfile  *MemoryProfile
+	HotspotData *ProfilerStats
+}
+
+// NewUnifiedProfiler 创建统一分析器
+func NewUnifiedProfiler(functionThreshold, loopThreshold int64) *UnifiedProfiler {
+	return &UnifiedProfiler{
+		Profiler:       NewProfiler(functionThreshold, loopThreshold),
+		cpuProfiler:    NewCPUProfiler(),
+		memoryProfiler: NewMemoryProfiler(),
+		sessions:       make(map[string]*ProfileSession),
+	}
+}
+
+// StartProfiling 开始分析会话
+func (p *UnifiedProfiler) StartProfiling(types ProfileType) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	// 生成会话ID
+	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
+	
+	session := &ProfileSession{
+		ID:        sessionID,
+		Types:     types,
+		StartTime: time.Now(),
+	}
+	
+	// 启动各个分析器
+	if types&ProfileCPU != 0 {
+		if err := p.cpuProfiler.Start(); err != nil {
+			return "", fmt.Errorf("failed to start CPU profiler: %w", err)
+		}
+	}
+	
+	if types&ProfileMemory != 0 {
+		if err := p.memoryProfiler.Start(); err != nil {
+			// 停止已启动的分析器
+			if types&ProfileCPU != 0 {
+				p.cpuProfiler.Stop()
+			}
+			return "", fmt.Errorf("failed to start memory profiler: %w", err)
+		}
+	}
+	
+	p.sessions[sessionID] = session
+	return sessionID, nil
+}
+
+// StopProfiling 停止分析会话并获取结果
+func (p *UnifiedProfiler) StopProfiling(sessionID string) (*ProfileSession, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	session, ok := p.sessions[sessionID]
+	if !ok {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	
+	session.EndTime = time.Now()
+	
+	// 停止各个分析器并收集结果
+	if session.Types&ProfileCPU != 0 {
+		cpuProfile, err := p.cpuProfiler.Stop()
+		if err != nil {
+			return nil, fmt.Errorf("failed to stop CPU profiler: %w", err)
+		}
+		session.CPUProfile = cpuProfile
+	}
+	
+	if session.Types&ProfileMemory != 0 {
+		memProfile, err := p.memoryProfiler.Stop()
+		if err != nil {
+			return nil, fmt.Errorf("failed to stop memory profiler: %w", err)
+		}
+		session.MemProfile = memProfile
+	}
+	
+	if session.Types&ProfileHotspot != 0 {
+		stats := p.GetStats()
+		session.HotspotData = &stats
+	}
+	
+	// 从活动会话中移除
+	delete(p.sessions, sessionID)
+	
+	return session, nil
+}
+
+// GetCPUProfiler 获取CPU分析器
+func (p *UnifiedProfiler) GetCPUProfiler() *CPUProfiler {
+	return p.cpuProfiler
+}
+
+// GetMemoryProfiler 获取内存分析器
+func (p *UnifiedProfiler) GetMemoryProfiler() *MemoryProfiler {
+	return p.memoryProfiler
+}
+
+// SetStackSampler 设置栈采样器
+func (p *UnifiedProfiler) SetStackSampler(sampler StackSampler) {
+	if p.cpuProfiler != nil {
+		p.cpuProfiler.SetStackSampler(sampler)
+	}
+	if p.memoryProfiler != nil {
+		p.memoryProfiler.SetStackSampler(sampler)
+	}
+}
+
+// RecordAllocation 记录内存分配（委托给内存分析器）
+func (p *UnifiedProfiler) RecordAllocation(fn string, typ string, size int64) int64 {
+	if p.memoryProfiler != nil {
+		return p.memoryProfiler.RecordAllocation(fn, typ, size)
+	}
+	return 0
+}
+
+// RecordDeallocation 记录内存释放
+func (p *UnifiedProfiler) RecordDeallocation(id int64, size int64) {
+	if p.memoryProfiler != nil {
+		p.memoryProfiler.RecordDeallocation(id, size)
+	}
 }

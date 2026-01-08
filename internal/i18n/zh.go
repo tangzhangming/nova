@@ -195,6 +195,26 @@ var messagesZH = map[string]string{
 	"suggestion.check_type_before_cast":  "在类型转换前检查值类型：`%s` 不能转换为 `%s`",
 	"suggestion.check_recursion":         "检查递归函数是否有正确的终止条件",
 	"suggestion.add_base_case":           "确保递归函数有基本情况（base case）来终止递归",
+
+	// ========== JIT 相关 ==========
+	"jit.compilation_failed":       "JIT编译失败: %s",
+	"jit.unsupported_instruction":  "JIT不支持的指令: %s",
+	"jit.call_failed":              "JIT函数调用失败: %s",
+	"jit.memory_allocation_failed": "JIT内存分配失败",
+	"jit.execution_failed":         "JIT执行失败: %s",
+	"jit.type_conversion_failed":   "JIT类型转换失败: 无法从 %s 转换为 %s",
+	"jit.object_operation_failed":  "JIT对象操作失败: %s",
+	"jit.inlining_failed":          "JIT内联失败: %s",
+	
+	// JIT 建议
+	"suggestion.jit.disable":              "尝试使用 --no-jit 选项禁用JIT编译",
+	"suggestion.jit.simplify_function":    "尝试简化函数逻辑或拆分为更小的函数",
+	"suggestion.jit.check_types":          "确保值的类型在编译时是已知的",
+	"suggestion.jit.avoid_dynamic":        "避免在JIT热点代码中使用动态类型",
+	"suggestion.jit.add_type_hints":       "考虑添加显式类型标注",
+	"suggestion.jit.check_null":           "确保对象不为null",
+	"suggestion.jit.increase_memory":      "尝试增加JIT内存限制",
+	"suggestion.jit.report_bug":           "这可能是JIT编译器的bug，请考虑报告问题",
 }
 
 

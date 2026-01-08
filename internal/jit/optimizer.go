@@ -24,7 +24,9 @@ package jit
 
 // Optimizer IR 优化器
 type Optimizer struct {
-	level int // 优化级别 (0-3)
+	level    int            // 优化级别 (0-3)
+	inliner  *Inliner       // 内联优化器
+	resolver func(string) *IRFunc // 函数解析器
 }
 
 // NewOptimizer 创建优化器
@@ -35,13 +37,43 @@ func NewOptimizer(level int) *Optimizer {
 	if level > 3 {
 		level = 3
 	}
-	return &Optimizer{level: level}
+	opt := &Optimizer{level: level}
+	
+	// 为 O3 级别创建内联优化器
+	if level >= 3 {
+		opt.inliner = NewInliner(DefaultInlineConfig())
+	}
+	
+	return opt
+}
+
+// SetFunctionResolver 设置函数解析器（用于内联）
+func (opt *Optimizer) SetFunctionResolver(resolver func(string) *IRFunc) {
+	opt.resolver = resolver
+	if opt.inliner != nil {
+		opt.inliner.SetResolver(resolver)
+	}
+}
+
+// GetInlineStats 获取内联统计
+func (opt *Optimizer) GetInlineStats() *InlineStats {
+	if opt.inliner != nil {
+		stats := opt.inliner.GetStats()
+		return &stats
+	}
+	return nil
 }
 
 // Optimize 优化 IR 函数
 func (opt *Optimizer) Optimize(fn *IRFunc) {
 	if opt.level == 0 {
 		return
+	}
+	
+	// O3: 先执行内联（在其他优化之前）
+	// 这样内联后的代码可以享受其他优化的好处
+	if opt.level >= 3 && opt.inliner != nil {
+		opt.inlining(fn)
 	}
 	
 	// 迭代优化直到稳定
@@ -61,10 +93,10 @@ func (opt *Optimizer) Optimize(fn *IRFunc) {
 			changed = opt.strengthReduction(fn) || changed
 		}
 		
-		// O3: 激进优化（未实现）
-		// if opt.level >= 3 {
-		//     changed = opt.inlining(fn) || changed
-		// }
+		// O3: 循环优化（可选的附加优化）
+		if opt.level >= 3 {
+			changed = opt.loopInvariantCodeMotion(fn) || changed
+		}
 		
 		if !changed {
 			break
@@ -73,6 +105,61 @@ func (opt *Optimizer) Optimize(fn *IRFunc) {
 	
 	// 最后的清理
 	opt.removeNops(fn)
+}
+
+// ============================================================================
+// O3 优化：内联
+// ============================================================================
+
+// inlining 执行函数内联优化
+func (opt *Optimizer) inlining(fn *IRFunc) bool {
+	if opt.inliner == nil {
+		return false
+	}
+	return opt.inliner.Inline(fn)
+}
+
+// ============================================================================
+// O3 优化：循环不变量外提 (LICM)
+// ============================================================================
+
+// loopInvariantCodeMotion 循环不变量外提
+// 将循环内的不变计算移动到循环外
+func (opt *Optimizer) loopInvariantCodeMotion(fn *IRFunc) bool {
+	// 简化实现：检测循环并标记循环深度
+	// 完整实现需要：
+	// 1. 计算支配树
+	// 2. 检测自然循环
+	// 3. 识别循环不变量
+	// 4. 检查移动的安全性
+	// 5. 将不变量移到循环前导块
+	
+	// 目前只做简单的标记，不实际移动代码
+	changed := false
+	
+	// 识别回边（back edges）来检测循环
+	for _, block := range fn.Blocks {
+		lastInstr := block.LastInstr()
+		if lastInstr != nil && lastInstr.Op == OpJump {
+			// 检查是否跳回到之前的块（简单的循环检测）
+			if len(lastInstr.Targets) > 0 {
+				target := lastInstr.Targets[0]
+				// 如果目标块的 ID 小于当前块，可能是回边
+				if target.ID < block.ID {
+					// 标记从 target 到 block 的所有块在循环中
+					for _, b := range fn.Blocks {
+						if b.ID >= target.ID && b.ID <= block.ID {
+							if b.LoopDepth == 0 {
+								b.LoopDepth = 1
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return changed
 }
 
 // ============================================================================

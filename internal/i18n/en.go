@@ -195,6 +195,26 @@ var messagesEN = map[string]string{
 	"suggestion.check_type_before_cast":  "Check value type before casting: `%s` cannot be converted to `%s`",
 	"suggestion.check_recursion":         "Check if recursive function has proper termination condition",
 	"suggestion.add_base_case":           "Ensure recursive function has a base case to terminate recursion",
+
+	// ========== JIT Related ==========
+	"jit.compilation_failed":       "JIT compilation failed: %s",
+	"jit.unsupported_instruction":  "Unsupported JIT instruction: %s",
+	"jit.call_failed":              "JIT function call failed: %s",
+	"jit.memory_allocation_failed": "JIT memory allocation failed",
+	"jit.execution_failed":         "JIT execution failed: %s",
+	"jit.type_conversion_failed":   "JIT type conversion failed: cannot convert %s to %s",
+	"jit.object_operation_failed":  "JIT object operation failed: %s",
+	"jit.inlining_failed":          "JIT inlining failed: %s",
+	
+	// JIT Suggestions
+	"suggestion.jit.disable":              "Try using --no-jit option to disable JIT compilation",
+	"suggestion.jit.simplify_function":    "Try simplifying function logic or splitting into smaller functions",
+	"suggestion.jit.check_types":          "Ensure value types are known at compile time",
+	"suggestion.jit.avoid_dynamic":        "Avoid using dynamic types in JIT hot code paths",
+	"suggestion.jit.add_type_hints":       "Consider adding explicit type annotations",
+	"suggestion.jit.check_null":           "Ensure object is not null",
+	"suggestion.jit.increase_memory":      "Try increasing JIT memory limit",
+	"suggestion.jit.report_bug":           "This may be a JIT compiler bug, please consider reporting the issue",
 }
 
 

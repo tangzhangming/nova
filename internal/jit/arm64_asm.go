@@ -522,6 +522,12 @@ func (a *ARM64Assembler) Blr(reg ARM64Reg) {
 	a.emit(instr)
 }
 
+// Br 间接跳转: br reg
+func (a *ARM64Assembler) Br(reg ARM64Reg) {
+	instr := uint32(0xD61F0000) | (reg.Encode() << 5) // BR
+	a.emit(instr)
+}
+
 // Ret 返回
 func (a *ARM64Assembler) Ret() {
 	// RET (uses X30/LR by default)
@@ -551,6 +557,28 @@ func (a *ARM64Assembler) LdpPost(rt1, rt2, base ARM64Reg, offset int32) {
 		(rt2.Encode() << 10) |
 		(base.Encode() << 5) |
 		rt1.Encode()
+	a.emit(instr)
+}
+
+// StrPre 存储寄存器（预索引）: str rt, [base, #offset]!
+func (a *ARM64Assembler) StrPre(rt, base ARM64Reg, offset int32) {
+	// STR (immediate, pre-index): offset range -256 to 255
+	imm9 := uint32(offset & 0x1FF)
+	instr := uint32(0xF8000C00) | // STR X, pre-index
+		(imm9 << 12) |
+		(base.Encode() << 5) |
+		rt.Encode()
+	a.emit(instr)
+}
+
+// LdrPost 加载寄存器（后索引）: ldr rt, [base], #offset
+func (a *ARM64Assembler) LdrPost(rt, base ARM64Reg, offset int32) {
+	// LDR (immediate, post-index): offset range -256 to 255
+	imm9 := uint32(offset & 0x1FF)
+	instr := uint32(0xF8400400) | // LDR X, post-index
+		(imm9 << 12) |
+		(base.Encode() << 5) |
+		rt.Encode()
 	a.emit(instr)
 }
 

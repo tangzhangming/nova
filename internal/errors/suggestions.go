@@ -63,6 +63,24 @@ func (g *SuggestionGenerator) GetSuggestions(code string, context map[string]int
 	case R0400:
 		return g.stackOverflowSuggestions()
 
+	// JIT 错误
+	case R0600:
+		return g.jitCompilationFailedSuggestions(context)
+	case R0601:
+		return g.jitUnsupportedInstructionSuggestions(context)
+	case R0602:
+		return g.jitCallFailedSuggestions(context)
+	case R0603:
+		return g.jitMemoryAllocationFailedSuggestions()
+	case R0604:
+		return g.jitExecutionFailedSuggestions(context)
+	case R0605:
+		return g.jitTypeConversionFailedSuggestions(context)
+	case R0606:
+		return g.jitObjectOperationFailedSuggestions(context)
+	case R0607:
+		return g.jitInliningFailedSuggestions(context)
+
 	default:
 		return nil
 	}
@@ -252,6 +270,168 @@ func (g *SuggestionGenerator) stackOverflowSuggestions() []string {
 		i18n.T("suggestion.check_recursion"),
 		i18n.T("suggestion.add_base_case"),
 	}
+}
+
+// ============================================================================
+// JIT 错误建议
+// ============================================================================
+
+// jitCompilationFailedSuggestions JIT 编译失败的建议
+func (g *SuggestionGenerator) jitCompilationFailedSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	// 检查具体的失败原因
+	if reason, ok := context["reason"].(string); ok {
+		if strings.Contains(reason, "unsupported") {
+			suggestions = append(suggestions, "该函数包含JIT不支持的指令，将使用解释器执行")
+		} else if strings.Contains(reason, "memory") {
+			suggestions = append(suggestions, "JIT内存不足，可能需要增加内存限制或减少热点函数数量")
+		}
+	}
+	
+	suggestions = append(suggestions,
+		"尝试禁用JIT编译运行程序（使用 --no-jit 选项）",
+		"检查函数是否包含复杂的控制流或递归调用",
+	)
+	
+	return suggestions
+}
+
+// jitUnsupportedInstructionSuggestions JIT 不支持指令的建议
+func (g *SuggestionGenerator) jitUnsupportedInstructionSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	if opcode, ok := context["opcode"].(string); ok {
+		suggestions = append(suggestions, 
+			"指令 "+opcode+" 目前不被JIT支持",
+		)
+	}
+	
+	suggestions = append(suggestions,
+		"该函数将回退到解释器执行",
+		"请考虑简化函数逻辑或拆分为更小的函数",
+	)
+	
+	return suggestions
+}
+
+// jitCallFailedSuggestions JIT 函数调用失败的建议
+func (g *SuggestionGenerator) jitCallFailedSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	if funcName, ok := context["function"].(string); ok {
+		suggestions = append(suggestions,
+			"调用函数 "+funcName+" 失败",
+		)
+	}
+	
+	suggestions = append(suggestions,
+		"检查函数参数类型是否正确",
+		"确保被调用的函数存在且可访问",
+		"JIT与解释器之间的互操作可能有类型转换问题",
+	)
+	
+	return suggestions
+}
+
+// jitMemoryAllocationFailedSuggestions JIT 内存分配失败的建议
+func (g *SuggestionGenerator) jitMemoryAllocationFailedSuggestions() []string {
+	return []string{
+		"JIT代码缓存内存不足",
+		"尝试增加JIT内存限制（使用 --jit-memory 选项）",
+		"减少热点函数数量或降低优化级别",
+		"考虑使用解释器模式运行（--no-jit）",
+	}
+}
+
+// jitExecutionFailedSuggestions JIT 执行失败的建议
+func (g *SuggestionGenerator) jitExecutionFailedSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	if funcName, ok := context["function"].(string); ok {
+		suggestions = append(suggestions,
+			"JIT编译的函数 "+funcName+" 执行时发生错误",
+		)
+	}
+	
+	suggestions = append(suggestions,
+		"这可能是JIT编译器的bug，请考虑报告问题",
+		"尝试禁用JIT运行以确认是否为JIT相关问题",
+		"检查函数是否有未初始化的变量或空引用",
+	)
+	
+	return suggestions
+}
+
+// jitTypeConversionFailedSuggestions JIT 类型转换失败的建议
+func (g *SuggestionGenerator) jitTypeConversionFailedSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	from, _ := context["from"].(string)
+	to, _ := context["to"].(string)
+	
+	if from != "" && to != "" {
+		suggestions = append(suggestions,
+			"无法在JIT中从 "+from+" 转换为 "+to,
+		)
+	}
+	
+	suggestions = append(suggestions,
+		"确保值的类型在编译时是已知的",
+		"避免在JIT热点代码中使用动态类型",
+		"考虑添加显式类型标注",
+	)
+	
+	return suggestions
+}
+
+// jitObjectOperationFailedSuggestions JIT 对象操作失败的建议
+func (g *SuggestionGenerator) jitObjectOperationFailedSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	if op, ok := context["operation"].(string); ok {
+		suggestions = append(suggestions,
+			"对象操作 "+op+" 在JIT执行时失败",
+		)
+	}
+	
+	if className, ok := context["class"].(string); ok {
+		suggestions = append(suggestions,
+			"类 "+className+" 的布局可能与JIT预期不符",
+		)
+	}
+	
+	suggestions = append(suggestions,
+		"确保对象不为null",
+		"检查字段名称是否正确",
+		"JIT对象操作依赖于静态类型信息",
+	)
+	
+	return suggestions
+}
+
+// jitInliningFailedSuggestions JIT 内联失败的建议
+func (g *SuggestionGenerator) jitInliningFailedSuggestions(context map[string]interface{}) []string {
+	var suggestions []string
+	
+	if funcName, ok := context["function"].(string); ok {
+		suggestions = append(suggestions,
+			"函数 "+funcName+" 无法被内联",
+		)
+	}
+	
+	if reason, ok := context["reason"].(string); ok {
+		suggestions = append(suggestions,
+			"原因: "+reason,
+		)
+	}
+	
+	suggestions = append(suggestions,
+		"内联失败不影响正确性，仅影响性能",
+		"可以尝试简化被调用函数以支持内联",
+	)
+	
+	return suggestions
 }
 
 // ============================================================================

@@ -11,6 +11,13 @@
 // 栈模拟：
 // 字节码虚拟机是基于栈的，而 IR 是基于寄存器的。
 // 我们通过模拟栈操作来跟踪每个栈位置对应的 IR 值。
+//
+// 支持的字节码：
+// - 基础运算：算术、比较、逻辑、位运算
+// - 控制流：跳转、循环、分支
+// - 函数调用：普通调用、方法调用、尾调用
+// - 对象操作：创建、字段读写
+// - 数组操作：长度、读取、写入
 
 package jit
 
@@ -21,6 +28,25 @@ import (
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
+// BuilderConfig 构建器配置
+type BuilderConfig struct {
+	// AllowCalls 是否允许函数调用（如果为false，遇到调用会返回错误）
+	AllowCalls bool
+	// AllowObjects 是否允许对象操作
+	AllowObjects bool
+	// DebugMode 调试模式（输出更多信息）
+	DebugMode bool
+}
+
+// DefaultBuilderConfig 返回默认配置
+func DefaultBuilderConfig() *BuilderConfig {
+	return &BuilderConfig{
+		AllowCalls:   true,
+		AllowObjects: true,
+		DebugMode:    false,
+	}
+}
+
 // ============================================================================
 // IR 构建器
 // ============================================================================
@@ -30,6 +56,7 @@ type IRBuilder struct {
 	fn          *IRFunc
 	srcFunc     *bytecode.Function
 	chunk       *bytecode.Chunk
+	config      *BuilderConfig
 	
 	// 当前状态
 	current     *IRBlock           // 当前基本块
@@ -42,13 +69,23 @@ type IRBuilder struct {
 	
 	// Phi 节点处理
 	incompletePhis map[*IRBlock]map[int]*IRInstr // block -> local -> phi
+	
+	// 统计信息
+	callCount     int // 函数调用数量
+	objectOpCount int // 对象操作数量
 }
 
 // NewIRBuilder 创建 IR 构建器
 func NewIRBuilder() *IRBuilder {
+	return NewIRBuilderWithConfig(DefaultBuilderConfig())
+}
+
+// NewIRBuilderWithConfig 创建带配置的 IR 构建器
+func NewIRBuilderWithConfig(config *BuilderConfig) *IRBuilder {
 	return &IRBuilder{
-		ipToBlock:   make(map[int]*IRBlock),
-		blockStarts: make(map[int]bool),
+		config:         config,
+		ipToBlock:      make(map[int]*IRBlock),
+		blockStarts:    make(map[int]bool),
 		incompletePhis: make(map[*IRBlock]map[int]*IRInstr),
 	}
 }
@@ -418,6 +455,91 @@ func (b *IRBuilder) convertInstruction(op bytecode.OpCode, ip int, line int) err
 		ret := NewInstr(OpReturn, nil, b.fn.NewConstIntValue(0))
 		ret.Line = line
 		b.current.AddInstr(ret)
+	
+	// ========================================================================
+	// 函数调用
+	// ========================================================================
+	case bytecode.OpCall:
+		if !b.config.AllowCalls {
+			return fmt.Errorf("function calls not allowed in JIT at ip=%d", ip)
+		}
+		argCount := int(b.chunk.Code[ip+1])
+		b.emitCall(argCount, line)
+		
+	case bytecode.OpTailCall:
+		if !b.config.AllowCalls {
+			return fmt.Errorf("tail calls not allowed in JIT at ip=%d", ip)
+		}
+		argCount := int(b.chunk.Code[ip+1])
+		b.emitTailCall(argCount, line)
+		
+	case bytecode.OpCallMethod:
+		if !b.config.AllowCalls {
+			return fmt.Errorf("method calls not allowed in JIT at ip=%d", ip)
+		}
+		nameIdx := b.chunk.ReadU16(ip + 1)
+		argCount := int(b.chunk.Code[ip+3])
+		b.emitCallMethod(nameIdx, argCount, line)
+		
+	case bytecode.OpCallStatic:
+		if !b.config.AllowCalls {
+			return fmt.Errorf("static calls not allowed in JIT at ip=%d", ip)
+		}
+		classIdx := b.chunk.ReadU16(ip + 1)
+		nameIdx := b.chunk.ReadU16(ip + 3)
+		argCount := int(b.chunk.Code[ip+5])
+		b.emitCallStatic(classIdx, nameIdx, argCount, line)
+	
+	// ========================================================================
+	// 对象操作
+	// ========================================================================
+	case bytecode.OpNewObject:
+		if !b.config.AllowObjects {
+			return fmt.Errorf("object creation not allowed in JIT at ip=%d", ip)
+		}
+		classIdx := b.chunk.ReadU16(ip + 1)
+		b.emitNewObject(classIdx, line)
+		
+	case bytecode.OpGetField:
+		if !b.config.AllowObjects {
+			return fmt.Errorf("field access not allowed in JIT at ip=%d", ip)
+		}
+		nameIdx := b.chunk.ReadU16(ip + 1)
+		b.emitGetField(nameIdx, line)
+		
+	case bytecode.OpSetField:
+		if !b.config.AllowObjects {
+			return fmt.Errorf("field access not allowed in JIT at ip=%d", ip)
+		}
+		nameIdx := b.chunk.ReadU16(ip + 1)
+		b.emitSetField(nameIdx, line)
+		
+	case bytecode.OpGetStatic:
+		if !b.config.AllowObjects {
+			return fmt.Errorf("static field access not allowed in JIT at ip=%d", ip)
+		}
+		classIdx := b.chunk.ReadU16(ip + 1)
+		nameIdx := b.chunk.ReadU16(ip + 3)
+		b.emitGetStatic(classIdx, nameIdx, line)
+		
+	case bytecode.OpSetStatic:
+		if !b.config.AllowObjects {
+			return fmt.Errorf("static field access not allowed in JIT at ip=%d", ip)
+		}
+		classIdx := b.chunk.ReadU16(ip + 1)
+		nameIdx := b.chunk.ReadU16(ip + 3)
+		b.emitSetStatic(classIdx, nameIdx, line)
+	
+	// ========================================================================
+	// 全局变量
+	// ========================================================================
+	case bytecode.OpLoadGlobal:
+		idx := b.chunk.ReadU16(ip + 1)
+		b.emitLoadGlobal(idx, line)
+		
+	case bytecode.OpStoreGlobal:
+		idx := b.chunk.ReadU16(ip + 1)
+		b.emitStoreGlobal(idx, line)
 		
 	// 不支持的指令暂时跳过
 	default:
@@ -632,4 +754,288 @@ func (b *IRBuilder) completePhis() {
 	// 执行 SSA 转换
 	ssaBuilder := NewSSABuilder(b.fn)
 	ssaBuilder.Build()
+}
+
+// ============================================================================
+// 函数调用
+// ============================================================================
+
+// emitCall 生成函数调用指令
+// 字节码栈布局：[func, arg0, arg1, ...] -> [result]
+func (b *IRBuilder) emitCall(argCount int, line int) {
+	b.callCount++
+	
+	// 收集参数（从栈上弹出，注意顺序）
+	args := make([]*IRValue, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = b.pop()
+	}
+	
+	// 弹出函数对象
+	funcVal := b.pop()
+	
+	// 创建调用指令
+	dest := b.fn.NewValue(TypeUnknown) // 返回值类型未知
+	
+	// 根据函数值类型决定调用方式
+	var instr *IRInstr
+	if funcVal.IsConst {
+		// 如果是常量函数名，使用直接调用
+		instr = NewCallDirectInstr(funcVal.ConstVal.String(), dest, args...)
+	} else {
+		// 否则使用间接调用
+		allArgs := make([]*IRValue, 0, len(args)+1)
+		allArgs = append(allArgs, funcVal)
+		allArgs = append(allArgs, args...)
+		instr = NewInstr(OpCallIndirect, dest, allArgs...)
+		instr.CallArgCount = argCount
+		instr.CallConv = CallConvSola
+	}
+	
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将返回值压入栈
+	b.push(dest)
+}
+
+// emitTailCall 生成尾调用指令
+func (b *IRBuilder) emitTailCall(argCount int, line int) {
+	b.callCount++
+	
+	// 收集参数
+	args := make([]*IRValue, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = b.pop()
+	}
+	
+	// 弹出函数对象
+	funcVal := b.pop()
+	
+	// 创建尾调用指令（不创建返回值，直接返回被调用函数的返回值）
+	var instr *IRInstr
+	if funcVal.IsConst {
+		instr = NewTailCallInstr(funcVal.ConstVal.String(), args...)
+	} else {
+		allArgs := make([]*IRValue, 0, len(args)+1)
+		allArgs = append(allArgs, funcVal)
+		allArgs = append(allArgs, args...)
+		instr = NewInstr(OpTailCall, nil, allArgs...)
+		instr.CallArgCount = argCount
+		instr.CallConv = CallConvSola
+	}
+	
+	instr.Line = line
+	b.current.AddInstr(instr)
+}
+
+// emitCallMethod 生成方法调用指令
+// 字节码栈布局：[receiver, arg0, arg1, ...] -> [result]
+func (b *IRBuilder) emitCallMethod(nameIdx uint16, argCount int, line int) {
+	b.callCount++
+	
+	// 获取方法名
+	methodName := b.getConstantString(nameIdx)
+	
+	// 收集参数
+	args := make([]*IRValue, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = b.pop()
+	}
+	
+	// 弹出接收者
+	receiver := b.pop()
+	
+	// 创建方法调用指令
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewCallMethodInstr(receiver, methodName, dest, args...)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将返回值压入栈
+	b.push(dest)
+}
+
+// emitCallStatic 生成静态方法调用指令
+func (b *IRBuilder) emitCallStatic(classIdx, nameIdx uint16, argCount int, line int) {
+	b.callCount++
+	
+	// 获取类名和方法名
+	className := b.getConstantString(classIdx)
+	methodName := b.getConstantString(nameIdx)
+	
+	// 收集参数
+	args := make([]*IRValue, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = b.pop()
+	}
+	
+	// 创建静态调用指令（使用 OpCallDirect）
+	dest := b.fn.NewValue(TypeUnknown)
+	target := className + "::" + methodName
+	instr := NewCallDirectInstr(target, dest, args...)
+	instr.ClassName = className
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将返回值压入栈
+	b.push(dest)
+}
+
+// ============================================================================
+// 对象操作
+// ============================================================================
+
+// emitNewObject 生成对象创建指令
+func (b *IRBuilder) emitNewObject(classIdx uint16, line int) {
+	b.objectOpCount++
+	
+	// 获取类名
+	className := b.getConstantString(classIdx)
+	
+	// 创建对象创建指令
+	dest := b.fn.NewValue(TypeObject)
+	instr := NewNewObjectInstr(className, dest)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将新对象压入栈
+	b.push(dest)
+}
+
+// emitGetField 生成字段读取指令
+func (b *IRBuilder) emitGetField(nameIdx uint16, line int) {
+	b.objectOpCount++
+	
+	// 获取字段名
+	fieldName := b.getConstantString(nameIdx)
+	
+	// 弹出对象
+	obj := b.pop()
+	
+	// 创建字段读取指令
+	dest := b.fn.NewValue(TypeUnknown) // 字段类型未知
+	instr := NewGetFieldInstr(obj, fieldName, dest, -1) // -1表示运行时查找偏移
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将字段值压入栈
+	b.push(dest)
+}
+
+// emitSetField 生成字段写入指令
+func (b *IRBuilder) emitSetField(nameIdx uint16, line int) {
+	b.objectOpCount++
+	
+	// 获取字段名
+	fieldName := b.getConstantString(nameIdx)
+	
+	// 弹出值和对象
+	value := b.pop()
+	obj := b.pop()
+	
+	// 创建字段写入指令
+	instr := NewSetFieldInstr(obj, fieldName, value, -1)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// SetField 不产生值，但需要把对象推回栈
+	b.push(obj)
+}
+
+// emitGetStatic 生成静态字段读取指令
+func (b *IRBuilder) emitGetStatic(classIdx, nameIdx uint16, line int) {
+	b.objectOpCount++
+	
+	// 获取类名和字段名
+	className := b.getConstantString(classIdx)
+	fieldName := b.getConstantString(nameIdx)
+	
+	// 创建静态字段读取指令
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpGetField, dest)
+	instr.ClassName = className
+	instr.FieldName = fieldName
+	instr.FieldOffset = -1
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将字段值压入栈
+	b.push(dest)
+}
+
+// emitSetStatic 生成静态字段写入指令
+func (b *IRBuilder) emitSetStatic(classIdx, nameIdx uint16, line int) {
+	b.objectOpCount++
+	
+	// 获取类名和字段名
+	className := b.getConstantString(classIdx)
+	fieldName := b.getConstantString(nameIdx)
+	
+	// 弹出值
+	value := b.pop()
+	
+	// 创建静态字段写入指令
+	instr := NewInstr(OpSetField, nil, value)
+	instr.ClassName = className
+	instr.FieldName = fieldName
+	instr.FieldOffset = -1
+	instr.Line = line
+	b.current.AddInstr(instr)
+}
+
+// ============================================================================
+// 全局变量
+// ============================================================================
+
+// emitLoadGlobal 生成全局变量加载指令
+func (b *IRBuilder) emitLoadGlobal(idx uint16, line int) {
+	// 获取全局变量名
+	varName := b.getConstantString(idx)
+	
+	// 创建加载指令（使用 OpLoadLocal 的变体，LocalIdx 用负数表示全局）
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpLoadLocal, dest)
+	instr.LocalIdx = -int(idx) - 1 // 负数表示全局变量
+	instr.CallTarget = varName     // 存储变量名以便调试
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitStoreGlobal 生成全局变量存储指令
+func (b *IRBuilder) emitStoreGlobal(idx uint16, line int) {
+	// 获取全局变量名
+	varName := b.getConstantString(idx)
+	
+	// 弹出值
+	value := b.pop()
+	
+	// 创建存储指令
+	instr := NewInstr(OpStoreLocal, nil, value)
+	instr.LocalIdx = -int(idx) - 1
+	instr.CallTarget = varName
+	instr.Line = line
+	b.current.AddInstr(instr)
+}
+
+// ============================================================================
+// 辅助方法
+// ============================================================================
+
+// getConstantString 从常量池获取字符串
+func (b *IRBuilder) getConstantString(idx uint16) string {
+	if int(idx) < len(b.chunk.Constants) {
+		val := b.chunk.Constants[idx]
+		if val.Type == bytecode.ValString {
+			return val.AsString()
+		}
+	}
+	return fmt.Sprintf("const_%d", idx)
+}
+
+// GetStats 获取构建统计信息
+func (b *IRBuilder) GetStats() (callCount, objectOpCount int) {
+	return b.callCount, b.objectOpCount
 }

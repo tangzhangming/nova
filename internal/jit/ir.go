@@ -37,6 +37,10 @@ const (
 	TypeFloat                    // 浮点数
 	TypeBool                     // 布尔值
 	TypePtr                      // 指针（用于对象引用）
+	TypeFunc                     // 函数指针
+	TypeString                   // 字符串（指向字符串对象）
+	TypeArray                    // 数组（指向数组对象）
+	TypeObject                   // 对象引用
 	TypeUnknown                  // 未知类型（在类型推断前使用）
 )
 
@@ -52,9 +56,27 @@ func (t ValueType) String() string {
 		return "bool"
 	case TypePtr:
 		return "ptr"
+	case TypeFunc:
+		return "func"
+	case TypeString:
+		return "string"
+	case TypeArray:
+		return "array"
+	case TypeObject:
+		return "object"
 	default:
 		return "unknown"
 	}
+}
+
+// IsNumeric 检查是否为数值类型
+func (t ValueType) IsNumeric() bool {
+	return t == TypeInt || t == TypeFloat
+}
+
+// IsPointer 检查是否为指针类型（包括对象引用、数组等）
+func (t ValueType) IsPointer() bool {
+	return t == TypePtr || t == TypeObject || t == TypeArray || t == TypeString || t == TypeFunc
 }
 
 // ============================================================================
@@ -107,9 +129,21 @@ const (
 	OpReturn   // 返回
 	OpPhi      // SSA Phi 函数
 
-	// 函数调用（暂时回退到解释器）
-	OpCall       // 函数调用
-	OpCallMethod // 方法调用
+	// 函数调用
+	OpCall         // 函数调用（通用）
+	OpCallDirect   // 直接调用（编译时已知地址）
+	OpCallIndirect // 间接调用（通过函数指针）
+	OpCallBuiltin  // 内建函数调用
+	OpCallMethod   // 方法调用
+	OpCallVirtual  // 虚方法调用（通过虚表）
+	OpTailCall     // 尾调用优化
+
+	// 对象操作
+	OpNewObject   // 创建对象
+	OpGetField    // 读取字段
+	OpSetField    // 写入字段
+	OpGetFieldPtr // 获取字段指针（优化）
+	OpLoadVTable  // 加载虚表
 
 	// 类型转换
 	OpIntToFloat // int -> float
@@ -126,43 +160,53 @@ const (
 )
 
 var opcodeNames = map[Opcode]string{
-	OpConst:      "const",
-	OpLoadLocal:  "load",
-	OpStoreLocal: "store",
-	OpAdd:        "add",
-	OpSub:        "sub",
-	OpMul:        "mul",
-	OpDiv:        "div",
-	OpMod:        "mod",
-	OpNeg:        "neg",
-	OpEq:         "eq",
-	OpNe:         "ne",
-	OpLt:         "lt",
-	OpLe:         "le",
-	OpGt:         "gt",
-	OpGe:         "ge",
-	OpNot:        "not",
-	OpAnd:        "and",
-	OpOr:         "or",
-	OpBitAnd:     "band",
-	OpBitOr:      "bor",
-	OpBitXor:     "bxor",
-	OpBitNot:     "bnot",
-	OpShl:        "shl",
-	OpShr:        "shr",
-	OpJump:       "jump",
-	OpBranch:     "branch",
-	OpReturn:     "return",
-	OpPhi:        "phi",
-	OpCall:       "call",
-	OpCallMethod: "callmethod",
-	OpIntToFloat: "i2f",
-	OpFloatToInt: "f2i",
-	OpBoolToInt:  "b2i",
-	OpArrayGet:   "aget",
-	OpArraySet:   "aset",
-	OpArrayLen:   "alen",
-	OpNop:        "nop",
+	OpConst:       "const",
+	OpLoadLocal:   "load",
+	OpStoreLocal:  "store",
+	OpAdd:         "add",
+	OpSub:         "sub",
+	OpMul:         "mul",
+	OpDiv:         "div",
+	OpMod:         "mod",
+	OpNeg:         "neg",
+	OpEq:          "eq",
+	OpNe:          "ne",
+	OpLt:          "lt",
+	OpLe:          "le",
+	OpGt:          "gt",
+	OpGe:          "ge",
+	OpNot:         "not",
+	OpAnd:         "and",
+	OpOr:          "or",
+	OpBitAnd:      "band",
+	OpBitOr:       "bor",
+	OpBitXor:      "bxor",
+	OpBitNot:      "bnot",
+	OpShl:         "shl",
+	OpShr:         "shr",
+	OpJump:        "jump",
+	OpBranch:      "branch",
+	OpReturn:      "return",
+	OpPhi:         "phi",
+	OpCall:        "call",
+	OpCallDirect:  "call.direct",
+	OpCallIndirect: "call.indirect",
+	OpCallBuiltin: "call.builtin",
+	OpCallMethod:  "call.method",
+	OpCallVirtual: "call.virtual",
+	OpTailCall:    "tailcall",
+	OpNewObject:   "newobj",
+	OpGetField:    "getfield",
+	OpSetField:    "setfield",
+	OpGetFieldPtr: "getfieldptr",
+	OpLoadVTable:  "loadvtable",
+	OpIntToFloat:  "i2f",
+	OpFloatToInt:  "f2i",
+	OpBoolToInt:   "b2i",
+	OpArrayGet:    "aget",
+	OpArraySet:    "aset",
+	OpArrayLen:    "alen",
+	OpNop:         "nop",
 }
 
 func (op Opcode) String() string {
@@ -265,6 +309,16 @@ func (v *IRValue) HasUses() bool {
 // IR 指令
 // ============================================================================
 
+// CallConvType 调用约定类型
+type CallConvType int
+
+const (
+	CallConvDefault  CallConvType = iota // 默认调用约定
+	CallConvSola                         // Sola 内部调用约定
+	CallConvC                            // C 调用约定
+	CallConvFast                         // 快速调用约定（尽可能用寄存器）
+)
+
 // IRInstr IR 指令
 type IRInstr struct {
 	Op     Opcode     // 操作码
@@ -275,6 +329,19 @@ type IRInstr struct {
 	// 额外信息
 	LocalIdx int        // 局部变量索引（用于 load/store）
 	Targets  []*IRBlock // 跳转目标（用于 branch）
+	
+	// 函数调用相关字段
+	CallTarget   string        // 调用目标（函数名或符号）
+	CallArgCount int           // 调用参数数量
+	CallConv     CallConvType  // 调用约定
+	CallFunc     *IRFunc       // 被调用的IR函数（用于内联）
+	IsVarArgs    bool          // 是否可变参数
+	
+	// 对象操作相关字段
+	ClassName    string        // 类名
+	FieldName    string        // 字段名
+	FieldOffset  int           // 字段偏移（编译时计算）
+	FieldType    ValueType     // 字段类型
 	
 	// 调试信息
 	Line     int        // 源代码行号
@@ -312,7 +379,7 @@ func (instr *IRInstr) String() string {
 	}
 	
 	// 操作码
-	sb.WriteString(fmt.Sprintf("%-10s", instr.Op.String()))
+	sb.WriteString(fmt.Sprintf("%-14s", instr.Op.String()))
 	
 	// 参数
 	switch instr.Op {
@@ -350,6 +417,46 @@ func (instr *IRInstr) String() string {
 			}
 		}
 		sb.WriteString("]")
+	case OpCall, OpCallDirect, OpCallIndirect, OpCallBuiltin, OpTailCall:
+		sb.WriteString(fmt.Sprintf(" %s(", instr.CallTarget))
+		for i, arg := range instr.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(arg.String())
+		}
+		sb.WriteString(")")
+	case OpCallMethod, OpCallVirtual:
+		if len(instr.Args) > 0 {
+			sb.WriteString(fmt.Sprintf(" %s.%s(", instr.Args[0].String(), instr.CallTarget))
+			for i := 1; i < len(instr.Args); i++ {
+				if i > 1 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(instr.Args[i].String())
+			}
+			sb.WriteString(")")
+		}
+	case OpNewObject:
+		sb.WriteString(fmt.Sprintf(" %s", instr.ClassName))
+	case OpGetField, OpSetField:
+		if len(instr.Args) > 0 {
+			sb.WriteString(fmt.Sprintf(" %s.%s", instr.Args[0].String(), instr.FieldName))
+			if instr.FieldOffset >= 0 {
+				sb.WriteString(fmt.Sprintf("[+%d]", instr.FieldOffset))
+			}
+		}
+		if instr.Op == OpSetField && len(instr.Args) > 1 {
+			sb.WriteString(fmt.Sprintf(" = %s", instr.Args[1].String()))
+		}
+	case OpGetFieldPtr:
+		if len(instr.Args) > 0 {
+			sb.WriteString(fmt.Sprintf(" &%s.%s", instr.Args[0].String(), instr.FieldName))
+		}
+	case OpLoadVTable:
+		if len(instr.Args) > 0 {
+			sb.WriteString(fmt.Sprintf(" %s", instr.Args[0].String()))
+		}
 	default:
 		for i, arg := range instr.Args {
 			if i > 0 {
@@ -609,4 +716,193 @@ func (fn *IRFunc) ComputeBlockOrder() []*IRBlock {
 	}
 	
 	return order
+}
+
+// ============================================================================
+// 函数调用指令构造
+// ============================================================================
+
+// NewCallInstr 创建函数调用指令
+//
+// 参数：
+//   - target: 被调用的函数名
+//   - dest: 返回值（可为nil表示无返回值）
+//   - args: 参数列表
+//
+// 返回：
+//   - 调用指令
+func NewCallInstr(target string, dest *IRValue, args ...*IRValue) *IRInstr {
+	instr := NewInstr(OpCall, dest, args...)
+	instr.CallTarget = target
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvSola
+	return instr
+}
+
+// NewCallDirectInstr 创建直接调用指令（编译时地址已知）
+func NewCallDirectInstr(target string, dest *IRValue, args ...*IRValue) *IRInstr {
+	instr := NewInstr(OpCallDirect, dest, args...)
+	instr.CallTarget = target
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvSola
+	return instr
+}
+
+// NewCallIndirectInstr 创建间接调用指令（通过函数指针）
+func NewCallIndirectInstr(funcPtr *IRValue, dest *IRValue, args ...*IRValue) *IRInstr {
+	allArgs := make([]*IRValue, 0, len(args)+1)
+	allArgs = append(allArgs, funcPtr)
+	allArgs = append(allArgs, args...)
+	
+	instr := NewInstr(OpCallIndirect, dest, allArgs...)
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvSola
+	return instr
+}
+
+// NewCallBuiltinInstr 创建内建函数调用指令
+func NewCallBuiltinInstr(builtinName string, dest *IRValue, args ...*IRValue) *IRInstr {
+	instr := NewInstr(OpCallBuiltin, dest, args...)
+	instr.CallTarget = builtinName
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvC
+	return instr
+}
+
+// NewCallMethodInstr 创建方法调用指令
+//
+// 参数：
+//   - receiver: 接收者对象
+//   - methodName: 方法名
+//   - dest: 返回值
+//   - args: 参数列表（不包括接收者）
+func NewCallMethodInstr(receiver *IRValue, methodName string, dest *IRValue, args ...*IRValue) *IRInstr {
+	allArgs := make([]*IRValue, 0, len(args)+1)
+	allArgs = append(allArgs, receiver)
+	allArgs = append(allArgs, args...)
+	
+	instr := NewInstr(OpCallMethod, dest, allArgs...)
+	instr.CallTarget = methodName
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvSola
+	return instr
+}
+
+// NewCallVirtualInstr 创建虚方法调用指令
+func NewCallVirtualInstr(receiver *IRValue, methodName string, dest *IRValue, args ...*IRValue) *IRInstr {
+	allArgs := make([]*IRValue, 0, len(args)+1)
+	allArgs = append(allArgs, receiver)
+	allArgs = append(allArgs, args...)
+	
+	instr := NewInstr(OpCallVirtual, dest, allArgs...)
+	instr.CallTarget = methodName
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvSola
+	return instr
+}
+
+// NewTailCallInstr 创建尾调用指令
+func NewTailCallInstr(target string, args ...*IRValue) *IRInstr {
+	instr := NewInstr(OpTailCall, nil, args...)
+	instr.CallTarget = target
+	instr.CallArgCount = len(args)
+	instr.CallConv = CallConvSola
+	return instr
+}
+
+// ============================================================================
+// 对象操作指令构造
+// ============================================================================
+
+// NewNewObjectInstr 创建对象创建指令
+func NewNewObjectInstr(className string, dest *IRValue) *IRInstr {
+	instr := NewInstr(OpNewObject, dest)
+	instr.ClassName = className
+	return instr
+}
+
+// NewGetFieldInstr 创建字段读取指令
+//
+// 参数：
+//   - obj: 对象引用
+//   - fieldName: 字段名
+//   - dest: 结果值
+//   - fieldOffset: 字段偏移（-1表示运行时查找）
+func NewGetFieldInstr(obj *IRValue, fieldName string, dest *IRValue, fieldOffset int) *IRInstr {
+	instr := NewInstr(OpGetField, dest, obj)
+	instr.FieldName = fieldName
+	instr.FieldOffset = fieldOffset
+	return instr
+}
+
+// NewSetFieldInstr 创建字段写入指令
+//
+// 参数：
+//   - obj: 对象引用
+//   - fieldName: 字段名
+//   - value: 要写入的值
+//   - fieldOffset: 字段偏移（-1表示运行时查找）
+func NewSetFieldInstr(obj *IRValue, fieldName string, value *IRValue, fieldOffset int) *IRInstr {
+	instr := NewInstr(OpSetField, nil, obj, value)
+	instr.FieldName = fieldName
+	instr.FieldOffset = fieldOffset
+	return instr
+}
+
+// NewGetFieldPtrInstr 创建获取字段指针指令（用于优化）
+func NewGetFieldPtrInstr(obj *IRValue, fieldName string, dest *IRValue, fieldOffset int) *IRInstr {
+	instr := NewInstr(OpGetFieldPtr, dest, obj)
+	instr.FieldName = fieldName
+	instr.FieldOffset = fieldOffset
+	return instr
+}
+
+// NewLoadVTableInstr 创建加载虚表指令
+func NewLoadVTableInstr(obj *IRValue, dest *IRValue) *IRInstr {
+	return NewInstr(OpLoadVTable, dest, obj)
+}
+
+// ============================================================================
+// 指令属性查询
+// ============================================================================
+
+// IsCall 检查是否是调用指令
+func (instr *IRInstr) IsCall() bool {
+	switch instr.Op {
+	case OpCall, OpCallDirect, OpCallIndirect, OpCallBuiltin, OpCallMethod, OpCallVirtual, OpTailCall:
+		return true
+	}
+	return false
+}
+
+// IsObjectOp 检查是否是对象操作指令
+func (instr *IRInstr) IsObjectOp() bool {
+	switch instr.Op {
+	case OpNewObject, OpGetField, OpSetField, OpGetFieldPtr, OpLoadVTable:
+		return true
+	}
+	return false
+}
+
+// HasSideEffects 检查指令是否有副作用
+func (instr *IRInstr) HasSideEffects() bool {
+	switch instr.Op {
+	case OpStoreLocal, OpSetField, OpArraySet,
+		OpCall, OpCallDirect, OpCallIndirect, OpCallBuiltin, OpCallMethod, OpCallVirtual, OpTailCall,
+		OpNewObject, OpReturn, OpJump, OpBranch:
+		return true
+	}
+	return false
+}
+
+// CanThrow 检查指令是否可能抛出异常
+func (instr *IRInstr) CanThrow() bool {
+	switch instr.Op {
+	case OpDiv, OpMod, // 除零异常
+		OpArrayGet, OpArraySet, // 数组越界
+		OpGetField, OpSetField, // 空指针
+		OpCall, OpCallDirect, OpCallIndirect, OpCallBuiltin, OpCallMethod, OpCallVirtual: // 调用可能抛异常
+		return true
+	}
+	return false
 }

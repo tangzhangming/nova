@@ -215,6 +215,29 @@ func (cg *X64CodeGenerator) emitInstr(instr *IRInstr) {
 		// Phi 节点在代码生成阶段已经通过寄存器分配处理，不需要额外代码
 	case OpNop:
 		// 空操作，不生成代码
+	
+	// 函数调用
+	case OpCall, OpCallDirect:
+		cg.emitCall(instr)
+	case OpCallIndirect:
+		cg.emitCallIndirect(instr)
+	case OpCallBuiltin:
+		cg.emitCallBuiltin(instr)
+	case OpCallMethod, OpCallVirtual:
+		cg.emitCallMethod(instr)
+	case OpTailCall:
+		cg.emitTailCall(instr)
+	
+	// 对象操作
+	case OpNewObject:
+		cg.emitNewObject(instr)
+	case OpGetField:
+		cg.emitGetField(instr)
+	case OpSetField:
+		cg.emitSetField(instr)
+	case OpLoadVTable:
+		cg.emitLoadVTable(instr)
+	
 	default:
 		// 不支持的操作
 		fmt.Printf("Warning: unsupported opcode: %s\n", instr.Op)
@@ -949,4 +972,457 @@ func (cg *X64CodeGenerator) emitCallHelper(addr uintptr) {
 	
 	// 恢复栈
 	cg.asm.AddRegImm32(RSP, 40)
+}
+
+// ============================================================================
+// 函数调用指令生成
+// ============================================================================
+
+// emitCall 生成函数调用指令
+// Windows x64 调用约定：
+//   - 参数：RCX, RDX, R8, R9（前4个），其余通过栈传递
+//   - 返回值：RAX
+//   - Shadow space：32字节
+//   - 栈对齐：16字节
+func (cg *X64CodeGenerator) emitCall(instr *IRInstr) {
+	argCount := len(instr.Args)
+	argRegs := []X64Reg{RCX, RDX, R8, R9}
+	
+	// 计算栈空间需求
+	// Shadow space (32) + 额外参数 + 对齐
+	stackSpace := int32(32) // Shadow space
+	if argCount > 4 {
+		stackSpace += int32((argCount - 4) * 8)
+	}
+	// 对齐到16字节
+	if (stackSpace % 16) != 8 {
+		stackSpace += 8
+	}
+	
+	// 保存调用者保存的寄存器
+	cg.saveCallerSavedRegs()
+	
+	// 分配栈空间
+	cg.asm.SubRegImm32(RSP, stackSpace)
+	
+	// 加载参数
+	// 前4个参数放入寄存器
+	for i := 0; i < argCount && i < 4; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		if src != argRegs[i] {
+			cg.asm.MovRegReg(argRegs[i], src)
+		}
+	}
+	
+	// 额外参数放入栈
+	for i := 4; i < argCount; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		offset := int32(32 + (i-4)*8) // Shadow space后的位置
+		cg.asm.MovMemReg(RSP, offset, src)
+	}
+	
+	// 获取函数地址并调用
+	// 如果是直接调用，使用辅助函数获取地址
+	helperAddr := GetCallHelperPtr()
+	
+	// 将函数名存储到R10（临时），通过辅助函数解析
+	// 简化实现：通过运行时桥接调用VM函数
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	// 恢复栈
+	cg.asm.AddRegImm32(RSP, stackSpace)
+	
+	// 恢复调用者保存的寄存器
+	cg.restoreCallerSavedRegs()
+	
+	// 处理返回值
+	if instr.Dest != nil {
+		dst := cg.getReg(instr.Dest.ID)
+		if dst != RegNone && dst != RAX {
+			cg.asm.MovRegReg(dst, RAX)
+		} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+			slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+			offset := cg.getSpillOffset(slot)
+			cg.asm.MovMemReg(RBP, offset, RAX)
+		}
+	}
+}
+
+// emitCallIndirect 生成间接调用指令
+// Args[0] = 函数指针，Args[1:] = 参数
+func (cg *X64CodeGenerator) emitCallIndirect(instr *IRInstr) {
+	if len(instr.Args) == 0 {
+		return
+	}
+	
+	argRegs := []X64Reg{RCX, RDX, R8, R9}
+	argCount := len(instr.Args) - 1 // 第一个是函数指针
+	
+	// 计算栈空间
+	stackSpace := int32(32)
+	if argCount > 4 {
+		stackSpace += int32((argCount - 4) * 8)
+	}
+	if (stackSpace % 16) != 8 {
+		stackSpace += 8
+	}
+	
+	// 保存调用者保存的寄存器
+	cg.saveCallerSavedRegs()
+	
+	// 加载函数指针到R10（避免被参数覆盖）
+	funcPtr := cg.loadValue(instr.Args[0], R10)
+	if funcPtr != R10 {
+		cg.asm.MovRegReg(R10, funcPtr)
+	}
+	
+	// 分配栈空间
+	cg.asm.SubRegImm32(RSP, stackSpace)
+	
+	// 加载参数
+	for i := 1; i <= argCount && i < 5; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		if src != argRegs[i-1] {
+			cg.asm.MovRegReg(argRegs[i-1], src)
+		}
+	}
+	
+	// 额外参数放入栈
+	for i := 5; i <= argCount; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		offset := int32(32 + (i-5)*8)
+		cg.asm.MovMemReg(RSP, offset, src)
+	}
+	
+	// 调用函数指针
+	cg.asm.Call(R10)
+	
+	// 恢复栈
+	cg.asm.AddRegImm32(RSP, stackSpace)
+	
+	// 恢复寄存器
+	cg.restoreCallerSavedRegs()
+	
+	// 处理返回值
+	if instr.Dest != nil {
+		dst := cg.getReg(instr.Dest.ID)
+		if dst != RegNone && dst != RAX {
+			cg.asm.MovRegReg(dst, RAX)
+		} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+			slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+			offset := cg.getSpillOffset(slot)
+			cg.asm.MovMemReg(RBP, offset, RAX)
+		}
+	}
+}
+
+// emitCallBuiltin 生成内建函数调用
+func (cg *X64CodeGenerator) emitCallBuiltin(instr *IRInstr) {
+	// 内建函数使用C调用约定
+	argRegs := []X64Reg{RCX, RDX, R8, R9}
+	argCount := len(instr.Args)
+	
+	stackSpace := int32(40) // 32 shadow + 8 对齐
+	if argCount > 4 {
+		stackSpace += int32((argCount - 4) * 8)
+		if (stackSpace % 16) != 8 {
+			stackSpace += 8
+		}
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, stackSpace)
+	
+	// 加载参数
+	for i := 0; i < argCount && i < 4; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		if src != argRegs[i] {
+			cg.asm.MovRegReg(argRegs[i], src)
+		}
+	}
+	
+	for i := 4; i < argCount; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		offset := int32(32 + (i-4)*8)
+		cg.asm.MovMemReg(RSP, offset, src)
+	}
+	
+	// 获取内建函数地址
+	helperAddr := GetBuiltinCallHelperPtr(instr.CallTarget)
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, stackSpace)
+	cg.restoreCallerSavedRegs()
+	
+	if instr.Dest != nil {
+		dst := cg.getReg(instr.Dest.ID)
+		if dst != RegNone && dst != RAX {
+			cg.asm.MovRegReg(dst, RAX)
+		} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+			slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+			offset := cg.getSpillOffset(slot)
+			cg.asm.MovMemReg(RBP, offset, RAX)
+		}
+	}
+}
+
+// emitCallMethod 生成方法调用指令
+// Args[0] = 接收者, Args[1:] = 参数
+func (cg *X64CodeGenerator) emitCallMethod(instr *IRInstr) {
+	if len(instr.Args) == 0 {
+		return
+	}
+	
+	argRegs := []X64Reg{RCX, RDX, R8, R9}
+	argCount := len(instr.Args) // 包括接收者
+	
+	stackSpace := int32(32)
+	if argCount > 4 {
+		stackSpace += int32((argCount - 4) * 8)
+	}
+	if (stackSpace % 16) != 8 {
+		stackSpace += 8
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, stackSpace)
+	
+	// 接收者作为第一个参数
+	receiver := cg.loadValue(instr.Args[0], RCX)
+	if receiver != RCX {
+		cg.asm.MovRegReg(RCX, receiver)
+	}
+	
+	// 其余参数
+	for i := 1; i < argCount && i < 4; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		if src != argRegs[i] {
+			cg.asm.MovRegReg(argRegs[i], src)
+		}
+	}
+	
+	for i := 4; i < argCount; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		offset := int32(32 + (i-4)*8)
+		cg.asm.MovMemReg(RSP, offset, src)
+	}
+	
+	// 通过运行时辅助函数调用方法
+	helperAddr := GetMethodCallHelperPtr(instr.CallTarget)
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, stackSpace)
+	cg.restoreCallerSavedRegs()
+	
+	if instr.Dest != nil {
+		dst := cg.getReg(instr.Dest.ID)
+		if dst != RegNone && dst != RAX {
+			cg.asm.MovRegReg(dst, RAX)
+		} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+			slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+			offset := cg.getSpillOffset(slot)
+			cg.asm.MovMemReg(RBP, offset, RAX)
+		}
+	}
+}
+
+// emitTailCall 生成尾调用指令
+// 尾调用复用当前栈帧，直接跳转到目标函数
+func (cg *X64CodeGenerator) emitTailCall(instr *IRInstr) {
+	argRegs := []X64Reg{RCX, RDX, R8, R9}
+	argCount := len(instr.Args)
+	
+	// 加载参数到寄存器
+	for i := 0; i < argCount && i < 4; i++ {
+		src := cg.loadValue(instr.Args[i], RAX)
+		if src != argRegs[i] {
+			cg.asm.MovRegReg(argRegs[i], src)
+		}
+	}
+	
+	// 额外参数需要重新安排栈（简化实现：不支持超过4个参数的尾调用）
+	if argCount > 4 {
+		// 回退到普通调用
+		cg.emitCall(instr)
+		cg.emitEpilogue()
+		return
+	}
+	
+	// 恢复栈帧
+	cg.asm.MovRegReg(RSP, RBP)
+	cg.asm.Pop(RBP)
+	
+	// 跳转到目标函数
+	helperAddr := GetTailCallHelperPtr(instr.CallTarget)
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.JmpReg(RAX)
+}
+
+// ============================================================================
+// 对象操作指令生成
+// ============================================================================
+
+// emitNewObject 生成创建对象指令
+func (cg *X64CodeGenerator) emitNewObject(instr *IRInstr) {
+	if instr.Dest == nil {
+		return
+	}
+	
+	// 调用运行时辅助函数创建对象
+	// NewObjectHelper(className) -> objectPtr
+	helperAddr := GetNewObjectHelperPtr(instr.ClassName)
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 类名作为参数（简化：类名已编码在辅助函数地址中）
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	// 结果（对象指针）在RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitGetField 生成字段读取指令
+func (cg *X64CodeGenerator) emitGetField(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) == 0 {
+		return
+	}
+	
+	// 加载对象指针
+	obj := cg.loadValue(instr.Args[0], RCX)
+	if obj != RCX {
+		cg.asm.MovRegReg(RCX, obj)
+	}
+	
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	
+	// 如果有预计算的偏移，直接加载
+	if instr.FieldOffset >= 0 {
+		// 快速路径：直接通过偏移加载
+		// mov dst, [rcx + offset]
+		cg.asm.MovRegMem(dst, RCX, int32(instr.FieldOffset))
+	} else {
+		// 慢路径：调用运行时辅助函数
+		cg.saveCallerSavedRegs()
+		cg.asm.SubRegImm32(RSP, 40)
+		
+		helperAddr := GetFieldHelperPtr(instr.FieldName)
+		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+		cg.asm.Call(RAX)
+		
+		cg.asm.AddRegImm32(RSP, 40)
+		cg.restoreCallerSavedRegs()
+		
+		if dst != RAX {
+			cg.asm.MovRegReg(dst, RAX)
+		}
+	}
+	
+	// 存回溢出槽
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, dst)
+	}
+}
+
+// emitSetField 生成字段写入指令
+func (cg *X64CodeGenerator) emitSetField(instr *IRInstr) {
+	if len(instr.Args) < 2 {
+		return
+	}
+	
+	// 加载对象指针到RCX
+	obj := cg.loadValue(instr.Args[0], RCX)
+	if obj != RCX {
+		cg.asm.MovRegReg(RCX, obj)
+	}
+	
+	// 加载值到RDX
+	value := cg.loadValue(instr.Args[1], RDX)
+	if value != RDX {
+		cg.asm.MovRegReg(RDX, value)
+	}
+	
+	// 如果有预计算的偏移，直接存储
+	if instr.FieldOffset >= 0 {
+		// 快速路径：直接通过偏移存储
+		// mov [rcx + offset], rdx
+		cg.asm.MovMemReg(RCX, int32(instr.FieldOffset), RDX)
+	} else {
+		// 慢路径：调用运行时辅助函数
+		cg.saveCallerSavedRegs()
+		cg.asm.SubRegImm32(RSP, 40)
+		
+		helperAddr := GetSetFieldHelperPtr(instr.FieldName)
+		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+		cg.asm.Call(RAX)
+		
+		cg.asm.AddRegImm32(RSP, 40)
+		cg.restoreCallerSavedRegs()
+	}
+}
+
+// emitLoadVTable 生成加载虚表指令
+func (cg *X64CodeGenerator) emitLoadVTable(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) == 0 {
+		return
+	}
+	
+	// 加载对象指针
+	obj := cg.loadValue(instr.Args[0], RCX)
+	
+	// 虚表通常在对象的第一个字段位置
+	// mov dst, [obj + 0]
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	
+	cg.asm.MovRegMem(dst, obj, 0)
+	
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, dst)
+	}
+}
+
+// ============================================================================
+// 寄存器保存和恢复
+// ============================================================================
+
+// callerSavedRegs 调用者需要保存的寄存器
+var callerSavedRegs = []X64Reg{R10, R11}
+
+// saveCallerSavedRegs 保存调用者保存的寄存器
+func (cg *X64CodeGenerator) saveCallerSavedRegs() {
+	for _, reg := range callerSavedRegs {
+		cg.asm.Push(reg)
+	}
+}
+
+// restoreCallerSavedRegs 恢复调用者保存的寄存器
+func (cg *X64CodeGenerator) restoreCallerSavedRegs() {
+	// 逆序恢复
+	for i := len(callerSavedRegs) - 1; i >= 0; i-- {
+		cg.asm.Pop(callerSavedRegs[i])
+	}
 }
