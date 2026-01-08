@@ -1000,7 +1000,7 @@ func (vm *VM) execute() InterpretResult {
 				vm.push(args[i])
 			}
 			
-			if result := vm.call(closure, argCount); result != InterpretOK {
+			if result := vm.callOptimized(closure, argCount); result != InterpretOK {
 				return result
 			}
 			frame = &vm.frames[vm.frameCount-1]
@@ -2350,9 +2350,88 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	return InterpretOK
 }
 
+// jitCallCount 用于调试的 JIT 调用计数
+var jitCallCount int64
+
+// isJITSafe 检查函数是否可以安全地用 JIT 执行
+// 只支持简单的算术和循环，不支持函数调用、对象操作等
+func isJITSafe(fn *bytecode.Function) bool {
+	if fn == nil || fn.Chunk == nil {
+		return false
+	}
+	
+	code := fn.Chunk.Code
+	i := 0
+	for i < len(code) {
+		op := bytecode.OpCode(code[i])
+		
+		// 不支持的操作码
+		switch op {
+		case bytecode.OpCall, bytecode.OpTailCall, bytecode.OpCallMethod, bytecode.OpCallStatic:
+			// 函数调用
+			return false
+		case bytecode.OpNewObject, bytecode.OpNewArray, bytecode.OpNewMap, bytecode.OpNewFixedArray:
+			// 对象/数组创建
+			return false
+		case bytecode.OpGetField, bytecode.OpSetField:
+			// 对象属性访问
+			return false
+		case bytecode.OpGetStatic, bytecode.OpSetStatic:
+			// 静态成员访问
+			return false
+		case bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry:
+			// 异常处理
+			return false
+		case bytecode.OpArrayGet, bytecode.OpArraySet, bytecode.OpArrayLen,
+			bytecode.OpArrayGetUnchecked, bytecode.OpArraySetUnchecked,
+			bytecode.OpArrayPush, bytecode.OpArrayHas:
+			// 数组操作
+			return false
+		case bytecode.OpLoadGlobal, bytecode.OpStoreGlobal:
+			// 全局变量
+			return false
+		case bytecode.OpConcat:
+			// 字符串连接
+			return false
+		}
+		
+		// 计算指令大小
+		size := 1
+		switch op {
+		case bytecode.OpPush, bytecode.OpLoadLocal, bytecode.OpStoreLocal,
+			bytecode.OpLoadGlobal, bytecode.OpStoreGlobal,
+			bytecode.OpNewObject, bytecode.OpGetField, bytecode.OpSetField,
+			bytecode.OpNewArray, bytecode.OpNewMap,
+			bytecode.OpCheckType, bytecode.OpCast, bytecode.OpCastSafe:
+			size = 3
+		case bytecode.OpNewFixedArray:
+			size = 5
+		case bytecode.OpJump, bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue, bytecode.OpLoop:
+			size = 3
+		case bytecode.OpCall, bytecode.OpTailCall:
+			size = 2
+		case bytecode.OpCallMethod:
+			size = 4
+		case bytecode.OpGetStatic, bytecode.OpSetStatic:
+			size = 5
+		case bytecode.OpCallStatic:
+			size = 6
+		}
+		
+		i += size
+	}
+	
+	return true
+}
+
 // executeNative 执行 JIT 编译的本机代码
 // 返回 (结果, 是否成功执行)
 func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Closure, argCount int) (InterpretResult, bool) {
+	// JIT 执行暂时禁用 - 代码生成器需要进一步调试
+	// TODO: 修复 IR 构建和代码生成后重新启用
+	return InterpretOK, false
+	
+	/*
 	fn := closure.Function
 	
 	// 只对简单的纯计算函数启用 JIT 执行
@@ -2360,6 +2439,17 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Cl
 	if fn.IsVariadic || len(closure.Upvalues) > 0 {
 		return InterpretOK, false
 	}
+	
+	// 最多支持 4 个参数（Windows x64 调用约定限制）
+	if argCount > 4 {
+		return InterpretOK, false
+	}
+	
+	// 检查函数是否包含不支持的操作（函数调用、对象操作等）
+	if !isJITSafe(fn) {
+		return InterpretOK, false
+	}
+	*/
 	
 	// 准备参数
 	args := make([]int64, argCount)
@@ -2388,6 +2478,8 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Cl
 		return InterpretOK, false
 	}
 	
+	jitCallCount++
+	
 	// 弹出函数和参数
 	vm.stackTop = baseSlot - 1
 	
@@ -2395,6 +2487,11 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Cl
 	vm.push(bytecode.NewInt(result))
 	
 	return InterpretOK, true
+}
+
+// GetJITCallCount 获取 JIT 调用次数（调试用）
+func GetJITCallCount() int64 {
+	return jitCallCount
 }
 
 // callMethodDirect 直接调用方法（内联缓存命中时使用）

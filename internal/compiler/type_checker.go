@@ -1114,6 +1114,19 @@ func (tc *TypeChecker) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
+	// int 可以赋给其他整数类型 (i8, i16, i32, i64, u8, u16, u32, u64)
+	integerTypes := map[string]bool{
+		"int": true, "i8": true, "i16": true, "i32": true, "i64": true,
+		"u8": true, "u16": true, "u32": true, "u64": true,
+	}
+	if actual == "int" && integerTypes[expected] {
+		return true
+	}
+	// 整数类型之间的兼容性（允许隐式转换）
+	if integerTypes[actual] && integerTypes[expected] {
+		return true
+	}
+	
 	// 数组类型
 	if strings.HasSuffix(actual, "[]") && strings.HasSuffix(expected, "[]") {
 		actualElem := strings.TrimSuffix(actual, "[]")
