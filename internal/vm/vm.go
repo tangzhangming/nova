@@ -1,148 +1,686 @@
+// Package vm 实现了 Sola 编程语言的字节码虚拟机。
+//
+// # 概述
+//
+// 该虚拟机是一个基于栈的解释器，负责执行由编译器生成的字节码指令。
+// 它是 Sola 语言运行时的核心组件，提供了完整的程序执行能力。
+//
+// # 架构设计
+//
+// 虚拟机采用经典的栈式架构，主要包含以下核心组件：
+//
+//   - 操作数栈 (stack): 用于存储操作数和中间计算结果
+//   - 调用栈 (frames): 管理函数调用和返回
+//   - 全局环境 (globals): 存储全局变量
+//   - 类型系统 (classes/enums): 管理类和枚举定义
+//   - 异常处理系统 (tryStack): 实现 try-catch-finally 机制
+//
+// # 性能优化
+//
+// 虚拟机集成了多项性能优化技术：
+//
+//   - JIT 编译器: 将热点代码编译为本机代码
+//   - 内联缓存 (IC): 加速方法调用的类型检查
+//   - 热点检测: 识别频繁执行的代码路径
+//   - 垃圾回收 (GC): 自动内存管理，支持分代回收
+//   - 尾调用优化: 消除尾递归的栈空间开销
+//
+// # 指令集
+//
+// 虚拟机支持完整的指令集，包括：
+//   - 栈操作: OpPush, OpPop, OpDup, OpSwap 等
+//   - 算术运算: OpAdd, OpSub, OpMul, OpDiv, OpMod, OpNeg
+//   - 比较运算: OpEq, OpNe, OpLt, OpLe, OpGt, OpGe
+//   - 逻辑运算: OpNot, OpBitAnd, OpBitOr 等
+//   - 控制流: OpJump, OpJumpIfFalse, OpLoop, OpCall, OpReturn
+//   - 对象操作: OpNewObject, OpGetField, OpSetField, OpCallMethod
+//   - 异常处理: OpThrow, OpEnterTry, OpLeaveTry, OpEnterCatch
+//
+// # 线程安全
+//
+// 当前实现为单线程模型，每个 VM 实例不应在多个 goroutine 间共享。
+// 如需并发执行，应为每个 goroutine 创建独立的 VM 实例。
+//
+// # 使用示例
+//
+//	// 创建虚拟机
+//	vm := vm.New()
+//
+//	// 注册全局变量和类
+//	vm.DefineGlobal("VERSION", bytecode.NewString("1.0"))
+//	vm.DefineClass(myClass)
+//
+//	// 执行字节码
+//	result := vm.Run(compiledFunction)
+//	if result != vm.InterpretOK {
+//	    fmt.Println("执行错误:", vm.GetError())
+//	}
 package vm
 
 import (
-	"fmt"
-	"strconv"
-	"strings"
+	// 标准库
+	"fmt"     // 格式化输出，用于错误信息和调试
+	"strconv" // 字符串转换，用于类型转换操作
+	"strings" // 字符串处理，用于类型名解析
 
-	"github.com/tangzhangming/nova/internal/bytecode"
-	"github.com/tangzhangming/nova/internal/errors"
-	"github.com/tangzhangming/nova/internal/i18n"
-	"github.com/tangzhangming/nova/internal/jit"
+	// 内部依赖
+	"github.com/tangzhangming/nova/internal/bytecode" // 字节码定义：指令集、值类型、函数/类结构
+	"github.com/tangzhangming/nova/internal/errors"   // 错误处理：增强的错误报告系统
+	"github.com/tangzhangming/nova/internal/i18n"     // 国际化：多语言错误消息支持
+	"github.com/tangzhangming/nova/internal/jit"      // JIT编译器：热点代码编译优化
 )
+
+// ============================================================================
+// 虚拟机配置常量
+// ============================================================================
+//
+// 这些常量定义了虚拟机的核心资源限制。
+// 修改这些值会影响内存占用和程序的最大复杂度。
 
 const (
-	StackMax  = 256  // 操作数栈最大深度
-	FramesMax = 64   // 调用栈最大深度
+	// StackMax 定义操作数栈的最大深度（256 个槽位）。
+	//
+	// 操作数栈用于存储：
+	//   - 表达式计算的中间结果
+	//   - 函数调用的参数
+	//   - 局部变量
+	//   - 临时对象引用
+	//
+	// 256 个槽位足以支持：
+	//   - 深度嵌套的表达式（如 a + b * c / d - e ...）
+	//   - 最多约 200 个参数的函数调用（需预留空间给返回值和临时值）
+	//   - 复杂的闭包链
+	//
+	// 如果程序需要更深的栈，会触发栈溢出错误。
+	// 注意：增大此值会增加每个 VM 实例的内存占用（每槽约 24 字节）。
+	StackMax = 256
+
+	// FramesMax 定义调用栈的最大深度（64 层）。
+	//
+	// 调用栈记录函数调用链，每个 CallFrame 包含：
+	//   - 当前执行的闭包
+	//   - 指令指针 (IP)
+	//   - 栈基址 (BaseSlot)
+	//
+	// 64 层深度意味着：
+	//   - 最多支持 64 层嵌套函数调用
+	//   - 递归深度限制为 64 层（除非使用尾调用优化）
+	//
+	// 对于大多数程序，64 层已足够。如需更深递归：
+	//   - 考虑使用尾递归（VM 会自动优化为循环）
+	//   - 或将递归算法改写为迭代形式
+	//
+	// 注意：增大此值会增加每个 VM 实例的内存占用（每帧约 32 字节）。
+	FramesMax = 64
 )
 
-// InterpretResult 执行结果
+// ============================================================================
+// 执行结果类型
+// ============================================================================
+
+// InterpretResult 表示虚拟机执行字节码后的结果状态。
+//
+// 这是一个枚举类型，用于向调用者报告执行的最终状态。
+// 调用者应根据返回的结果类型决定后续处理逻辑。
 type InterpretResult int
 
 const (
+	// InterpretOK 表示程序执行成功完成。
+	// 这是正常的退出状态，表示没有错误发生。
 	InterpretOK InterpretResult = iota
+
+	// InterpretCompileError 表示编译阶段发生错误。
+	// 当前 VM 实现中较少使用此状态，因为编译通常在 VM 外部完成。
+	// 保留此状态是为了与完整的编译-执行流程兼容。
 	InterpretCompileError
+
+	// InterpretRuntimeError 表示运行时发生未捕获的错误。
+	// 可能的原因包括：
+	//   - 类型错误（如对非数字类型执行算术运算）
+	//   - 未定义的变量或方法
+	//   - 数组越界
+	//   - 除零错误
+	//   - 栈溢出
+	//   - 未捕获的异常
+	// 调用 vm.GetError() 可获取详细错误信息。
 	InterpretRuntimeError
-	InterpretExceptionHandled // 异常已处理，需要刷新 frame/chunk
+
+	// InterpretExceptionHandled 表示异常已被 catch 块捕获处理。
+	// 这是一个内部状态，用于指示执行循环需要：
+	//   - 刷新当前帧 (frame) 引用
+	//   - 刷新当前字节码块 (chunk) 引用
+	// 因为异常处理可能导致栈展开，改变执行上下文。
+	// 此状态通常不会返回给外部调用者。
+	InterpretExceptionHandled
 )
 
-// CallFrame 调用帧
+// ============================================================================
+// 调用帧结构
+// ============================================================================
+
+// CallFrame 表示一个函数调用的执行上下文（调用帧/栈帧）。
+//
+// 每次函数调用都会创建一个新的 CallFrame，函数返回时销毁。
+// CallFrame 记录了恢复调用者执行所需的所有信息。
+//
+// # 栈布局
+//
+// 假设函数 foo(a, b) 调用 bar(x, y, z)，栈布局如下：
+//
+//	                    ┌─────────────────┐
+//	                    │ bar 的局部变量   │
+//	                    ├─────────────────┤
+//	                    │ z (参数)         │
+//	                    │ y (参数)         │
+//	                    │ x (参数)         │
+//	bar.BaseSlot ─────► │ bar 闭包        │
+//	                    ├─────────────────┤
+//	                    │ foo 的局部变量   │
+//	                    │ b (参数)         │
+//	                    │ a (参数)         │
+//	foo.BaseSlot ─────► │ foo 闭包        │
+//	                    └─────────────────┘
+//	                    栈底 (stackTop=0)
+//
+// # 字段说明
+//
+//   - Closure: 当前执行的闭包，包含函数代码和捕获的自由变量
+//   - IP: 指令指针，指向下一条要执行的字节码指令
+//   - BaseSlot: 栈基址，用于定位局部变量（local[i] = stack[BaseSlot + i]）
 type CallFrame struct {
-	Closure  *bytecode.Closure // 当前执行的闭包
-	IP       int               // 指令指针
-	BaseSlot int               // 栈基址
+	// Closure 当前执行的闭包。
+	// 闭包包含：
+	//   - Function: 函数定义（字节码、参数信息、局部变量数等）
+	//   - Upvalues: 捕获的外层变量（用于实现闭包）
+	Closure *bytecode.Closure
+
+	// IP (Instruction Pointer) 指令指针。
+	// 指向当前字节码块中下一条要执行的指令的索引。
+	// 执行时先读取 chunk.Code[IP]，然后 IP++。
+	IP int
+
+	// BaseSlot 栈基址（帧指针）。
+	// 指向当前帧在操作数栈中的起始位置。
+	// 局部变量通过相对于 BaseSlot 的偏移量访问：
+	//   - slot 0: 函数/闭包自身（用于递归调用）
+	//   - slot 1 ~ Arity: 函数参数
+	//   - slot Arity+1 ~ LocalCount: 局部变量
+	BaseSlot int
 }
 
-// CatchHandlerInfo catch 处理器信息
+// ============================================================================
+// 异常处理结构
+// ============================================================================
+
+// CatchHandlerInfo 描述一个 catch 子句的处理器信息。
+//
+// 一个 try 块可以有多个 catch 子句，每个 catch 捕获不同类型的异常。
+// 当异常发生时，VM 按顺序检查每个 CatchHandlerInfo，
+// 找到第一个类型匹配的处理器并跳转执行。
+//
+// # 示例
+//
+// 对于以下代码：
+//
+//	try {
+//	    riskyOperation()
+//	} catch (FileNotFoundException e) {  // handler[0]
+//	    handleFileNotFound(e)
+//	} catch (IOException e) {            // handler[1]
+//	    handleIOError(e)
+//	} catch (Exception e) {              // handler[2]
+//	    handleGeneric(e)
+//	}
+//
+// 将生成 3 个 CatchHandlerInfo，按声明顺序排列。
+// 这确保了更具体的异常类型优先匹配。
 type CatchHandlerInfo struct {
-	TypeName    string // 异常类型名
-	CatchOffset int    // catch 块相对于 OpEnterTry 的偏移量
+	// TypeName 是此 catch 子句捕获的异常类型名称。
+	// 可以是：
+	//   - 具体异常类名：如 "FileNotFoundException", "DivideByZeroException"
+	//   - 基类异常名：如 "Exception", "Throwable"
+	//   - 空字符串：捕获所有异常（catch-all）
+	TypeName string
+
+	// CatchOffset 是 catch 块代码相对于 OpEnterTry 指令的字节偏移量。
+	// 当异常匹配此处理器时，VM 将 IP 设置为：
+	//   IP = EnterTryIP + CatchOffset
+	// 然后开始执行 catch 块的代码。
+	CatchOffset int
 }
 
-// TryContext 异常处理上下文
+// TryContext 表示一个 try-catch-finally 块的完整执行上下文。
+//
+// TryContext 在进入 try 块时创建并压入 tryStack，
+// 在离开整个 try-catch-finally 结构时弹出。
+// 它保存了异常处理所需的所有状态信息。
+//
+// # 异常处理流程
+//
+//  1. 进入 try 块时（OpEnterTry）：
+//     - 创建 TryContext，记录当前帧数和栈顶
+//     - 解析并存储所有 catch 处理器
+//
+//  2. try 块正常执行完毕（OpLeaveTry）：
+//     - 如果有 finally，跳转执行 finally
+//     - 如果没有 finally，移除 TryContext
+//
+//  3. 异常发生时（OpThrow 或运行时错误）：
+//     - 展开栈到 try 块所在的帧
+//     - 查找匹配的 catch 处理器
+//     - 如果找到，跳转到 catch 块执行
+//     - 如果没有匹配但有 finally，先执行 finally 再传播异常
+//
+//  4. catch 块执行完毕：
+//     - 如果有 finally，跳转执行 finally
+//
+//  5. finally 块执行完毕（OpLeaveFinally）：
+//     - 检查是否有挂起的异常，有则重新抛出
+//     - 检查是否有挂起的返回值，有则执行返回
+//     - 否则继续正常执行
+//
+// # 嵌套 try 块
+//
+// try 块可以嵌套，每个 try 块都有独立的 TryContext。
+// tryStack 按进入顺序存储，异常发生时从栈顶开始查找处理器。
 type TryContext struct {
-	EnterTryIP       int                 // OpEnterTry 指令的位置
-	CatchHandlers    []CatchHandlerInfo  // catch 处理器列表（按顺序）
-	FinallyIP        int                 // finally 块的 IP (-1 表示没有)
-	FrameCount       int                 // 进入 try 时的帧数
-	StackTop         int                 // 进入 try 时的栈顶
-	InCatch          bool                // 是否正在执行 catch 块
-	InFinally        bool                // 是否正在执行 finally 块
-	PendingException bytecode.Value      // 挂起的异常（finally 结束后处理）
-	HasPendingExc    bool                // 是否有挂起的异常
-	PendingReturn    bytecode.Value      // 挂起的返回值
-	HasPendingReturn bool                // 是否有挂起的返回
+	// EnterTryIP 记录 OpEnterTry 指令在字节码中的位置。
+	// 用于计算 catch 块的绝对跳转地址：
+	//   catchIP = EnterTryIP + handler.CatchOffset
+	EnterTryIP int
+
+	// CatchHandlers 存储所有 catch 子句的处理器信息。
+	// 按源代码声明顺序排列，异常匹配时按此顺序检查。
+	// 更具体的异常类型应该排在前面。
+	CatchHandlers []CatchHandlerInfo
+
+	// FinallyIP 是 finally 块的起始指令地址。
+	// 值为 -1 表示没有 finally 块。
+	// 无论 try/catch 如何退出，finally 块都会执行。
+	FinallyIP int
+
+	// FrameCount 记录进入 try 块时的调用帧数。
+	// 异常发生时，需要展开调用栈到此帧数，
+	// 确保栈帧状态与进入 try 时一致。
+	FrameCount int
+
+	// StackTop 记录进入 try 块时的操作数栈顶位置。
+	// 异常发生时，恢复栈顶到此位置，
+	// 清除 try 块执行期间压入的临时值。
+	StackTop int
+
+	// InCatch 标记当前是否正在执行 catch 块。
+	// 如果 catch 块中再次发生异常：
+	//   - 不能再次被同一 try 的其他 catch 捕获
+	//   - 需要先执行 finally（如果有），然后向外传播
+	InCatch bool
+
+	// InFinally 标记当前是否正在执行 finally 块。
+	// finally 块中发生的异常会覆盖原有异常。
+	InFinally bool
+
+	// PendingException 存储挂起的异常值。
+	// 场景：catch 中发生新异常，需要先执行 finally，
+	// finally 结束后检查此值决定是否重新抛出。
+	PendingException bytecode.Value
+
+	// HasPendingExc 标记是否有挂起的异常等待处理。
+	// 与 PendingException 配合使用，因为零值异常也是有效值。
+	HasPendingExc bool
+
+	// PendingReturn 存储挂起的返回值。
+	// 场景：try/catch 中执行 return，但需要先执行 finally，
+	// finally 结束后使用此值完成返回。
+	PendingReturn bytecode.Value
+
+	// HasPendingReturn 标记是否有挂起的返回操作。
+	// 与 PendingReturn 配合使用。
+	HasPendingReturn bool
 }
 
-// VM 虚拟机
+// ============================================================================
+// 虚拟机核心结构
+// ============================================================================
+
+// VM 是 Sola 语言的字节码虚拟机，负责执行编译后的字节码程序。
+//
+// VM 是一个基于栈的解释器，采用经典的 fetch-decode-execute 循环：
+//  1. Fetch: 从当前帧的字节码中读取下一条指令
+//  2. Decode: 解析指令的操作码和操作数
+//  3. Execute: 执行指令，可能修改栈、帧或全局状态
+//
+// # 内存布局
+//
+// VM 的内存主要分为以下区域：
+//
+//	┌─────────────────────────────────────────────────────────────┐
+//	│                      操作数栈 (stack)                        │
+//	│  存储计算的中间结果、函数参数、局部变量                          │
+//	│  大小固定为 StackMax (256) 个槽位                            │
+//	├─────────────────────────────────────────────────────────────┤
+//	│                      调用栈 (frames)                         │
+//	│  存储函数调用的上下文信息                                      │
+//	│  大小固定为 FramesMax (64) 个帧                              │
+//	├─────────────────────────────────────────────────────────────┤
+//	│                      全局环境                                │
+//	│  globals: 全局变量表                                         │
+//	│  classes: 类定义表                                          │
+//	│  enums: 枚举定义表                                           │
+//	├─────────────────────────────────────────────────────────────┤
+//	│                      异常处理栈                               │
+//	│  tryStack: try-catch-finally 上下文栈                       │
+//	├─────────────────────────────────────────────────────────────┤
+//	│                      运行时子系统                             │
+//	│  gc: 垃圾回收器                                              │
+//	│  icManager: 内联缓存管理器                                   │
+//	│  hotspotDetector: 热点检测器                                 │
+//	│  jitCompiler: JIT 编译器                                    │
+//	└─────────────────────────────────────────────────────────────┘
+//
+// # 生命周期
+//
+//  1. 创建: 使用 New() 或 NewWithConfig() 创建 VM 实例
+//  2. 配置: 注册全局变量、类、枚举等
+//  3. 执行: 调用 Run() 执行编译后的函数
+//  4. 清理: VM 实例可被 GC 自动回收，无需手动销毁
+//
+// # 线程安全性
+//
+// VM 实例不是线程安全的，不应在多个 goroutine 间共享。
+// 每个 goroutine 应创建独立的 VM 实例。
+//
+// # 性能考虑
+//
+// VM 结构体中的数组（frames、stack）使用固定大小而非切片，
+// 这是为了：
+//   - 避免切片扩容的内存分配
+//   - 提高缓存局部性
+//   - 简化边界检查逻辑
 type VM struct {
-	frames     [FramesMax]CallFrame
+	// =========================================================================
+	// 调用栈 - 管理函数调用的上下文
+	// =========================================================================
+
+	// frames 是调用帧数组，存储嵌套的函数调用上下文。
+	// 使用固定大小数组而非切片，避免动态扩容的开销。
+	// 数组索引 0 到 frameCount-1 为有效帧。
+	frames [FramesMax]CallFrame
+
+	// frameCount 当前活动的调用帧数量。
+	// 增加: 函数调用时 (OpCall)
+	// 减少: 函数返回时 (OpReturn)
+	// 为 0 时表示程序执行完毕。
 	frameCount int
 
-	stack    [StackMax]bytecode.Value
+	// =========================================================================
+	// 操作数栈 - 存储计算的中间值
+	// =========================================================================
+
+	// stack 是操作数栈，所有计算都通过此栈进行。
+	// 使用固定大小数组，通过 stackTop 管理有效元素。
+	// 栈增长方向：从低地址向高地址（stack[0] 是栈底）。
+	stack [StackMax]bytecode.Value
+
+	// stackTop 指向栈顶的下一个空闲位置。
+	// push 操作: stack[stackTop] = value; stackTop++
+	// pop 操作: stackTop--; return stack[stackTop]
+	// 栈为空时 stackTop = 0。
 	stackTop int
 
-	globals map[string]bytecode.Value
-	classes map[string]*bytecode.Class
-	enums   map[string]*bytecode.Enum
+	// =========================================================================
+	// 全局环境 - 存储全局定义
+	// =========================================================================
 
-	// 异常处理 - 优化：使用 tryDepth 快速判断是否在 try 块中
-	tryStack     []TryContext
-	tryDepth     int            // try 块嵌套深度，用于快速路径判断
-	exception    bytecode.Value
+	// globals 全局变量表，存储所有全局变量。
+	// 键: 变量名
+	// 值: 变量值（bytecode.Value）
+	// 全局变量在整个程序生命周期内可见。
+	globals map[string]bytecode.Value
+
+	// classes 类定义表，存储所有已注册的类。
+	// 键: 类名（包含命名空间时为完整路径）
+	// 值: 类定义（包含方法、属性、继承信息等）
+	// 对象创建时 (OpNewObject) 从此表查找类定义。
+	classes map[string]*bytecode.Class
+
+	// enums 枚举定义表，存储所有已注册的枚举。
+	// 键: 枚举名
+	// 值: 枚举定义（包含枚举成员及其值）
+	// 静态访问时 (OpGetStatic) 会先检查此表。
+	enums map[string]*bytecode.Enum
+
+	// =========================================================================
+	// 异常处理 - 实现 try-catch-finally 机制
+	// =========================================================================
+
+	// tryStack 是 try 块上下文栈，支持嵌套的异常处理。
+	// 进入 try 块时压入新的 TryContext，离开时弹出。
+	// 使用切片而非固定数组，因为嵌套深度通常较浅但理论上无限。
+	tryStack []TryContext
+
+	// tryDepth 是 try 块的嵌套深度计数器。
+	// 这是一个优化：快速判断是否在 try 块中，
+	// 避免每次都检查 len(tryStack) > 0。
+	// 在异常处理的"快速路径"中特别有用。
+	tryDepth int
+
+	// exception 存储当前正在处理的异常值。
+	// 当 hasException 为 true 时有效。
+	exception bytecode.Value
+
+	// hasException 标记是否有未处理的异常。
+	// 与 exception 配合使用，因为零值也是有效的异常值。
 	hasException bool
 
-	// 垃圾回收
+	// =========================================================================
+	// 垃圾回收子系统
+	// =========================================================================
+
+	// gc 垃圾回收器，负责自动内存管理。
+	// 功能包括：
+	//   - 追踪堆上分配的对象
+	//   - 标记-清除回收不可达对象
+	//   - 分代回收优化（年轻代/老年代）
+	//   - 写屏障支持
 	gc *GC
 
-	// 内联缓存（B1）
+	// =========================================================================
+	// 性能优化子系统
+	// =========================================================================
+
+	// icManager 内联缓存管理器（Inline Cache Manager）。
+	// 用于加速多态方法调用：
+	//   - 缓存类型 -> 方法的映射
+	//   - 避免每次方法调用都进行查找
+	//   - 特别适合单态和少数多态的调用点
 	icManager *ICManager
 
-	// 热点检测（B2）
+	// hotspotDetector 热点检测器。
+	// 功能：
+	//   - 统计函数调用和循环迭代次数
+	//   - 识别"热点"代码（频繁执行的代码）
+	//   - 触发 JIT 编译决策
 	hotspotDetector *HotspotDetector
 
-	// JIT 编译器
-	jitCompiler *jit.Compiler
-	jitEnabled  bool // 是否启用 JIT 执行
+	// =========================================================================
+	// JIT 编译子系统
+	// =========================================================================
 
-	// 错误信息
-	hadError     bool
+	// jitCompiler JIT 编译器实例。
+	// 将热点字节码编译为本机代码以提升性能。
+	// 可能为 nil（平台不支持或被禁用）。
+	jitCompiler *jit.Compiler
+
+	// jitEnabled 标记 JIT 执行是否启用。
+	// 即使 jitCompiler 不为 nil，也可以动态禁用 JIT。
+	// 用于调试或特定场景下强制使用解释执行。
+	jitEnabled bool
+
+	// =========================================================================
+	// 错误状态
+	// =========================================================================
+
+	// hadError 标记执行过程中是否发生过错误。
+	// 用于在执行结束后检查是否成功。
+	hadError bool
+
+	// errorMessage 存储最后一次错误的详细信息。
+	// 当 hadError 为 true 时，此字段包含错误描述。
+	// 通过 GetError() 方法获取。
 	errorMessage string
 }
 
-// New 创建虚拟机
+// ============================================================================
+// 构造函数
+// ============================================================================
+
+// New 创建一个使用默认配置的虚拟机实例。
+//
+// 默认配置包括：
+//   - 启用 JIT 编译（如果平台支持）
+//   - 启用垃圾回收
+//   - 启用内联缓存
+//   - 启用热点检测
+//
+// 这是创建 VM 最简单的方式，适合大多数使用场景。
+//
+// # 示例
+//
+//	vm := vm.New()
+//	result := vm.Run(compiledFunction)
+//
+// # 返回值
+//
+// 返回初始化完成的 VM 实例，可立即用于执行字节码。
 func New() *VM {
 	return NewWithConfig(nil)
 }
 
-// NewWithConfig 创建带配置的虚拟机
-// jitConfig 为 nil 时使用默认配置
-// 要禁用 JIT，传入 jit.InterpretOnlyConfig()
+// NewWithConfig 创建一个使用指定配置的虚拟机实例。
+//
+// 此函数提供了对 VM 初始化的完全控制，特别是 JIT 编译器的配置。
+//
+// # 参数
+//
+//   - jitConfig: JIT 编译器配置。传入 nil 使用默认配置。
+//     要完全禁用 JIT，传入 jit.InterpretOnlyConfig()。
+//
+// # JIT 配置选项
+//
+// JIT 配置通常包括：
+//   - 热点阈值：函数被调用多少次后触发编译
+//   - 编译级别：优化程度
+//   - 内存限制：JIT 代码缓存大小
+//
+// # 初始化流程
+//
+//  1. 创建基础 VM 结构体
+//  2. 初始化全局环境（globals、classes、enums）
+//  3. 创建 GC 实例
+//  4. 创建内联缓存管理器
+//  5. 创建热点检测器
+//  6. 初始化 JIT 编译器（如果启用）
+//  7. 注册热点回调
+//
+// # 示例
+//
+//	// 使用默认 JIT 配置
+//	vm1 := vm.NewWithConfig(nil)
+//
+//	// 禁用 JIT（纯解释执行）
+//	vm2 := vm.NewWithConfig(jit.InterpretOnlyConfig())
+//
+//	// 自定义 JIT 配置
+//	config := &jit.Config{HotThreshold: 100}
+//	vm3 := vm.NewWithConfig(config)
 func NewWithConfig(jitConfig *jit.Config) *VM {
+	// 创建 VM 实例并初始化基础组件
 	vm := &VM{
-		globals:         make(map[string]bytecode.Value),
-		classes:         make(map[string]*bytecode.Class),
-		enums:           make(map[string]*bytecode.Enum),
-		gc:              NewGC(),
-		icManager:       NewICManager(),
-		hotspotDetector: NewHotspotDetector(),
+		// 全局环境初始化为空映射
+		globals: make(map[string]bytecode.Value),
+		classes: make(map[string]*bytecode.Class),
+		enums:   make(map[string]*bytecode.Enum),
+
+		// 创建运行时子系统
+		gc:              NewGC(),             // 垃圾回收器
+		icManager:       NewICManager(),      // 内联缓存管理器
+		hotspotDetector: NewHotspotDetector(), // 热点检测器
 	}
-	
-	// 初始化 JIT 编译器（如果支持且启用）
+
+	// 初始化 JIT 编译器
+	// jit.NewCompiler 会根据平台和配置决定是否实际创建编译器
+	// 在不支持 JIT 的平台上，返回 nil
 	vm.jitCompiler = jit.NewCompiler(jitConfig)
 	vm.jitEnabled = vm.jitCompiler != nil && vm.jitCompiler.IsEnabled()
-	
+
 	// 设置热点检测回调
+	// 当函数被检测为"热点"时，触发 JIT 编译
 	if vm.jitEnabled {
 		profiler := vm.jitCompiler.GetProfiler()
 		if profiler != nil {
+			// 注册回调：当函数变热时调用 onJITFunctionHot
 			profiler.OnFunctionHot(vm.onJITFunctionHot)
 		}
 	}
-	
+
 	return vm
 }
 
-// onJITFunctionHot 函数变热时的回调（触发 JIT 编译）
+// ============================================================================
+// JIT 编译相关方法
+// ============================================================================
+
+// onJITFunctionHot 是热点函数的回调处理器，用于触发 JIT 编译。
+//
+// 此方法由热点检测器在检测到函数达到"热点"阈值时调用。
+// 它负责决定是否对函数进行 JIT 编译，以及执行编译过程。
+//
+// # JIT 编译决策流程
+//
+//  1. 检查 JIT 是否启用
+//  2. 验证函数是否有效
+//  3. 咨询 profiler 是否应该编译（可能已编译或正在编译）
+//  4. 检查函数是否可以被 JIT（某些复杂指令不支持）
+//  5. 执行编译
+//  6. 更新编译状态
+//
+// # 不可编译的情况
+//
+// 以下类型的函数不能被 JIT 编译：
+//   - 包含异常处理的函数
+//   - 包含对象操作的函数
+//   - 包含闭包操作的函数
+//   - 包含全局变量访问的函数
+//
+// 对于不可编译的函数，会标记 3 次失败，以确保永远不再尝试编译。
+//
+// # 参数
+//
+//   - profile: 函数的运行时 profile 信息，包含调用次数等统计
 func (vm *VM) onJITFunctionHot(profile *jit.FunctionProfile) {
+	// 前置条件检查：JIT 必须启用
 	if !vm.jitEnabled || vm.jitCompiler == nil {
 		return
 	}
-	
+
 	fn := profile.Function
 	if fn == nil {
 		return
 	}
-	
+
 	// 检查是否应该编译
+	// profiler 会追踪函数的编译状态，避免重复编译
 	profiler := vm.jitCompiler.GetProfiler()
 	if profiler != nil && !profiler.ShouldCompile(fn) {
 		return
 	}
-	
+
 	// 检查函数是否可以被 JIT 编译
+	// 某些复杂操作（异常处理、对象操作等）目前不支持 JIT
 	if !jit.CanJIT(fn) {
 		// 不可编译的函数，标记失败以避免再次尝试
+		// 标记 3 次是为了确保 profiler 的失败计数达到阈值，
+		// 使得此函数永远不会再被考虑编译
 		if profiler != nil {
 			profiler.MarkCompileFailed(fn)
 			profiler.MarkCompileFailed(fn)
@@ -150,103 +688,282 @@ func (vm *VM) onJITFunctionHot(profile *jit.FunctionProfile) {
 		}
 		return
 	}
-	
-	// 编译函数
+
+	// 执行 JIT 编译
+	// 编译器将字节码转换为本机代码
 	compiled, err := vm.jitCompiler.Compile(fn)
 	if err != nil {
-		// 编译失败
+		// 编译失败（可能是资源不足或内部错误）
 		if profiler != nil {
 			profiler.MarkCompileFailed(fn)
 		}
 		return
 	}
-	
+
+	// 编译成功，标记函数为已编译状态
 	if compiled != nil {
-		// 标记为已编译
 		if profiler != nil {
 			profiler.MarkCompiled(fn)
 		}
 	}
 }
 
-// GetJITCompiler 获取 JIT 编译器
+// GetJITCompiler 获取 JIT 编译器实例。
+//
+// 返回值可能为 nil（如果 JIT 被禁用或平台不支持）。
+// 可用于获取编译统计信息、手动触发编译等高级操作。
+//
+// # 返回值
+//
+// JIT 编译器实例，或 nil。
 func (vm *VM) GetJITCompiler() *jit.Compiler {
 	return vm.jitCompiler
 }
 
-// IsJITEnabled 检查 JIT 是否启用
+// IsJITEnabled 检查 JIT 功能是否启用并可用。
+//
+// 返回 true 需要满足以下所有条件：
+//   - jitEnabled 标志为 true
+//   - jitCompiler 实例存在
+//   - 编译器本身报告为启用状态
+//
+// # 返回值
+//
+// true 表示 JIT 功能完全可用，可以编译和执行本机代码。
 func (vm *VM) IsJITEnabled() bool {
 	return vm.jitEnabled && vm.jitCompiler != nil && vm.jitCompiler.IsEnabled()
 }
 
-// SetJITEnabled 启用/禁用 JIT
-// 注意：禁用后重新启用需要重新创建编译器
+// SetJITEnabled 动态启用或禁用 JIT 功能。
+//
+// # 启用 JIT
+//
+// 如果当前 JIT 被禁用且 jitCompiler 为 nil，此方法会：
+//  1. 创建新的 JIT 编译器实例
+//  2. 注册热点回调函数
+//
+// 注意：之前编译的代码不会被恢复，需要重新达到热点阈值。
+//
+// # 禁用 JIT
+//
+// 禁用时仅设置 jitEnabled 标志为 false：
+//   - 已编译的代码会被保留（但不会被使用）
+//   - 热点统计会继续（但不会触发编译）
+//   - 所有执行将使用解释器
+//
+// # 参数
+//
+//   - enabled: true 启用 JIT，false 禁用 JIT
+//
+// # 使用场景
+//
+//   - 调试时临时禁用 JIT 以确保执行路径一致
+//   - 性能测试对比 JIT 和解释执行
+//   - 运行时检测到 JIT 问题后回退到解释执行
 func (vm *VM) SetJITEnabled(enabled bool) {
 	if enabled && vm.jitCompiler == nil {
+		// 需要创建新的编译器
 		vm.jitCompiler = jit.NewCompiler(nil)
 		if vm.jitCompiler != nil && vm.jitCompiler.IsEnabled() {
 			vm.jitEnabled = true
+			// 重新注册热点回调
 			profiler := vm.jitCompiler.GetProfiler()
 			if profiler != nil {
 				profiler.OnFunctionHot(vm.onJITFunctionHot)
 			}
 		}
 	} else if !enabled {
+		// 简单地禁用 JIT，保留编译器实例
 		vm.jitEnabled = false
 	}
 }
 
-// GetGC 获取垃圾回收器
+// ============================================================================
+// 垃圾回收相关方法
+// ============================================================================
+
+// GetGC 获取垃圾回收器实例。
+//
+// 返回 VM 使用的 GC 实例，可用于：
+//   - 获取 GC 统计信息（如回收次数、堆大小）
+//   - 手动配置 GC 参数
+//   - 调试内存管理问题
+//
+// # 返回值
+//
+// GC 实例指针。此指针在 VM 生命周期内保持有效。
 func (vm *VM) GetGC() *GC {
 	return vm.gc
 }
 
-// SetGCEnabled 启用/禁用 GC
+// SetGCEnabled 启用或禁用自动垃圾回收。
+//
+// 禁用 GC 时：
+//   - 不会自动触发垃圾回收
+//   - 内存会持续增长直到程序结束
+//   - 可能导致内存耗尽
+//
+// # 使用场景
+//
+//   - 临时禁用：执行对延迟敏感的代码段
+//   - 调试：排查 GC 相关问题
+//   - 基准测试：测量纯执行性能
+//
+// # 参数
+//
+//   - enabled: true 启用 GC，false 禁用 GC
 func (vm *VM) SetGCEnabled(enabled bool) {
 	vm.gc.SetEnabled(enabled)
 }
 
-// SetGCDebug 设置 GC 调试模式
+// SetGCDebug 设置 GC 调试模式。
+//
+// 启用调试模式后，GC 会输出详细的回收信息：
+//   - 每次回收的触发原因
+//   - 回收前后的堆大小
+//   - 回收的对象数量
+//   - 标记和清除阶段的耗时
+//
+// # 参数
+//
+//   - debug: true 启用调试输出，false 禁用
 func (vm *VM) SetGCDebug(debug bool) {
 	vm.gc.SetDebug(debug)
 }
 
-// GetICManager 获取内联缓存管理器
+// ============================================================================
+// 内联缓存相关方法
+// ============================================================================
+
+// GetICManager 获取内联缓存管理器实例。
+//
+// 内联缓存（Inline Cache）是一种方法调用优化技术：
+//   - 缓存方法调用的目标类型和方法地址
+//   - 避免每次调用都进行方法查找
+//   - 特别适合单态调用点（总是调用同一类型的方法）
+//
+// # 返回值
+//
+// ICManager 实例指针。
 func (vm *VM) GetICManager() *ICManager {
 	return vm.icManager
 }
 
-// SetICEnabled 启用/禁用内联缓存
+// SetICEnabled 启用或禁用内联缓存优化。
+//
+// 内联缓存对方法密集的代码有显著性能提升，
+// 但会占用额外内存来存储缓存条目。
+//
+// # 参数
+//
+//   - enabled: true 启用内联缓存，false 禁用
 func (vm *VM) SetICEnabled(enabled bool) {
 	vm.icManager.SetEnabled(enabled)
 }
 
-// GetHotspotDetector 获取热点检测器
+// ============================================================================
+// 热点检测相关方法
+// ============================================================================
+
+// GetHotspotDetector 获取热点检测器实例。
+//
+// 热点检测器负责识别"热点"代码：
+//   - 追踪函数调用次数
+//   - 追踪循环迭代次数
+//   - 当计数超过阈值时标记为热点
+//   - 触发 JIT 编译决策
+//
+// # 返回值
+//
+// HotspotDetector 实例指针。
 func (vm *VM) GetHotspotDetector() *HotspotDetector {
 	return vm.hotspotDetector
 }
 
-// SetHotspotEnabled 启用/禁用热点检测
+// SetHotspotEnabled 启用或禁用热点检测。
+//
+// 禁用热点检测后：
+//   - 不会追踪函数调用和循环次数
+//   - 不会触发 JIT 编译
+//   - 所有代码将始终使用解释执行
+//
+// # 参数
+//
+//   - enabled: true 启用热点检测，false 禁用
 func (vm *VM) SetHotspotEnabled(enabled bool) {
 	vm.hotspotDetector.SetEnabled(enabled)
 }
 
-// SetGCThreshold 设置 GC 触发阈值
+// SetGCThreshold 设置 GC 触发阈值。
+//
+// 阈值定义了堆上对象数量达到多少时触发自动 GC。
+// 较低的阈值会导致更频繁的 GC（更低的内存占用，更高的 CPU 开销）。
+// 较高的阈值会减少 GC 频率（更高的内存占用，更低的 CPU 开销）。
+//
+// # 参数
+//
+//   - threshold: 触发 GC 的对象数量阈值
+//
+// # 调优建议
+//
+//   - 内存受限环境：使用较低阈值（如 100-500）
+//   - 性能优先场景：使用较高阈值（如 10000+）
+//   - 默认值通常适合大多数场景
 func (vm *VM) SetGCThreshold(threshold int) {
 	vm.gc.SetThreshold(threshold)
 }
 
-// CollectGarbage 手动触发垃圾回收
+// CollectGarbage 手动触发一次完整的垃圾回收。
+//
+// 此方法会立即执行 GC，无论当前堆大小是否达到阈值。
+// 回收过程包括：
+//  1. 收集所有 GC 根对象
+//  2. 从根对象开始标记所有可达对象
+//  3. 清除所有不可达对象
+//
+// # 返回值
+//
+// 返回本次回收释放的对象数量。
+//
+// # 使用场景
+//
+//   - 在内存敏感操作前释放内存
+//   - 程序空闲期间主动回收
+//   - 调试和测试 GC 行为
 func (vm *VM) CollectGarbage() int {
 	roots := vm.collectRoots()
 	return vm.gc.Collect(roots)
 }
 
-// collectRoots 收集 GC 根对象
+// collectRoots 收集所有 GC 根对象。
+//
+// GC 根是存活对象的起点，不从任何根可达的对象将被回收。
+// 根对象包括：
+//
+// 1. 操作数栈上的值
+//   - 当前正在计算的中间结果
+//   - 函数参数和局部变量
+//
+// 2. 全局变量
+//   - 所有通过 DefineGlobal 定义的变量
+//
+// 3. 调用帧中的闭包
+//   - 当前调用链上的所有函数
+//   - 闭包捕获的 upvalue
+//
+// # 根对象的重要性
+//
+// 根对象直接或间接引用的所有对象都被认为是"存活"的。
+// 例如，如果栈上有一个数组，数组中的所有元素也是存活的。
+//
+// # 返回值
+//
+// 返回所有根对象的包装器切片，供 GC 进行标记。
 func (vm *VM) collectRoots() []GCObject {
 	var roots []GCObject
 
 	// 1. 栈上的值
+	// 遍历操作数栈，收集所有引用类型的值
 	for i := 0; i < vm.stackTop; i++ {
 		if w := vm.gc.GetWrapper(vm.stack[i]); w != nil {
 			roots = append(roots, w)
@@ -254,6 +971,7 @@ func (vm *VM) collectRoots() []GCObject {
 	}
 
 	// 2. 全局变量
+	// 遍历全局变量表，收集所有引用类型的值
 	for _, v := range vm.globals {
 		if w := vm.gc.GetWrapper(v); w != nil {
 			roots = append(roots, w)
@@ -261,6 +979,7 @@ func (vm *VM) collectRoots() []GCObject {
 	}
 
 	// 3. 调用帧中的闭包
+	// 遍历调用栈，收集所有活动的闭包
 	for i := 0; i < vm.frameCount; i++ {
 		closure := vm.frames[i].Closure
 		if closure != nil {
@@ -273,7 +992,18 @@ func (vm *VM) collectRoots() []GCObject {
 	return roots
 }
 
-// trackAllocation 追踪堆分配，必要时触发 GC
+// trackAllocation 用于在创建/返回堆对象时执行“分配追踪”。
+//
+// VM 中所有可能产生堆分配的指令（如创建对象、数组、Map、迭代器等）
+// 都应在将值压入栈之前调用此方法（或等价逻辑），以便 GC 能正确追踪对象。
+//
+// 行为：
+//   - 将 value 注册到 GC（仅引用类型会产生 wrapper）
+//   - 如 GC 判定需要回收，则收集根并触发一次回收
+//
+// 设计注意：
+//   - 这里是“慢路径”，用于少量但关键的分配点；
+//   - 解释器的热路径（循环体等）通常使用 maybeGC 降低开销。
 func (vm *VM) trackAllocation(v bytecode.Value) bytecode.Value {
 	w := vm.gc.TrackValue(v)
 	if w != nil && vm.gc.ShouldCollect() {
@@ -283,7 +1013,13 @@ func (vm *VM) trackAllocation(v bytecode.Value) bytecode.Value {
 	return v
 }
 
-// maybeGC 检查并执行 GC（用于循环等热点路径）
+// maybeGC 是用于热点路径的轻量 GC 检查。
+//
+// 与 trackAllocation 的差异：
+//   - maybeGC 不追踪具体某个分配，只是在“时间片/指令计数”维度上检查阈值；
+//   - 适合放在执行循环中按固定间隔触发，以避免每次分配都做阈值判断。
+//
+// 触发策略由 vm.execute() 控制（例如每 N 条指令检查一次）。
 func (vm *VM) maybeGC() {
 	if vm.gc.ShouldCollect() {
 		roots := vm.collectRoots()
@@ -291,7 +1027,24 @@ func (vm *VM) maybeGC() {
 	}
 }
 
-// Run 执行字节码
+// ============================================================================
+// 字节码执行入口
+// ============================================================================
+
+// Run 执行一个“顶层函数”（通常是脚本/模块的入口函数）的字节码。
+//
+// 约定：
+//   - fn 必须已经完成编译，且 fn.Chunk 里包含可执行字节码与常量表；
+//   - VM 会为它创建一个顶层闭包并压入栈；
+//   - 随后创建第 0 号调用帧，进入主解释循环 execute()。
+//
+// 栈状态（进入 execute 前）：
+//   - stack[0] = 顶层闭包（作为 slot0，便于递归/自引用）
+//   - stackTop = 1
+//
+// 注意：
+//   - Run 不会清空 VM 的 globals/classes/enums；它们被视为“进程级/运行时级”环境。
+//   - 若希望复用 VM 多次运行脚本，调用方需自行决定是否重置 globals 等状态。
 func (vm *VM) Run(fn *bytecode.Function) InterpretResult {
 	// 创建顶层闭包
 	closure := &bytecode.Closure{Function: fn}
@@ -310,44 +1063,78 @@ func (vm *VM) Run(fn *bytecode.Function) InterpretResult {
 	return vm.execute()
 }
 
-// execute 执行循环
+// ============================================================================
+// 主解释循环（Fetch-Decode-Execute）
+// ============================================================================
+
+// execute 是虚拟机的主解释循环。
+//
+// 该循环负责：
+//   - 维护当前活动帧 frame 与其字节码 chunk 的引用；
+//   - 不断 fetch（取指）-> decode（解码）-> execute（执行）；
+//   - 在函数调用/返回、异常处理导致 frame 变化时刷新 frame/chunk；
+//   - 在热点路径中按策略触发 GC；
+//   - 在必要时进行安全保护（IP 越界、指令数上限、内存增长过快等）。
+//
+// 维护者须知：
+//   - 任何可能改变当前 frame 的操作（如 OpCall/OpReturn/异常跳转）后，
+//     都需要刷新本地变量 frame/chunk，否则会继续在旧 chunk 上读指令。
+//   - 对于会“吞掉异常并跳转到 catch/finally”的路径，本实现用
+//     InterpretExceptionHandled 作为信号让外层刷新 frame/chunk 并 continue。
 func (vm *VM) execute() InterpretResult {
 	frame := &vm.frames[vm.frameCount-1]
 	chunk := frame.Closure.Function.Chunk
 
-	// 防止无限循环的安全计数器
+	// ------------------------------------------------------------------------
+	// 安全保护：指令数上限（用于防止非预期的无限循环）
+	// ------------------------------------------------------------------------
 	maxInstructions := 500000000 // 5亿条指令上限（用于性能测试）
 	instructionCount := 0
 	
-	// GC 检查间隔（每执行 100 条指令检查一次，降低间隔以更快响应内存暴涨）
+	// ------------------------------------------------------------------------
+	// GC 策略：按固定间隔检查是否需要回收
+	// ------------------------------------------------------------------------
+	// 每执行 gcCheckInterval 条指令检查一次阈值。
+	// 这样能避免“每次分配都判断”的开销，同时也能在长循环中及时回收。
 	const gcCheckInterval = 100
 	gcCheckCounter := 0
 	
-	// 内存分配速率保护：记录最近的内存分配次数
+	// ------------------------------------------------------------------------
+	// 内存增长保护：若堆对象数量短时间内剧增，则强制触发 GC
+	// ------------------------------------------------------------------------
+	// 这是一个粗粒度的“分配速率”保护，主要防止某些路径疯狂分配导致 OOM。
 	const memoryCheckInterval = 50 // 每 50 条指令检查一次内存分配速率
 	memoryCheckCounter := 0
 	lastGCHeapSize := vm.gc.HeapSize()
 
 	for {
+		// --------------------------------------------------------------------
 		// 安全检查：IP 越界
+		// --------------------------------------------------------------------
+		// 如果 IP 指向 chunk 末尾之外，说明字节码或跳转偏移有问题，
+		// 或者 frame/chunk 未正确刷新。
 		if frame.IP >= len(chunk.Code) {
 			return vm.runtimeError(i18n.T(i18n.ErrIPOutOfBounds))
 		}
 
-		// 安全检查：指令计数
+		// --------------------------------------------------------------------
+		// 安全检查：指令计数上限
+		// --------------------------------------------------------------------
+		// 用于防止死循环锁死解释器。该上限主要服务于性能测试与安全场景，
+		// 正常生产配置可根据需求调节。
 		instructionCount++
 		if instructionCount > maxInstructions {
 			return vm.runtimeError(i18n.T(i18n.ErrExecutionLimit))
 		}
 		
-		// 周期性 GC 检查
+		// 周期性 GC 检查（轻量路径）
 		gcCheckCounter++
 		if gcCheckCounter >= gcCheckInterval {
 			gcCheckCounter = 0
 			vm.maybeGC()
 		}
 		
-		// 内存分配速率保护：如果内存快速增长，强制触发 GC
+		// 内存增长保护：如果堆大小快速增长，强制触发 GC（更激进的慢路径）
 		memoryCheckCounter++
 		if memoryCheckCounter >= memoryCheckInterval {
 			memoryCheckCounter = 0
@@ -362,11 +1149,16 @@ func (vm *VM) execute() InterpretResult {
 			}
 		}
 
-		// 读取指令
+		// --------------------------------------------------------------------
+		// Fetch: 读取下一条指令并推进 IP
+		// --------------------------------------------------------------------
 		instruction := bytecode.OpCode(chunk.Code[frame.IP])
 		frame.IP++
 
 		switch instruction {
+		// ----------------------------------------------------------------
+		// 栈/常量加载：push/pop/dup/swap，以及常用常量
+		// ----------------------------------------------------------------
 		case bytecode.OpPush:
 			constant := chunk.ReadU16(frame.IP)
 			frame.IP += 2
@@ -399,6 +1191,9 @@ func (vm *VM) execute() InterpretResult {
 		case bytecode.OpOne:
 			vm.push(bytecode.OneValue)
 
+		// ----------------------------------------------------------------
+		// 局部/全局变量访问
+		// ----------------------------------------------------------------
 		case bytecode.OpLoadLocal:
 			slot := chunk.ReadU16(frame.IP)
 			frame.IP += 2
@@ -425,7 +1220,9 @@ func (vm *VM) execute() InterpretResult {
 			name := chunk.Constants[nameIdx].AsString()
 			vm.globals[name] = vm.peek(0)
 
-		// 算术运算
+		// ----------------------------------------------------------------
+		// 算术运算（可能触发异常：如除零、类型错误）
+		// ----------------------------------------------------------------
 		case bytecode.OpAdd:
 			if result := vm.binaryOp(instruction); result != InterpretOK {
 				if result == InterpretExceptionHandled {
@@ -487,7 +1284,9 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError(i18n.T(i18n.ErrOperandMustBeNumber))
 			}
 
+		// ----------------------------------------------------------------
 		// 比较运算
+		// ----------------------------------------------------------------
 		case bytecode.OpEq:
 			b := vm.pop()
 			a := vm.pop()
@@ -518,11 +1317,15 @@ func (vm *VM) execute() InterpretResult {
 				return result
 			}
 
+		// ----------------------------------------------------------------
 		// 逻辑运算
+		// ----------------------------------------------------------------
 		case bytecode.OpNot:
 			vm.push(bytecode.NewBool(!vm.pop().IsTruthy()))
 
-		// 位运算
+		// ----------------------------------------------------------------
+		// 位运算（按 int 语义）
+		// ----------------------------------------------------------------
 		case bytecode.OpBitAnd:
 			b := vm.pop()
 			a := vm.pop()
@@ -552,7 +1355,9 @@ func (vm *VM) execute() InterpretResult {
 			a := vm.pop()
 			vm.push(bytecode.NewInt(a.AsInt() >> uint(b.AsInt())))
 
-		// 字符串拼接
+		// ----------------------------------------------------------------
+		// 字符串/字符串构建器
+		// ----------------------------------------------------------------
 		case bytecode.OpConcat:
 			b := vm.pop()
 			a := vm.pop()
@@ -586,7 +1391,9 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("expected StringBuilder")
 			}
 
-		// 跳转
+		// ----------------------------------------------------------------
+		// 控制流：跳转/条件跳转/循环回边
+		// ----------------------------------------------------------------
 		case bytecode.OpJump:
 			offset := chunk.ReadI16(frame.IP)
 			frame.IP += 2
@@ -616,7 +1423,9 @@ func (vm *VM) execute() InterpretResult {
 			// 热点检测：记录循环迭代
 			vm.hotspotDetector.RecordLoopIteration(frame.Closure.Function, targetIP, loopHeaderIP)
 
-		// 函数调用
+		// ----------------------------------------------------------------
+		// 函数调用/尾调用/返回
+		// ----------------------------------------------------------------
 		case bytecode.OpCall:
 			argCount := int(chunk.Code[frame.IP])
 			frame.IP++
@@ -680,7 +1489,9 @@ func (vm *VM) execute() InterpretResult {
 			frame = &vm.frames[vm.frameCount-1]
 			chunk = frame.Closure.Function.Chunk
 
-		// 对象操作
+		// ----------------------------------------------------------------
+		// 对象/类/枚举/静态成员
+		// ----------------------------------------------------------------
 		case bytecode.OpNewObject:
 			classIdx := chunk.ReadU16(frame.IP)
 			frame.IP += 2
@@ -1047,7 +1858,9 @@ func (vm *VM) execute() InterpretResult {
 			frame = &vm.frames[vm.frameCount-1]
 			chunk = frame.Closure.Function.Chunk
 
-		// 数组操作
+		// ----------------------------------------------------------------
+		// 数组/Map/SuperArray/迭代器/Bytes 等容器类型
+		// ----------------------------------------------------------------
 		case bytecode.OpNewArray:
 			length := int(chunk.ReadU16(frame.IP))
 			frame.IP += 2
@@ -1531,7 +2344,9 @@ func (vm *VM) execute() InterpretResult {
 			}
 			vm.push(bytecode.NullValue)
 
-		// 异常处理
+		// ----------------------------------------------------------------
+		// 异常处理：throw / try-catch-finally / rethrow
+		// ----------------------------------------------------------------
 		case bytecode.OpThrow:
 			exceptionVal := vm.pop()
 			var exception bytecode.Value
@@ -1696,7 +2511,9 @@ func (vm *VM) execute() InterpretResult {
 				chunk = frame.Closure.Function.Chunk
 			}
 
-		// 类型检查 - 用于 is 表达式的运行时类型检查
+		// ----------------------------------------------------------------
+		// 类型检查/转换（is/cast）
+		// ----------------------------------------------------------------
 		case bytecode.OpCheckType:
 			typeIdx := chunk.ReadU16(frame.IP)
 			frame.IP += 2
@@ -1747,7 +2564,35 @@ func (vm *VM) execute() InterpretResult {
 	}
 }
 
-// handleException 处理异常，返回是否成功处理
+// ============================================================================
+// 异常处理（try/catch/finally）
+// ============================================================================
+
+// handleException 处理一个“已经发生”的异常，并尝试将控制流转移到合适的处理器。
+//
+// 这是虚拟机异常机制的核心入口，可能由以下场景触发：
+//   - OpThrow 指令显式抛出异常
+//   - VM 内部检测到运行时错误并将其包装为异常（如数组越界、除零）
+//   - 内置函数/宿主代码 panic 被捕获并转换为异常
+//
+// 行为（高层语义）：
+//   1. 设置 vm.exception / vm.hasException
+//   2. 若异常尚无堆栈信息，捕获当前调用栈（用于最终输出）
+//   3. 从 tryStack 栈顶向下查找最近的 try 上下文：
+//      - 若存在匹配的 catch：恢复栈/帧到 try 进入时的状态，跳转到 catch 入口，
+//        并把异常对象/值压栈供 catch 代码读取
+//      - 若没有匹配 catch 但有 finally：挂起异常，跳转执行 finally
+//      - 若正在 catch/finally 内又发生异常：按规则先执行 finally（如存在），或继续向外传播
+//   4. 若最终没有任何处理器，则返回 false（表示“未捕获异常”）
+//
+// 重要规则（维护者容易踩坑的点）：
+//   - finally 中抛出的新异常会覆盖原异常（原异常会被丢弃/不再传播）
+//   - catch 中发生新异常：如果存在 finally，必须先执行 finally，再传播新异常
+//   - 进入 catch 时，VM 会把异常值（或异常对象）压入栈顶，供字节码加载到局部变量
+//
+// 返回值：
+//   - true  表示 VM 已经将控制流转移到 catch/finally（调用方需要刷新 frame/chunk 后继续执行）
+//   - false 表示异常未被捕获，调用方应将其作为未捕获异常输出并终止执行
 func (vm *VM) handleException(exception bytecode.Value) bool {
 	vm.exception = exception
 	vm.hasException = true
@@ -1846,7 +2691,10 @@ func (vm *VM) handleException(exception bytecode.Value) bool {
 	return false
 }
 
-// captureStackTrace 捕获当前调用栈信息
+// captureStackTrace 捕获当前调用栈信息（用于异常与运行时错误输出）。
+//
+// 该方法从当前帧向下遍历到 0 号帧，构造一个“从最近调用到最早调用”的堆栈帧列表。
+// 注意：这里的顺序是为了更符合 Java/C# 风格的异常输出（顶部是最近的调用点）。
 func (vm *VM) captureStackTrace() []bytecode.StackFrame {
 	var frames []bytecode.StackFrame
 	for i := vm.frameCount - 1; i >= 0; i-- {
@@ -1866,7 +2714,13 @@ func (vm *VM) captureStackTrace() []bytecode.StackFrame {
 	return frames
 }
 
-// exceptionMatchesType 检查异常是否匹配指定类型
+// exceptionMatchesType 检查异常是否匹配指定类型名。
+//
+// 匹配策略：
+//   - 先使用 bytecode.Exception 内置的类型匹配（通常基于 exc.Type 字符串/命名空间）
+//   - 若异常携带了对象实例，则进一步按类继承链判断（支持 Throwable 子类体系）
+//
+// 备注：这里的 typeName 是字节码中记录的 catch 类型名（可能为简单名或全名）。
 func (vm *VM) exceptionMatchesType(exc *bytecode.Exception, typeName string) bool {
 	if exc == nil {
 		return false
@@ -1885,7 +2739,11 @@ func (vm *VM) exceptionMatchesType(exc *bytecode.Exception, typeName string) boo
 	return false
 }
 
-// isInstanceOfType 检查一个类是否是指定类型或其子类
+// isInstanceOfType 判断 class 是否为 typeName，或是否继承自 typeName。
+//
+// 该方法主要用于运行时类型检查（异常匹配、is/cast 等）。
+// 除了沿着 class.Parent 指针遍历外，还会在 Parent 尚未解析时回退到 vm.classes 做一次查找，
+// 以处理“类先注册、继承关系后解析”的情况。
 func (vm *VM) isInstanceOfType(class *bytecode.Class, typeName string) bool {
 	// 遍历类继承链
 	for c := class; c != nil; c = c.Parent {
@@ -1904,19 +2762,35 @@ func (vm *VM) isInstanceOfType(class *bytecode.Class, typeName string) bool {
 	return false
 }
 
-// isThrowable 检查一个类是否是 Throwable 或其子类
+// isThrowable 判断一个类是否属于 Throwable 体系。
+//
+// 语义：只有 Throwable（及其子类）才允许被 throw。
 func (vm *VM) isThrowable(class *bytecode.Class) bool {
 	return vm.isInstanceOfType(class, "Throwable")
 }
 
-// throwRuntimeException 抛出一个运行时异常（可被 try-catch 捕获）
+// throwRuntimeException 抛出 RuntimeException（可被 try-catch 捕获）。
+//
+// 这是 VM 内部“运行时错误 -> 可捕获异常”的常用入口。
 func (vm *VM) throwRuntimeException(message string) InterpretResult {
 	return vm.throwTypedException("RuntimeException", message)
 }
 
-// throwTypedException 抛出指定类型的异常（可被 try-catch 捕获）
-// typeName: 异常类型名（如 "DivideByZeroException", "ArrayIndexOutOfBoundsException"）
-// 会按顺序尝试: 指定类型（完整名称和简单名称）-> RuntimeException -> Exception -> 简单异常
+// throwTypedException 抛出指定类型的异常（可被 try-catch 捕获）。
+//
+// 参数：
+//   - typeName: 异常类型名（如 "DivideByZeroException", "ArrayIndexOutOfBoundsException"）
+//   - message:  异常消息
+//
+// 运行时类查找策略（按顺序尝试）：
+//   1) 指定类型：先尝试标准库命名空间 "sola.lang."+typeName，再尝试简单名 typeName
+//   2) 若指定类型不是 RuntimeException/Exception，则回退到 RuntimeException
+//   3) 再回退到 Exception
+//   4) 若依然找不到类定义，则构造一个“纯值异常”（bytecode.Exception）作为退化方案
+//
+// 设计目标：
+//   - 让标准库异常体系可被用户 try-catch 捕获（基于类继承链匹配）
+//   - 即使异常类未注册，也能保证有可输出的异常信息（不至于崩溃）
 func (vm *VM) throwTypedException(typeName string, message string) InterpretResult {
 	var exception bytecode.Value
 	
@@ -1976,7 +2850,18 @@ func (vm *VM) throwTypedException(typeName string, message string) InterpretResu
 	return vm.runtimeError("uncaught exception: %s", exception.String())
 }
 
-// 栈操作
+// ============================================================================
+// 栈操作（操作数栈）
+// ============================================================================
+
+// 说明：
+//   - VM 使用固定大小数组 stack + stackTop 作为操作数栈；
+//   - 这里的 push/pop/peek 都是“无边界检查”的快速实现；
+//   - 栈溢出主要在函数调用（frames）或编译期/运行期约束中被避免。
+//
+// 维护者注意：
+//   - 若未来引入更大的 StackMax 或动态栈，请同步检查所有 BaseSlot 相关计算；
+//   - 如果在调试阶段需要更友好的错误，可在这些方法中加入断言，但不要在热路径开启。
 func (vm *VM) push(value bytecode.Value) {
 	vm.stack[vm.stackTop] = value
 	vm.stackTop++
@@ -2101,7 +2986,22 @@ func (vm *VM) compareOp(op bytecode.OpCode) InterpretResult {
 	return vm.runtimeError(i18n.T(i18n.ErrOperandsMustBeComparable))
 }
 
-// 调用值
+// ============================================================================
+// 调用与返回（函数/闭包/内置函数）
+// ============================================================================
+
+// callValue 对栈上的“可调用值”进行调用分发。
+//
+// callee 可能是：
+//   - Closure：用户函数或方法闭包
+//   - Func：函数对象（可能是内置函数，也可能是普通函数）
+//
+// 约定（调用点的栈布局）：
+//   - 栈顶从上到下依次是 argN ... arg0, callee
+//   - argCount 指参数个数（不含 callee 自身）
+//
+// 该方法不直接执行字节码；它只负责把调用“装配”为一个新的 CallFrame
+// 或走内置函数的快速路径，然后由主循环继续执行。
 func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 	switch callee.Type {
 	case bytecode.ValClosure:
@@ -2120,7 +3020,27 @@ func (vm *VM) callValue(callee bytecode.Value, argCount int) InterpretResult {
 	}
 }
 
-// tailCall 尾调用：复用当前栈帧而非创建新帧
+// tailCall 执行尾调用（Tail Call）：复用当前栈帧而非创建新帧。
+//
+// 尾调用的目标：
+//   - 消除尾递归导致的帧增长（避免 frames 溢出）
+//   - 通过“就地替换当前帧”为被调用函数，达到等价于跳转的效果
+//
+// 与普通 call 的核心差异：
+//   - call 会新增一帧（frameCount++），返回时再弹出；
+//   - tailCall 不新增帧，而是：
+//       1) 把新 callee/参数搬运到当前帧的 BaseSlot 起始位置
+//       2) 重置 currentFrame.Closure / IP / BaseSlot
+//       3) 继续在同一帧中解释执行新函数
+//
+// 栈约定（OpTailCall 调用点）：
+//   - 与 OpCall 相同：栈顶为 argN...arg0, callee（callee 在参数之下）
+//   - argCount 为参数数量
+//
+// 重要限制：
+//   - 这里对“内置函数”的尾调用做了退化处理（模拟 return），原因是：
+//       - 内置函数不经过字节码解释器，不易复用帧语义；
+//       - 退化路径需要非常小心地恢复调用者栈状态。
 func (vm *VM) tailCall(callee bytecode.Value, argCount int) InterpretResult {
 	var closure *bytecode.Closure
 	
@@ -2259,7 +3179,18 @@ func (vm *VM) tailCall(callee bytecode.Value, argCount int) InterpretResult {
 	return InterpretOK
 }
 
-// callBuiltin 调用内置函数，支持异常捕获
+// callBuiltin 调用内置函数（宿主函数），并将 Go panic/异常值转换为 VM 可处理的异常。
+//
+// 栈约定：
+//   - 调用前：argN...arg0, callee
+//   - 本方法会 pop 掉所有参数与 callee，并将结果 push 回栈顶（或转移到异常处理流程）
+//
+// 异常语义：
+//   - 若内置函数触发 Go panic：捕获并转换为 NativeException，然后走 handleException
+//   - 若内置函数直接返回一个 ValException：同样走 handleException
+//
+// 注意：这个实现会为参数分配一个切片（make），若在极热路径建议使用对象池版本
+//（本仓库里存在 callBuiltinOptimized，用于减少分配）。
 func (vm *VM) callBuiltin(fn *bytecode.Function, argCount int) InterpretResult {
 	// 收集参数
 	args := make([]bytecode.Value, argCount)
@@ -2314,7 +3245,23 @@ func (vm *VM) callBuiltin(fn *bytecode.Function, argCount int) InterpretResult {
 	return InterpretOK
 }
 
-// 调用闭包
+// call 调用一个闭包（用户函数/方法的字节码入口），为其创建新的调用帧。
+//
+// 栈约定：
+//   - 调用点栈布局：argN...arg0, callee
+//   - 进入被调函数后，frame.BaseSlot 指向 callee 的槽位
+//     也即：slot0 是 callee（闭包本身），slot1.. 是参数
+//
+// 参数处理（非常关键，维护时请保持一致）：
+//   - 默认参数：当 argCount < Arity 且 >= MinArity 时，按 DefaultValues 填充缺失参数
+//   - 可变参数：当 IsVariadic 时，将超出 MinArity 的参数打包成数组并作为最后一个参数槽
+//
+// 帧创建：
+//   - frame.BaseSlot = vm.stackTop - argCount - 1
+//   - frame.IP 从 0 开始
+//
+// 备注：
+//   - call 只负责“装配帧”；真正的执行仍由 vm.execute() 主循环驱动。
 func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	fn := closure.Function
 	
@@ -2543,7 +3490,14 @@ func GetJITCallCount() int64 {
 	return jitCallCount
 }
 
-// callMethodDirect 直接调用方法（内联缓存命中时使用）
+// callMethodDirect 在内联缓存（IC）命中时直接调用已解析的方法实现。
+//
+// 该路径避免了 invokeMethod 中的：
+//   - 方法查找（按类/父类/默认参数/接口 vtable 等）
+//   - 某些动态分派开销
+//
+// 注意：这里仍然会将 *bytecode.Method 包装成 *bytecode.Function 再走 callOptimized，
+// 这是为了复用统一的调用栈/参数处理逻辑（默认参数、可变参等）。
 func (vm *VM) callMethodDirect(obj *bytecode.Object, method *bytecode.Method, argCount int) InterpretResult {
 	// 热点检测：记录函数调用
 	fn := &bytecode.Function{
@@ -2563,7 +3517,24 @@ func (vm *VM) callMethodDirect(obj *bytecode.Object, method *bytecode.Method, ar
 	return vm.callOptimized(closure, argCount)
 }
 
-// 调用方法
+// invokeMethod 以“动态分派”的方式调用对象方法。
+//
+// 栈约定：
+//   - 调用点（OpCallMethod）：argN...arg0, receiver
+//   - receiver 位于参数之下，因此通过 peek(argCount) 取得
+//
+// 分派流程：
+//   1) 特判 SuperArray：其方法是 VM 内建的，不走类方法表
+//   2) 确认 receiver 为对象，否则报错
+//   3) 查找方法实现：
+//      - 优先尝试接口 VTable（近似 O(1)）
+//      - 回退到按继承链 + 默认参数范围匹配（findMethodWithDefaults）
+//   4) 检查访问权限（public/protected/private 等）
+//   5) 将方法包装为函数闭包并调用（call），复用参数填充/可变参逻辑
+//
+// 维护者注意：
+//   - name+argCount 是分派的关键维度（支持重载/默认参数范围）
+//   - 该函数自身不刷新 frame/chunk；调用方（解释循环）在 OpCallMethod 后会刷新。
 func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	receiver := vm.peek(argCount)
 
@@ -2612,7 +3583,15 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	return vm.call(closure, argCount)
 }
 
-// findMethodWithVTable 使用 VTable 查找接口方法（O(1) 优化）
+// findMethodWithVTable 使用 VTable 查找接口方法（快速路径）。
+//
+// 背景：
+//   - 当类实现了接口时，可预先构建“接口方法 -> 实现方法”的映射（vtable）
+//   - 调用时无需沿继承链查找，尤其适合接口多态调用场景
+//
+// 当前实现说明：
+//   - class.VTables 可能包含多个接口的 vtable
+//   - 这里做了线性扫描（接口数量通常很小），找到匹配的方法名后再检查参数范围
 func (vm *VM) findMethodWithVTable(class *bytecode.Class, name string, argCount int) *bytecode.Method {
 	// 遍历类的所有 VTable（为所有实现的接口）
 	for _, vtable := range class.VTables {
@@ -2630,7 +3609,15 @@ func (vm *VM) findMethodWithVTable(class *bytecode.Class, name string, argCount 
 	return nil
 }
 
-// findMethodWithDefaults 查找方法，考虑默认参数
+// findMethodWithDefaults 查找方法实现，考虑默认参数范围（MinArity..Arity）。
+//
+// 该函数用于支持：
+//   - 方法重载（同名不同参数个数）
+//   - 默认参数（调用时 argCount 可能小于 Arity）
+//
+// 匹配规则：
+//   - 在继承链上，从子类到父类依次查找 name 对应的方法列表
+//   - 对每个候选方法 m，若 argCount 落在 [m.MinArity, m.Arity] 之间，则匹配成功
 func (vm *VM) findMethodWithDefaults(class *bytecode.Class, name string, argCount int) *bytecode.Method {
 	for c := class; c != nil; c = c.Parent {
 		if methods, ok := c.Methods[name]; ok {
@@ -2645,7 +3632,16 @@ func (vm *VM) findMethodWithDefaults(class *bytecode.Class, name string, argCoun
 	return nil
 }
 
-// invokeSuperArrayMethod 处理 SuperArray 的内置方法调用
+// invokeSuperArrayMethod 处理 SuperArray 的内置方法调用（VM 内建）。
+//
+// SuperArray 是“万能数组/有序字典”的运行时结构，为了性能与易用性，
+// 其常用方法（len/keys/values/get/set/push/pop...）由 VM 直接实现。
+//
+// 栈约定：
+//   - argN...arg0, receiver（receiver 为 SuperArray）
+//   - 本方法会 pop 参数与 receiver，并 push 返回值
+//
+// 备注：该路径绕过了普通对象方法分派与权限检查。
 func (vm *VM) invokeSuperArrayMethod(name string, argCount int) InterpretResult {
 	// 收集参数（不包括 receiver）
 	args := make([]bytecode.Value, argCount)
@@ -2791,7 +3787,21 @@ func (vm *VM) invokeSuperArrayMethod(name string, argCount int) InterpretResult 
 	return InterpretOK
 }
 
-// formatException 格式化异常为 Java/C# 风格的输出
+// ============================================================================
+// 错误与异常输出
+// ============================================================================
+
+// formatException 将 VM 异常格式化为接近 Java/C# 的输出格式。
+//
+// 输出包含：
+//   - 异常类型（尽可能使用带命名空间的完整类名）
+//   - 异常消息
+//   - 调用栈（StackFrames），每帧包含函数名/类名/文件/行号
+//   - 异常链（Cause），以 "Caused by:" 递归输出
+//
+// 备注：
+//   - exc.Message 与对象字段 message 可能不同；若异常携带对象实例，优先使用对象字段。
+//   - 该方法只做格式化，不会改变 VM 状态。
 func (vm *VM) formatException(exc *bytecode.Exception) string {
 	var result string
 	
@@ -2834,7 +3844,15 @@ func (vm *VM) formatException(exc *bytecode.Exception) string {
 	return result
 }
 
-// runtimeErrorWithException 输出异常错误（Java/C# 风格）
+// runtimeErrorWithException 以“异常”形式报告运行时错误并终止执行。
+//
+// 与 runtimeError 的区别：
+//   - runtimeErrorWithException 的输入已经是结构化异常（带类型、堆栈、cause 等）
+//   - runtimeError 接受格式化字符串，通常用于非异常的运行时错误路径
+//
+// 副作用：
+//   - 设置 vm.hadError / vm.errorMessage
+//   - 输出异常信息到 stdout/stderr（当前实现使用 fmt.Print）
 func (vm *VM) runtimeErrorWithException(exc *bytecode.Exception) InterpretResult {
 	vm.hadError = true
 	vm.errorMessage = exc.Message
@@ -2845,7 +3863,17 @@ func (vm *VM) runtimeErrorWithException(exc *bytecode.Exception) InterpretResult
 	return InterpretRuntimeError
 }
 
-// 运行时错误
+// runtimeError 报告一个运行时错误并终止执行（非 try-catch 语义的直接错误路径）。
+//
+// 说明：
+//   - 该方法用于“无法/不走 throwTypedException 的错误”或最终未捕获异常的输出路径。
+//   - 输出形式支持两种模式：
+//       1) 传统输出：Java/C# 风格消息 + 堆栈
+//       2) 增强输出：通过 internal/errors 的 Reporter 结构化输出（可带错误码）
+//
+// 副作用：
+//   - 设置 vm.hadError / vm.errorMessage
+//   - 输出错误信息（取决于 useEnhancedRuntimeErrors）
 func (vm *VM) runtimeError(format string, args ...interface{}) InterpretResult {
 	vm.hadError = true
 	vm.errorMessage = fmt.Sprintf(format, args...)
@@ -2872,7 +3900,10 @@ func (vm *VM) runtimeError(format string, args ...interface{}) InterpretResult {
 	return InterpretRuntimeError
 }
 
-// reportEnhancedError 使用增强格式报告运行时错误
+// reportEnhancedError 使用增强格式报告运行时错误（结构化错误 + 错误码）。
+//
+// 该模式会把 bytecode.StackFrame 转换为 errors.StackFrame，
+// 并交由默认 Reporter 输出。常用于 IDE/诊断工具集成。
 func (vm *VM) reportEnhancedError(message string, bcFrames []bytecode.StackFrame) {
 	// 转换堆栈帧
 	errFrames := make([]errors.StackFrame, len(bcFrames))
@@ -2902,7 +3933,12 @@ func (vm *VM) reportEnhancedError(message string, bcFrames []bytecode.StackFrame
 	reporter.ReportRuntimeError(err)
 }
 
-// inferRuntimeErrorCode 从消息推断错误码
+// inferRuntimeErrorCode 从错误消息中启发式推断错误码。
+//
+// 注意：
+//   - 这是“弱推断”：依赖字符串包含关系，可能误判；
+//   - 更可靠的方式是让抛错点直接携带错误码（未来可演进）。
+// 当前逻辑优先覆盖常见类别：索引越界、除零、类型错误、转换失败、栈溢出等。
 func inferRuntimeErrorCode(message string) string {
 	msg := strings.ToLower(message)
 
@@ -2934,15 +3970,20 @@ func inferRuntimeErrorCode(message string) string {
 	return errors.R0001
 }
 
-// useEnhancedRuntimeErrors 是否使用增强的运行时错误报告
+// useEnhancedRuntimeErrors 控制是否启用增强运行时错误报告（结构化 Reporter）。
+//
+// 默认 false，以保持传统输出格式与最小依赖。
 var useEnhancedRuntimeErrors = false
 
-// EnableEnhancedRuntimeErrors 启用增强的运行时错误报告
+// EnableEnhancedRuntimeErrors 启用增强的运行时错误报告。
+//
+// 启用后，runtimeError 将通过 internal/errors.Reporter 输出结构化错误，
+// 并附带 inferRuntimeErrorCode 推断出的错误码。
 func EnableEnhancedRuntimeErrors() {
 	useEnhancedRuntimeErrors = true
 }
 
-// DisableEnhancedRuntimeErrors 禁用增强的运行时错误报告
+// DisableEnhancedRuntimeErrors 禁用增强的运行时错误报告，恢复传统输出。
 func DisableEnhancedRuntimeErrors() {
 	useEnhancedRuntimeErrors = false
 }
@@ -2972,7 +4013,21 @@ func (vm *VM) GetError() string {
 	return vm.errorMessage
 }
 
-// getValueTypeName 获取值的类型名称
+// ============================================================================
+// 运行时类型系统（is/cast/类型兼容）
+// ============================================================================
+
+// getValueTypeName 返回一个值在 Sola 语义下的“运行时类型名”。
+//
+// 约定：
+//   - 基本类型返回固定名：int/float/string/bool/null 等
+//   - 对象返回其 class.Name（用于 is/catch 类型匹配）
+//   - 固定数组与普通数组在类型名上都视为 "array"（兼容性设计）
+//
+// 该函数主要用于：
+//   - OpCheckType（is 表达式）
+//   - castValue 失败时生成错误信息
+//   - checkValueType 的快速路径判断
 func (vm *VM) getValueTypeName(v bytecode.Value) string {
 	switch v.Type {
 	case bytecode.ValNull:
@@ -3008,7 +4063,20 @@ func (vm *VM) getValueTypeName(v bytecode.Value) string {
 	}
 }
 
-// checkValueType 检查值是否匹配指定类型
+// checkValueType 判断值 v 是否“可赋值/可视为” expectedType。
+//
+// 支持的类型表达式：
+//   - 单一类型：int / string / MyClass
+//   - 联合类型：A|B|C（递归检查任一分支）
+//
+// 兼容性规则（运行时宽松策略）：
+//   - null 被视为可赋值给任何类型（运行时不做非空约束）
+//   - float 兼容 int（数值提升）
+//   - array 与 bytes 互相兼容（为历史/语义便利做的折中）
+//   - mixed/any 匹配所有类型
+//
+// 对象类型：
+//   - 通过 checkClassHierarchy 检查继承链与接口实现关系
 func (vm *VM) checkValueType(v bytecode.Value, expectedType string) bool {
 	actualType := vm.getValueTypeName(v)
 	
@@ -3064,7 +4132,14 @@ func (vm *VM) checkValueType(v bytecode.Value, expectedType string) bool {
 }
 
 
-// checkClassHierarchy 检查类是否匹配指定类型名（包括继承关系和接口）
+// checkClassHierarchy 判断 class 是否满足 typeName（包括继承与接口）。
+//
+// 规则：
+//   - 若 class.Name == typeName：直接匹配
+//   - 否则沿父类链向上查找
+//   - 同时检查每层的 Implements 列表（接口名匹配）
+//
+// 注意：这里不处理泛型参数（运行时类型擦除）。
 func (vm *VM) checkClassHierarchy(class *bytecode.Class, typeName string) bool {
 	if class == nil {
 		return false
@@ -3091,7 +4166,16 @@ func (vm *VM) checkClassHierarchy(class *bytecode.Class, typeName string) bool {
 	return false
 }
 
-// castValue 将值转换为指定类型
+// castValue 尝试将值 v 转换为 targetType。
+//
+// 返回值：
+//   - (converted, true)  表示转换成功
+//   - (zero, false)      表示转换失败（调用方决定抛错或返回 null）
+//
+// 语义说明：
+//   - castValue 是“运行时转换”，主要服务 OpCast / OpCastSafe。
+//   - 这里的转换规则偏实用：例如 bool->int，null->0 等。
+//   - 对 string->int 的转换要求严格（见下方 ParseInt 注释），以避免隐式截断造成类型安全问题。
 func (vm *VM) castValue(v bytecode.Value, targetType string) (bytecode.Value, bool) {
 	switch targetType {
 	case "int", "i8", "i16", "i32", "i64":
