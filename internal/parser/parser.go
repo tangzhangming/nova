@@ -50,32 +50,86 @@ func (p *Parser) Parse() *ast.File {
 
 	// 解析命名空间
 	if p.check(token.NAMESPACE) {
-		file.Namespace = p.parseNamespace()
+		if ns := p.tryParseNamespace(); ns != nil {
+			file.Namespace = ns
+		}
 	}
 
 	// 解析 use 声明
 	for p.check(token.USE) {
-		file.Uses = append(file.Uses, p.parseUse())
+		if use := p.tryParseUse(); use != nil {
+			file.Uses = append(file.Uses, use)
+		}
 	}
 
 	// 解析声明和语句
 	for !p.isAtEnd() {
 		if p.checkAny(token.CLASS, token.INTERFACE, token.ENUM, token.ABSTRACT, token.FINAL, token.PUBLIC,
-			token.PROTECTED, token.PRIVATE, token.AT) {
-			decl := p.parseDeclaration()
-			if decl != nil {
+			token.PROTECTED, token.PRIVATE, token.AT, token.TYPE) {
+			if decl := p.tryParseDeclaration(); decl != nil {
 				file.Declarations = append(file.Declarations, decl)
 			}
 		} else {
 			// 顶层语句 (入口文件)
-			stmt := p.parseStatement()
-			if stmt != nil {
+			if stmt := p.tryParseStatement(); stmt != nil {
 				file.Statements = append(file.Statements, stmt)
 			}
 		}
 	}
 
 	return file
+}
+
+// tryParseNamespace 尝试解析命名空间，出错时恢复
+func (p *Parser) tryParseNamespace() (ns *ast.NamespaceDecl) {
+	defer func() {
+		if r := recover(); r != nil {
+			if r != "max errors exceeded" {
+				p.synchronize()
+			}
+			ns = nil
+		}
+	}()
+	return p.parseNamespace()
+}
+
+// tryParseUse 尝试解析 use 声明，出错时恢复
+func (p *Parser) tryParseUse() (use *ast.UseDecl) {
+	defer func() {
+		if r := recover(); r != nil {
+			if r != "max errors exceeded" {
+				p.synchronize()
+			}
+			use = nil
+		}
+	}()
+	return p.parseUse()
+}
+
+// tryParseDeclaration 尝试解析声明，出错时恢复
+func (p *Parser) tryParseDeclaration() (decl ast.Declaration) {
+	defer func() {
+		if r := recover(); r != nil {
+			if r != "max errors exceeded" {
+				p.synchronize()
+			}
+			decl = nil
+		}
+	}()
+	return p.parseDeclaration()
+}
+
+// tryParseStatement 尝试解析语句，出错时恢复
+func (p *Parser) tryParseStatement() (stmt ast.Statement) {
+	defer func() {
+		if r := recover(); r != nil {
+			if r != "max errors exceeded" {
+				p.synchronize()
+			}
+			stmt = nil
+		}
+	}()
+	return p.parseStatement()
 }
 
 // Errors 返回所有语法错误
@@ -149,12 +203,34 @@ func (p *Parser) consume(t token.TokenType, message string) token.Token {
 		return p.advance()
 	}
 	p.error(message)
-	return token.Token{}
+	panic("parse error") // 触发 recover 进行错误恢复
 }
 
+// maxParseErrors 最大错误数量限制，防止错误爆炸
+const maxParseErrors = 50
+
 func (p *Parser) error(message string) {
+	pos := p.peek().Pos
+
+	// 避免在同一位置重复报错
+	if len(p.errors) > 0 {
+		last := p.errors[len(p.errors)-1]
+		if last.Pos.Line == pos.Line && last.Pos.Column == pos.Column {
+			return
+		}
+	}
+
+	// 检查是否超过最大错误数量
+	if len(p.errors) >= maxParseErrors {
+		p.errors = append(p.errors, Error{
+			Pos:     pos,
+			Message: "too many errors, aborting",
+		})
+		panic("max errors exceeded")
+	}
+
 	p.errors = append(p.errors, Error{
-		Pos:     p.peek().Pos,
+		Pos:     pos,
 		Message: message,
 	})
 }
@@ -163,13 +239,22 @@ func (p *Parser) synchronize() {
 	p.advance()
 
 	for !p.isAtEnd() {
+		// 分号后是安全点
 		if p.previous().Type == token.SEMICOLON {
 			return
 		}
+		// 右大括号后通常是安全点
+		if p.previous().Type == token.RBRACE {
+			return
+		}
 
+		// 新语句/声明的开始是安全的同步点
 		switch p.peek().Type {
-		case token.CLASS, token.INTERFACE, token.FUNCTION, token.IF, token.FOR,
-			token.FOREACH, token.WHILE, token.RETURN, token.TRY:
+		case token.CLASS, token.INTERFACE, token.ENUM, token.TYPE,
+			token.ABSTRACT, token.FINAL, token.PUBLIC, token.PROTECTED, token.PRIVATE,
+			token.FUNCTION, token.IF, token.FOR, token.FOREACH, token.WHILE, token.DO,
+			token.RETURN, token.TRY, token.THROW, token.BREAK, token.CONTINUE,
+			token.NAMESPACE, token.USE, token.AT, token.ECHO, token.SWITCH:
 			return
 		}
 
