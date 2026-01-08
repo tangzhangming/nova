@@ -97,10 +97,17 @@ type GC struct {
 	leakReports     []LeakReport               // 泄漏报告
 	cycleDetection  bool                       // 是否启用循环引用检测
 	detectedCycles  []CycleInfo                // 检测到的循环引用
+	cycleCheckFreq  int                        // 循环检测频率（每 N 次 Full GC 检测一次）
+	cycleCheckCount int                        // 距离上次检测的 Full GC 次数
 
 	// ========== 对象池 ==========
 	arrayPool         *ObjectPool // 数组对象池
 	stringBuilderPool *ObjectPool // StringBuilder 对象池
+	argsPoolManager   *ArgsPoolManager // 参数数组池管理器
+
+	// ========== GC 复用缓冲区 ==========
+	youngAliveBuffer []GCObject // sweep 阶段复用的年轻代存活缓冲区
+	oldAliveBuffer   []GCObject // sweep 阶段复用的老年代存活缓冲区
 
 	// 兼容旧接口
 	heap          []GCObject // 废弃：仅用于兼容
@@ -126,8 +133,21 @@ type LeakReport struct {
 
 // CycleInfo 循环引用信息
 type CycleInfo struct {
-	Objects []string // 循环中的对象描述
+	Objects []string  // 循环中的对象描述
 	Path    []uintptr // 循环路径
+}
+
+// formatCycleInfo 格式化循环引用信息为字符串
+func formatCycleInfo(cycle CycleInfo) string {
+	if len(cycle.Objects) == 0 {
+		return "<empty cycle>"
+	}
+	result := cycle.Objects[0]
+	for i := 1; i < len(cycle.Objects); i++ {
+		result += " -> " + cycle.Objects[i]
+	}
+	result += " -> " + cycle.Objects[0] // 闭合循环
+	return result
 }
 
 // ObjectPool 对象池
@@ -183,6 +203,110 @@ func (p *ObjectPool) Stats() (hits, misses int64, poolSize int) {
 	return p.hits, p.misses, len(p.pool)
 }
 
+// ============================================================================
+// 参数数组池管理器 - 按大小分档管理参数数组，减少函数调用时的临时分配
+// ============================================================================
+
+// ArgsPoolManager 参数数组池管理器
+// 按大小分档：0-4, 5-8, 9-16, 17-32, 33-64
+type ArgsPoolManager struct {
+	pools [5]*ObjectPool
+	// 统计信息
+	totalHits   int64
+	totalMisses int64
+}
+
+// 参数数组池大小档位
+var argPoolSizes = [5]int{4, 8, 16, 32, 64}
+
+// NewArgsPoolManager 创建参数数组池管理器
+func NewArgsPoolManager() *ArgsPoolManager {
+	m := &ArgsPoolManager{}
+	
+	// 为每个档位创建对象池
+	for i, size := range argPoolSizes {
+		poolSize := size // capture for closure
+		m.pools[i] = NewObjectPool(32,
+			func() interface{} {
+				return make([]bytecode.Value, 0, poolSize)
+			},
+			func(obj interface{}) {
+				// 重置数组内容，避免内存泄漏
+				arr := obj.([]bytecode.Value)
+				for j := range arr {
+					arr[j] = bytecode.NullValue
+				}
+			},
+		)
+	}
+	
+	return m
+}
+
+// getBucketIndex 根据需要的大小获取档位索引
+func (m *ArgsPoolManager) getBucketIndex(size int) int {
+	for i, s := range argPoolSizes {
+		if size <= s {
+			return i
+		}
+	}
+	return -1 // 超出最大档位
+}
+
+// GetArgs 从池中获取指定大小的参数数组
+func (m *ArgsPoolManager) GetArgs(size int) []bytecode.Value {
+	idx := m.getBucketIndex(size)
+	if idx < 0 {
+		// 超出池大小，直接分配
+		m.totalMisses++
+		return make([]bytecode.Value, size)
+	}
+	
+	arr := m.pools[idx].Get().([]bytecode.Value)
+	m.totalHits++
+	
+	// 扩展到需要的大小
+	if cap(arr) >= size {
+		return arr[:size]
+	}
+	
+	// 容量不足（不应该发生），创建新数组
+	m.totalMisses++
+	return make([]bytecode.Value, size)
+}
+
+// ReturnArgs 归还参数数组到池
+func (m *ArgsPoolManager) ReturnArgs(arr []bytecode.Value) {
+	if arr == nil {
+		return
+	}
+	
+	idx := m.getBucketIndex(cap(arr))
+	if idx < 0 {
+		// 超出池大小，让 GC 回收
+		return
+	}
+	
+	// 清理数组内容，避免内存泄漏
+	for i := range arr {
+		arr[i] = bytecode.NullValue
+	}
+	
+	m.pools[idx].Put(arr[:0])
+}
+
+// Stats 获取统计信息
+func (m *ArgsPoolManager) Stats() (hits, misses int64, poolSizes []int) {
+	poolSizes = make([]int, len(m.pools))
+	for i, p := range m.pools {
+		h, mi, s := p.Stats()
+		hits += h
+		misses += mi
+		poolSizes[i] = s
+	}
+	return hits, misses, poolSizes
+}
+
 // NewGC 创建分代增量垃圾回收器
 func NewGC() *GC {
 	gc := &GC{
@@ -221,6 +345,8 @@ func NewGC() *GC {
 		// 内存泄漏检测
 		leakDetection:   false,
 		allocationSites: make(map[uintptr]AllocationInfo),
+		cycleCheckFreq:  5, // 每 5 次 Full GC 检测一次循环引用
+		cycleCheckCount: 0,
 
 		// 兼容旧接口
 		heap:          make([]GCObject, 0, 64),
@@ -247,6 +373,13 @@ func NewGC() *GC {
 			sb.Len = 0
 		},
 	)
+
+	// 初始化参数数组池管理器
+	gc.argsPoolManager = NewArgsPoolManager()
+
+	// 初始化 sweep 复用缓冲区
+	gc.youngAliveBuffer = make([]GCObject, 0, 128)
+	gc.oldAliveBuffer = make([]GCObject, 0, 64)
 
 	return gc
 }
@@ -291,8 +424,32 @@ func (gc *GC) GetPoolStats() map[string]map[string]int64 {
 		"misses": sbMisses,
 		"size":   int64(sbSize),
 	}
+
+	// 参数数组池统计
+	if gc.argsPoolManager != nil {
+		argsHits, argsMisses, _ := gc.argsPoolManager.Stats()
+		stats["args"] = map[string]int64{
+			"hits":   argsHits,
+			"misses": argsMisses,
+		}
+	}
 	
 	return stats
+}
+
+// GetArgsFromPool 从池中获取指定大小的参数数组
+func (gc *GC) GetArgsFromPool(size int) []bytecode.Value {
+	if gc.argsPoolManager == nil {
+		return make([]bytecode.Value, size)
+	}
+	return gc.argsPoolManager.GetArgs(size)
+}
+
+// ReturnArgsToPool 归还参数数组到池
+func (gc *GC) ReturnArgsToPool(arr []bytecode.Value) {
+	if gc.argsPoolManager != nil {
+		gc.argsPoolManager.ReturnArgs(arr)
+	}
 }
 
 // SetEnabled 启用/禁用 GC
@@ -301,8 +458,17 @@ func (gc *GC) SetEnabled(enabled bool) {
 }
 
 // SetDebug 设置调试模式
+// 调试模式下会自动启用循环引用检测和泄漏检测
 func (gc *GC) SetDebug(debug bool) {
 	gc.debug = debug
+	if debug {
+		// 调试模式下自动启用循环引用检测
+		gc.cycleDetection = true
+		gc.leakDetection = true
+		if gc.allocationSites == nil {
+			gc.allocationSites = make(map[uintptr]AllocationInfo)
+		}
+	}
 }
 
 // SetLeakDetection 设置泄漏检测模式
@@ -316,6 +482,24 @@ func (gc *GC) SetLeakDetection(enabled bool) {
 // SetCycleDetection 设置循环引用检测模式
 func (gc *GC) SetCycleDetection(enabled bool) {
 	gc.cycleDetection = enabled
+}
+
+// SetCycleCheckFrequency 设置循环检测频率（每 N 次 Full GC 检测一次）
+func (gc *GC) SetCycleCheckFrequency(freq int) {
+	if freq < 1 {
+		freq = 1
+	}
+	gc.cycleCheckFreq = freq
+}
+
+// GetDetectedCycles 获取检测到的循环引用
+func (gc *GC) GetDetectedCycles() []CycleInfo {
+	return gc.detectedCycles
+}
+
+// ClearDetectedCycles 清除检测到的循环引用
+func (gc *GC) ClearDetectedCycles() {
+	gc.detectedCycles = nil
 }
 
 // SetThreshold 设置 GC 触发阈值
@@ -525,6 +709,25 @@ func (gc *GC) CollectFull(roots []GCObject) int {
 			": young before=", beforeYoung, ", after=", len(gc.youngGen),
 			", old before=", beforeOld, ", after=", len(gc.oldGen),
 			", freed=", totalFreed)
+	}
+
+	// 自动循环引用检测（在调试模式或启用循环检测时）
+	if gc.cycleDetection {
+		gc.cycleCheckCount++
+		if gc.cycleCheckCount >= gc.cycleCheckFreq {
+			gc.cycleCheckCount = 0
+			cycles := gc.DetectCycles()
+			if len(cycles) > 0 && gc.debug {
+				println("[GC] Detected", len(cycles), "potential circular references:")
+				for i, cycle := range cycles {
+					if i >= 5 { // 只显示前 5 个
+						println("  ... and", len(cycles)-5, "more")
+						break
+					}
+					println("  Cycle", i+1, ":", formatCycleInfo(cycle))
+				}
+			}
+		}
 	}
 
 	// 更新兼容字段
@@ -742,7 +945,12 @@ func (gc *GC) markAll(roots []GCObject) {
 
 // sweepYoung 清除年轻代，返回 (释放数, 晋升数)
 func (gc *GC) sweepYoung() (freed, promoted int) {
-	alive := make([]GCObject, 0, len(gc.youngGen))
+	// 复用缓冲区，避免每次 GC 都分配新切片
+	// 确保缓冲区容量足够
+	if cap(gc.youngAliveBuffer) < len(gc.youngGen) {
+		gc.youngAliveBuffer = make([]GCObject, 0, len(gc.youngGen)*2)
+	}
+	alive := gc.youngAliveBuffer[:0]
 
 	for _, obj := range gc.youngGen {
 		if obj == nil {
@@ -774,6 +982,8 @@ func (gc *GC) sweepYoung() (freed, promoted int) {
 		}
 	}
 
+	// 交换切片：youngGen 使用 alive 的底层数组，youngAliveBuffer 复用 youngGen 的
+	gc.youngAliveBuffer = gc.youngGen[:0]
 	gc.youngGen = alive
 	return
 }
@@ -781,7 +991,12 @@ func (gc *GC) sweepYoung() (freed, promoted int) {
 // sweepOld 清除老年代
 func (gc *GC) sweepOld() int {
 	freed := 0
-	alive := make([]GCObject, 0, len(gc.oldGen))
+	// 复用缓冲区，避免每次 GC 都分配新切片
+	// 确保缓冲区容量足够
+	if cap(gc.oldAliveBuffer) < len(gc.oldGen) {
+		gc.oldAliveBuffer = make([]GCObject, 0, len(gc.oldGen)*2)
+	}
+	alive := gc.oldAliveBuffer[:0]
 
 	for _, obj := range gc.oldGen {
 		if obj == nil {
@@ -802,6 +1017,8 @@ func (gc *GC) sweepOld() int {
 		}
 	}
 
+	// 交换切片：oldGen 使用 alive 的底层数组，oldAliveBuffer 复用 oldGen 的
+	gc.oldAliveBuffer = gc.oldGen[:0]
 	gc.oldGen = alive
 	return freed
 }

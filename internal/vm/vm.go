@@ -823,6 +823,10 @@ func (vm *VM) execute() InterpretResult {
 				}
 				
 				obj.SetField(name, value)
+				
+				// 写屏障：当老年代对象引用年轻代对象时，需要记录到记忆集
+				vm.gc.WriteBarrierValue(objVal, value)
+				
 				vm.push(value)
 			}
 
@@ -1012,8 +1016,8 @@ func (vm *VM) execute() InterpretResult {
 				},
 			}
 			
-			// 保存原始参数
-			args := make([]bytecode.Value, argCount)
+			// 保存原始参数（使用对象池减少分配）
+			args := vm.gc.GetArgsFromPool(argCount)
 			for i := argCount - 1; i >= 0; i-- {
 				args[i] = vm.pop()
 			}
@@ -1033,6 +1037,9 @@ func (vm *VM) execute() InterpretResult {
 			for i := 0; i < argCount; i++ {
 				vm.push(args[i])
 			}
+			
+			// 归还参数数组到池
+			vm.gc.ReturnArgsToPool(args)
 			
 			if result := vm.callOptimized(closure, argCount); result != InterpretOK {
 				return result
@@ -1131,6 +1138,8 @@ func (vm *VM) execute() InterpretResult {
 					}
 				}
 				arr[i] = value
+				// 写屏障
+				vm.gc.WriteBarrierValue(arrVal, value)
 			case bytecode.ValFixedArray:
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
@@ -1144,14 +1153,20 @@ func (vm *VM) execute() InterpretResult {
 					}
 				}
 				fa.Elements[i] = value
+				// 写屏障
+				vm.gc.WriteBarrierValue(arrVal, value)
 			case bytecode.ValMap:
 				// Map 设置
 				m := arrVal.AsMap()
 				m[idx] = value
+				// 写屏障
+				vm.gc.WriteBarrierValue(arrVal, value)
 			case bytecode.ValSuperArray:
 				// SuperArray 设置
 				sa := arrVal.AsSuperArray()
 				sa.Set(idx, value)
+				// 写屏障
+				vm.gc.WriteBarrierValue(arrVal, value)
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
@@ -2207,8 +2222,8 @@ func (vm *VM) tailCall(callee bytecode.Value, argCount int) InterpretResult {
 	// 栈布局：[..., old_callee, old_arg0, old_arg1, ..., new_arg0, new_arg1, ...]
 	// 需要移动到：[..., new_callee, new_arg0, new_arg1, ...]
 	
-	// 保存新参数（从栈顶开始）
-	newArgs := make([]bytecode.Value, argCount+1) // +1 for callee
+	// 保存新参数（从栈顶开始，使用对象池减少分配）
+	newArgs := vm.gc.GetArgsFromPool(argCount + 1) // +1 for callee
 	for i := argCount; i >= 0; i-- {
 		newArgs[i] = vm.pop()
 	}
@@ -2223,6 +2238,9 @@ func (vm *VM) tailCall(callee bytecode.Value, argCount int) InterpretResult {
 	for i := 0; i < argCount; i++ {
 		vm.push(newArgs[i+1]) // 新参数
 	}
+	
+	// 归还参数数组到池
+	vm.gc.ReturnArgsToPool(newArgs)
 	
 	// 如果有 upvalues，将它们作为额外的局部变量
 	for _, upval := range closure.Upvalues {
