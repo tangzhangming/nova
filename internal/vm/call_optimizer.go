@@ -43,8 +43,8 @@ func (vm *VM) callOptimized(closure *bytecode.Closure, argCount int) InterpretRe
 	}
 
 	// 检查是否已 JIT 编译
-	if vm.jitCompiler != nil && vm.jitEnabled {
-		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil && compiled.FuncPtr != 0 {
+	if vm.jitEnabled && vm.jitCompiler != nil {
+		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
 			// 尝试使用 JIT 编译的代码执行
 			if result, ok := vm.executeNative(compiled, closure, argCount); ok {
 				return result

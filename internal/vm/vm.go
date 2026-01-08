@@ -82,7 +82,7 @@ type VM struct {
 	hotspotDetector *HotspotDetector
 
 	// JIT 编译器
-	jitCompiler *jit.JITCompiler
+	jitCompiler *jit.Compiler
 	jitEnabled  bool // 是否启用 JIT 执行
 
 	// 错误信息
@@ -92,6 +92,13 @@ type VM struct {
 
 // New 创建虚拟机
 func New() *VM {
+	return NewWithConfig(nil)
+}
+
+// NewWithConfig 创建带配置的虚拟机
+// jitConfig 为 nil 时使用默认配置
+// 要禁用 JIT，传入 jit.InterpretOnlyConfig()
+func NewWithConfig(jitConfig *jit.Config) *VM {
 	vm := &VM{
 		globals:         make(map[string]bytecode.Value),
 		classes:         make(map[string]*bytecode.Class),
@@ -101,64 +108,93 @@ func New() *VM {
 		hotspotDetector: NewHotspotDetector(),
 	}
 	
-	// 初始化 JIT 编译器（如果支持）
-	vm.jitCompiler = jit.NewJITCompiler()
-	vm.jitEnabled = true // 默认启用 JIT 执行
+	// 初始化 JIT 编译器（如果支持且启用）
+	vm.jitCompiler = jit.NewCompiler(jitConfig)
+	vm.jitEnabled = vm.jitCompiler != nil && vm.jitCompiler.IsEnabled()
 	
 	// 设置热点检测回调
-	if vm.jitCompiler != nil {
-		vm.hotspotDetector.OnFunctionHot(vm.onFunctionHot)
-		vm.hotspotDetector.OnLoopHot(vm.onLoopHot)
-	}
+	// 注意：暂时禁用自动热点检测，JIT框架已实现但需要更多集成工作
+	// TODO: 完成VM与JIT的完整集成后重新启用
+	// if vm.jitEnabled {
+	// 	profiler := vm.jitCompiler.GetProfiler()
+	// 	if profiler != nil {
+	// 		profiler.OnFunctionHot(vm.onJITFunctionHot)
+	// 	}
+	// }
 	
 	return vm
 }
 
-// onFunctionHot 函数变热时的回调（触发 JIT 编译）
-func (vm *VM) onFunctionHot(profile *FunctionProfile) {
-	if vm.jitCompiler == nil {
+// onJITFunctionHot 函数变热时的回调（触发 JIT 编译）
+func (vm *VM) onJITFunctionHot(profile *jit.FunctionProfile) {
+	if !vm.jitEnabled || vm.jitCompiler == nil {
 		return
 	}
 	
-	// 触发 JIT 编译
 	fn := profile.Function
-	if fn != nil {
-		// 编译函数
-		compiled, err := vm.jitCompiler.CompileFunction(fn)
-		if err == nil && compiled != nil {
-			// 标记为已编译
-			vm.hotspotDetector.MarkCompiled(fn)
+	if fn == nil {
+		return
+	}
+	
+	// 检查是否应该编译
+	profiler := vm.jitCompiler.GetProfiler()
+	if profiler != nil && !profiler.ShouldCompile(fn) {
+		return
+	}
+	
+	// 检查函数是否可以被 JIT 编译
+	if !jit.CanJIT(fn) {
+		// 不可编译的函数，标记失败以避免再次尝试
+		if profiler != nil {
+			profiler.MarkCompileFailed(fn)
+			profiler.MarkCompileFailed(fn)
+			profiler.MarkCompileFailed(fn) // 标记3次，永远不再尝试
+		}
+		return
+	}
+	
+	// 编译函数
+	compiled, err := vm.jitCompiler.Compile(fn)
+	if err != nil {
+		// 编译失败
+		if profiler != nil {
+			profiler.MarkCompileFailed(fn)
+		}
+		return
+	}
+	
+	if compiled != nil {
+		// 标记为已编译
+		if profiler != nil {
+			profiler.MarkCompiled(fn)
 		}
 	}
-}
-
-// onLoopHot 循环变热时的回调（触发 OSR）
-func (vm *VM) onLoopHot(profile *LoopProfile) {
-	if vm.jitCompiler == nil {
-		return
-	}
-	
-	// OSR（On-Stack Replacement）：
-	// 在循环中间切换到 JIT 代码
-	// 简化：这里可以触发循环所在函数的 JIT 编译
-	_ = profile
 }
 
 // GetJITCompiler 获取 JIT 编译器
-func (vm *VM) GetJITCompiler() *jit.JITCompiler {
+func (vm *VM) GetJITCompiler() *jit.Compiler {
 	return vm.jitCompiler
 }
 
+// IsJITEnabled 检查 JIT 是否启用
+func (vm *VM) IsJITEnabled() bool {
+	return vm.jitEnabled && vm.jitCompiler != nil && vm.jitCompiler.IsEnabled()
+}
+
 // SetJITEnabled 启用/禁用 JIT
+// 注意：禁用后重新启用需要重新创建编译器
 func (vm *VM) SetJITEnabled(enabled bool) {
 	if enabled && vm.jitCompiler == nil {
-		vm.jitCompiler = jit.NewJITCompiler()
-		if vm.jitCompiler != nil {
-			vm.hotspotDetector.OnFunctionHot(vm.onFunctionHot)
-			vm.hotspotDetector.OnLoopHot(vm.onLoopHot)
+		vm.jitCompiler = jit.NewCompiler(nil)
+		if vm.jitCompiler != nil && vm.jitCompiler.IsEnabled() {
+			vm.jitEnabled = true
+			profiler := vm.jitCompiler.GetProfiler()
+			if profiler != nil {
+				profiler.OnFunctionHot(vm.onJITFunctionHot)
+			}
 		}
 	} else if !enabled {
-		vm.jitCompiler = nil
+		vm.jitEnabled = false
 	}
 }
 
@@ -2267,8 +2303,8 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	fn := closure.Function
 	
 	// 检查是否已 JIT 编译并可执行
-	if vm.jitCompiler != nil && vm.jitEnabled {
-		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil && compiled.FuncPtr != 0 {
+	if vm.jitEnabled && vm.jitCompiler != nil {
+		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
 			// 尝试使用 JIT 编译的代码执行
 			result, ok := vm.executeNative(compiled, closure, argCount)
 			if ok {
@@ -2426,12 +2462,7 @@ func isJITSafe(fn *bytecode.Function) bool {
 
 // executeNative 执行 JIT 编译的本机代码
 // 返回 (结果, 是否成功执行)
-func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Closure, argCount int) (InterpretResult, bool) {
-	// JIT 执行暂时禁用 - 代码生成器需要进一步调试
-	// TODO: 修复 IR 构建和代码生成后重新启用
-	return InterpretOK, false
-	
-	/*
+func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closure, argCount int) (InterpretResult, bool) {
 	fn := closure.Function
 	
 	// 只对简单的纯计算函数启用 JIT 执行
@@ -2440,39 +2471,32 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Cl
 		return InterpretOK, false
 	}
 	
-	// 最多支持 4 个参数（Windows x64 调用约定限制）
+	// 最多支持 4 个参数（调用约定限制）
 	if argCount > 4 {
 		return InterpretOK, false
 	}
 	
-	// 检查函数是否包含不支持的操作（函数调用、对象操作等）
-	if !isJITSafe(fn) {
+	// 检查函数是否可以被 JIT 执行
+	if !jit.CanJIT(fn) {
 		return InterpretOK, false
 	}
-	*/
 	
 	// 准备参数
 	args := make([]int64, argCount)
 	baseSlot := vm.stackTop - argCount
 	for i := 0; i < argCount; i++ {
 		val := vm.stack[baseSlot+i]
-		switch val.Type {
-		case bytecode.ValInt:
-			args[i] = val.AsInt()
-		case bytecode.ValBool:
-			if val.AsBool() {
-				args[i] = 1
-			} else {
-				args[i] = 0
-			}
-		default:
-			// 不支持的参数类型，回退到解释执行
-			return InterpretOK, false
-		}
+		args[i] = jit.ValueToInt64(val)
+	}
+	
+	// 获取函数入口点
+	entryPoint := compiled.EntryPoint()
+	if entryPoint == 0 {
+		return InterpretOK, false
 	}
 	
 	// 调用本机代码
-	result, ok := jit.ExecuteCompiled(compiled, args)
+	result, ok := jit.CallNative(entryPoint, args)
 	if !ok {
 		// JIT 执行失败，回退到解释执行
 		return InterpretOK, false
@@ -2484,7 +2508,7 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunction, closure *bytecode.Cl
 	vm.stackTop = baseSlot - 1
 	
 	// 将结果推入栈
-	vm.push(bytecode.NewInt(result))
+	vm.push(jit.Int64ToValue(result))
 	
 	return InterpretOK, true
 }

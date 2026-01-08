@@ -8,6 +8,7 @@ import (
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/compiler"
 	"github.com/tangzhangming/nova/internal/i18n"
+	"github.com/tangzhangming/nova/internal/jit"
 	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
 	"github.com/tangzhangming/nova/internal/vm"
@@ -26,10 +27,34 @@ type Runtime struct {
 // BuiltinFunc 内置函数类型
 type BuiltinFunc func(args []bytecode.Value) bytecode.Value
 
+// Options 运行时选项
+type Options struct {
+	// JITEnabled 是否启用 JIT 编译
+	// 设置为 false 等效于 --jitless 或 -Xint
+	JITEnabled bool
+}
+
+// DefaultOptions 返回默认选项
+func DefaultOptions() Options {
+	return Options{
+		JITEnabled: true,
+	}
+}
+
 // New 创建运行时
 func New() *Runtime {
+	return NewWithOptions(DefaultOptions())
+}
+
+// NewWithOptions 创建带选项的运行时
+func NewWithOptions(opts Options) *Runtime {
+	var jitConfig *jit.Config
+	if !opts.JITEnabled {
+		jitConfig = jit.InterpretOnlyConfig()
+	}
+	
 	r := &Runtime{
-		vm:          vm.New(),
+		vm:          vm.NewWithConfig(jitConfig),
 		builtins:    make(map[string]BuiltinFunc),
 		classes:     make(map[string]*bytecode.Class),
 		enums:       make(map[string]*bytecode.Enum),

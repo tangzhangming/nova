@@ -116,6 +116,8 @@ func printUsage() {
 	fmt.Printf("  -tokens         %s\n", m.OptTokens)
 	fmt.Printf("  -ast            %s\n", m.OptAST)
 	fmt.Printf("  -bytecode       %s\n", m.OptBytecode)
+	fmt.Printf("  --jitless       %s\n", m.OptJitless)
+	fmt.Printf("  -Xint           %s\n", m.OptJitless)
 	fmt.Printf("  --lang <en|zh>  %s\n", m.OptLang)
 	fmt.Println()
 	fmt.Println(m.HelpExamples)
@@ -133,6 +135,11 @@ func cmdRun(args []string) {
 	showTokens := fs.Bool("tokens", false, m.OptTokens)
 	showAST := fs.Bool("ast", false, m.OptAST)
 	showBytecode := fs.Bool("bytecode", false, m.OptBytecode)
+	
+	// JIT 控制选项
+	// --jitless 或 -Xint: 禁用 JIT 编译，仅使用解释器执行
+	jitless := fs.Bool("jitless", false, m.OptJitless)
+	xint := fs.Bool("Xint", false, m.OptJitless)
 
 	fs.Usage = func() {
 		fmt.Println(m.HelpUsage + " sola run [options] <file>")
@@ -156,7 +163,7 @@ func cmdRun(args []string) {
 
 	// 检查是否是编译后的文件
 	if strings.HasSuffix(filename, bytecode.CompiledFileExtension) {
-		runCompiled(filename)
+		runCompiledWithOptions(filename, *jitless || *xint)
 		return
 	}
 
@@ -185,7 +192,9 @@ func cmdRun(args []string) {
 	}
 
 	// 正常运行
-	r := runtime.New()
+	r := runtime.NewWithOptions(runtime.Options{
+		JITEnabled: !(*jitless || *xint),
+	})
 	if err := r.Run(string(source), filename); err != nil {
 		// 如果有非空错误消息则打印（VM 的异常信息已经打印过了）
 		if err.Error() != "" {
@@ -197,6 +206,11 @@ func cmdRun(args []string) {
 
 // runCompiled 运行编译后的字节码文件
 func runCompiled(filename string) {
+	runCompiledWithOptions(filename, false)
+}
+
+// runCompiledWithOptions 运行编译后的字节码文件（带选项）
+func runCompiledWithOptions(filename string, jitless bool) {
 	m := Msg()
 
 	// 读取编译后的文件
@@ -223,7 +237,9 @@ func runCompiled(filename string) {
 	cf.SourceFile = filepath.Base(filename)
 
 	// 运行
-	r := runtime.New()
+	r := runtime.NewWithOptions(runtime.Options{
+		JITEnabled: !jitless,
+	})
 	if err := r.RunCompiled(cf); err != nil {
 		if err.Error() != "" {
 			fmt.Fprintf(os.Stderr, m.ErrRuntime+"\n", err)

@@ -38,6 +38,7 @@ type Messages struct {
 	OptTokens   string
 	OptAST      string
 	OptBytecode string
+	OptJitless  string
 	OptOutput   string
 	OptVerbose  string
 	OptLang     string
@@ -100,6 +101,7 @@ var messagesEN = Messages{
 	OptTokens:   "Show lexer tokens",
 	OptAST:      "Show AST structure",
 	OptBytecode: "Show compiled bytecode",
+	OptJitless:  "Disable JIT compilation, interpret only (like JVM -Xint)",
 	OptOutput:   "Output file path",
 	OptVerbose:  "Verbose output",
 	OptLang:     "Set language (en/zh)",
@@ -158,6 +160,7 @@ var messagesZH = Messages{
 	OptTokens:   "显示词法分析结果",
 	OptAST:      "显示抽象语法树",
 	OptBytecode: "显示编译后的字节码",
+	OptJitless:  "禁用 JIT 编译，仅使用解释器（类似 JVM -Xint）",
 	OptOutput:   "输出文件路径",
 	OptVerbose:  "详细输出",
 	OptLang:     "设置语言 (en/zh)",
