@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/token"
 )
 
@@ -91,40 +92,58 @@ func (rc *ReturnChecker) GetErrors() []TypeError {
 }
 
 // UninitializedChecker 未初始化变量检查器
+// 使用前向数据流分析检测可能未初始化就使用的变量
 type UninitializedChecker struct {
-	cfg    *CFG
-	errors []TypeError
+	cfg       *CFG
+	errors    []TypeError
+	reported  map[string]bool // 已报告的错误（避免重复）
 }
 
 // NewUninitializedChecker 创建未初始化变量检查器
 func NewUninitializedChecker(cfg *CFG) *UninitializedChecker {
 	return &UninitializedChecker{
-		cfg:    cfg,
-		errors: make([]TypeError, 0),
+		cfg:      cfg,
+		errors:   make([]TypeError, 0),
+		reported: make(map[string]bool),
 	}
 }
 
 // Check 检查未初始化变量使用
+// 分两个阶段：
+// 1. 数据流分析：计算每个块入口处"确定已初始化"的变量集合
+// 2. 块内检查：按语句顺序检查变量使用是否在定义之前
 func (uc *UninitializedChecker) Check() {
 	if uc.cfg == nil || len(uc.cfg.Blocks) == 0 {
 		return
 	}
 	
-	// 前向数据流分析
-	// Gen: 变量定义
-	// Kill: 无
-	// In[B] = ∩ Out[P] for all predecessors P
-	// Out[B] = Gen[B] ∪ In[B]
+	// 阶段1：前向数据流分析
+	// In[B] = ∩ Out[P] for all predecessors P (所有前驱 Out 的交集)
+	// Out[B] = Gen[B] ∪ In[B] (本块定义 ∪ 入口已定义)
+	uc.computeDataFlow()
 	
-	// 初始化
+	// 阶段2：检查每个块内的变量使用
+	uc.checkAllBlocks()
+}
+
+// computeDataFlow 执行前向数据流分析
+func (uc *UninitializedChecker) computeDataFlow() {
+	// 初始化：入口块的 In 为空（只包含函数参数，由调用方设置），其他块待计算
 	for _, block := range uc.cfg.Blocks {
-		block.VarsLiveIn = make(map[string]bool)
+		if block == uc.cfg.Entry {
+			// 入口块的 VarsLiveIn 已由 TypeChecker 设置（包含函数参数）
+			if block.VarsLiveIn == nil {
+				block.VarsLiveIn = make(map[string]bool)
+			}
+		} else {
+			block.VarsLiveIn = nil // 标记为未计算
+		}
 		block.VarsLiveOut = make(map[string]bool)
 	}
 	
 	// 迭代直到不动点
 	changed := true
-	maxIterations := 100 // 防止无限循环
+	maxIterations := 100
 	iteration := 0
 	
 	for changed && iteration < maxIterations {
@@ -132,36 +151,227 @@ func (uc *UninitializedChecker) Check() {
 		iteration++
 		
 		for _, block := range uc.cfg.Blocks {
-			oldIn := copySet(block.VarsLiveIn)
-			
-			// 计算 In: 所有前驱的 Out 的交集
+			// 计算 In
+			var newIn map[string]bool
 			if len(block.Predecessors) > 0 {
-				block.VarsLiveIn = uc.intersectOuts(block.Predecessors)
+				newIn = uc.intersectOuts(block.Predecessors)
+			} else if block == uc.cfg.Entry {
+				// 入口块保持原有的 VarsLiveIn（包含函数参数）
+				newIn = copySet(block.VarsLiveIn)
 			} else {
-				// 入口块，所有变量都未初始化
-				block.VarsLiveIn = make(map[string]bool)
+				// 无前驱的非入口块（不可达代码），假设没有已初始化变量
+				newIn = make(map[string]bool)
 			}
 			
-			// 检查使用的变量是否在 In 中
-			for varName := range block.VarsUsed {
-				// 如果变量在本块定义，不检查
-				if block.VarsDefined[varName] {
-					continue
-				}
-				
-				// 如果变量不在 In 中，说明可能未初始化
-				if !block.VarsLiveIn[varName] {
-					uc.addError(varName, block)
-				}
+			// 计算 Out: 块内定义 ∪ 入口已定义
+			newOut := uc.union(block.VarsDefined, newIn)
+			
+			// 检查是否有变化
+			if block.VarsLiveIn == nil || !equalSet(block.VarsLiveIn, newIn) {
+				block.VarsLiveIn = newIn
+				changed = true
 			}
-			
-			// 计算 Out: Gen ∪ In
-			block.VarsLiveOut = uc.union(block.VarsDefined, block.VarsLiveIn)
-			
-			if !equalSet(oldIn, block.VarsLiveIn) {
+			if !equalSet(block.VarsLiveOut, newOut) {
+				block.VarsLiveOut = newOut
 				changed = true
 			}
 		}
+	}
+}
+
+// checkAllBlocks 检查所有块内的变量使用
+func (uc *UninitializedChecker) checkAllBlocks() {
+	for _, block := range uc.cfg.Blocks {
+		uc.checkBlockStatements(block)
+	}
+}
+
+// checkBlockStatements 按语句顺序检查块内的变量使用
+// 关键：先检查使用，再更新定义，保证正确检测"使用在定义之前"的情况
+func (uc *UninitializedChecker) checkBlockStatements(block *BasicBlock) {
+	// 从块入口的已定义变量集合开始
+	defined := copySet(block.VarsLiveIn)
+	
+	for _, stmt := range block.Statements {
+		// 先收集并检查此语句使用的变量
+		usedVars := uc.collectStmtUsedVars(stmt)
+		for varName, pos := range usedVars {
+			if !defined[varName] {
+				uc.reportError(varName, pos)
+			}
+		}
+		
+		// 再更新此语句定义的变量
+		definedVars := uc.collectStmtDefinedVars(stmt)
+		for varName := range definedVars {
+			defined[varName] = true
+		}
+	}
+}
+
+// collectStmtUsedVars 收集语句中使用的变量及其位置
+func (uc *UninitializedChecker) collectStmtUsedVars(stmt ast.Statement) map[string]token.Position {
+	result := make(map[string]token.Position)
+	
+	switch s := stmt.(type) {
+	case *ast.VarDeclStmt:
+		// 变量声明：初值表达式中的变量
+		if s.Value != nil {
+			uc.collectExprUsedVars(s.Value, result)
+		}
+		
+	case *ast.MultiVarDeclStmt:
+		// 多变量声明：值表达式中的变量
+		uc.collectExprUsedVars(s.Value, result)
+		
+	case *ast.ExprStmt:
+		uc.collectExprUsedVars(s.Expr, result)
+		
+	case *ast.ReturnStmt:
+		for _, val := range s.Values {
+			uc.collectExprUsedVars(val, result)
+		}
+		
+	case *ast.EchoStmt:
+		uc.collectExprUsedVars(s.Value, result)
+		
+	case *ast.ThrowStmt:
+		uc.collectExprUsedVars(s.Exception, result)
+	}
+	
+	return result
+}
+
+// collectExprUsedVars 收集表达式中使用的变量
+func (uc *UninitializedChecker) collectExprUsedVars(expr ast.Expression, result map[string]token.Position) {
+	if expr == nil {
+		return
+	}
+	
+	switch e := expr.(type) {
+	case *ast.Variable:
+		// 记录变量名和位置
+		if _, exists := result[e.Name]; !exists {
+			result[e.Name] = e.Pos()
+		}
+		
+	case *ast.BinaryExpr:
+		uc.collectExprUsedVars(e.Left, result)
+		uc.collectExprUsedVars(e.Right, result)
+		
+	case *ast.UnaryExpr:
+		uc.collectExprUsedVars(e.Operand, result)
+		
+	case *ast.AssignExpr:
+		// 赋值表达式：先检查右侧，再检查左侧（如果是复合赋值）
+		uc.collectExprUsedVars(e.Right, result)
+		// 对于简单赋值 $x = expr，左侧变量是被定义而非使用
+		// 对于复合赋值 $x += expr，左侧变量既被使用又被定义
+		// 这里只处理复合赋值的情况
+		if e.Operator.Type != token.ASSIGN {
+			uc.collectExprUsedVars(e.Left, result)
+		}
+		
+	case *ast.CallExpr:
+		uc.collectExprUsedVars(e.Function, result)
+		for _, arg := range e.Arguments {
+			uc.collectExprUsedVars(arg, result)
+		}
+		
+	case *ast.PropertyAccess:
+		uc.collectExprUsedVars(e.Object, result)
+		
+	case *ast.MethodCall:
+		uc.collectExprUsedVars(e.Object, result)
+		for _, arg := range e.Arguments {
+			uc.collectExprUsedVars(arg, result)
+		}
+		
+	case *ast.IndexExpr:
+		uc.collectExprUsedVars(e.Object, result)
+		uc.collectExprUsedVars(e.Index, result)
+		
+	case *ast.ArrayLiteral:
+		for _, elem := range e.Elements {
+			uc.collectExprUsedVars(elem, result)
+		}
+		
+	case *ast.MapLiteral:
+		for _, pair := range e.Pairs {
+			uc.collectExprUsedVars(pair.Key, result)
+			uc.collectExprUsedVars(pair.Value, result)
+		}
+		
+	case *ast.NewExpr:
+		for _, arg := range e.Arguments {
+			uc.collectExprUsedVars(arg, result)
+		}
+		
+	case *ast.TernaryExpr:
+		uc.collectExprUsedVars(e.Condition, result)
+		uc.collectExprUsedVars(e.Then, result)
+		uc.collectExprUsedVars(e.Else, result)
+		
+	case *ast.IsExpr:
+		uc.collectExprUsedVars(e.Expr, result)
+		
+	case *ast.TypeCastExpr:
+		uc.collectExprUsedVars(e.Expr, result)
+		
+	case *ast.NullCoalesceExpr:
+		uc.collectExprUsedVars(e.Left, result)
+		uc.collectExprUsedVars(e.Right, result)
+		
+	case *ast.SafePropertyAccess:
+		uc.collectExprUsedVars(e.Object, result)
+		
+	case *ast.SafeMethodCall:
+		uc.collectExprUsedVars(e.Object, result)
+		for _, arg := range e.Arguments {
+			uc.collectExprUsedVars(arg, result)
+		}
+	}
+}
+
+// collectStmtDefinedVars 收集语句中定义的变量
+func (uc *UninitializedChecker) collectStmtDefinedVars(stmt ast.Statement) map[string]bool {
+	result := make(map[string]bool)
+	
+	switch s := stmt.(type) {
+	case *ast.VarDeclStmt:
+		// 变量声明：只有当有初值时才算定义
+		if s.Value != nil {
+			result[s.Name.Name] = true
+		}
+		
+	case *ast.MultiVarDeclStmt:
+		// 多变量声明：所有变量都被定义
+		for _, name := range s.Names {
+			result[name.Name] = true
+		}
+		
+	case *ast.ExprStmt:
+		// 赋值表达式中的定义
+		uc.collectExprDefinedVars(s.Expr, result)
+	}
+	
+	return result
+}
+
+// collectExprDefinedVars 收集表达式中定义的变量
+func (uc *UninitializedChecker) collectExprDefinedVars(expr ast.Expression, result map[string]bool) {
+	if expr == nil {
+		return
+	}
+	
+	switch e := expr.(type) {
+	case *ast.AssignExpr:
+		// 赋值表达式：左侧变量被定义
+		if v, ok := e.Left.(*ast.Variable); ok {
+			result[v.Name] = true
+		}
+		// 右侧可能也有赋值表达式（链式赋值）
+		uc.collectExprDefinedVars(e.Right, result)
 	}
 }
 
@@ -171,12 +381,24 @@ func (uc *UninitializedChecker) intersectOuts(predecessors []*BasicBlock) map[st
 		return make(map[string]bool)
 	}
 	
-	// 从第一个前驱开始
-	result := copySet(predecessors[0].VarsLiveOut)
+	// 找到第一个有效的前驱（VarsLiveOut 已计算）
+	var result map[string]bool
+	for _, pred := range predecessors {
+		if pred.VarsLiveOut != nil {
+			result = copySet(pred.VarsLiveOut)
+			break
+		}
+	}
 	
-	// 与其他前驱求交集
-	for i := 1; i < len(predecessors); i++ {
-		result = intersect(result, predecessors[i].VarsLiveOut)
+	if result == nil {
+		return make(map[string]bool)
+	}
+	
+	// 与其他有效前驱求交集
+	for _, pred := range predecessors {
+		if pred.VarsLiveOut != nil {
+			result = intersect(result, pred.VarsLiveOut)
+		}
 	}
 	
 	return result
@@ -194,19 +416,25 @@ func (uc *UninitializedChecker) union(a, b map[string]bool) map[string]bool {
 	return result
 }
 
-// addError 添加错误
-func (uc *UninitializedChecker) addError(varName string, block *BasicBlock) {
-	// 找到第一个使用该变量的语句
-	var pos token.Position
-	if len(block.Statements) > 0 {
-		pos = block.Statements[0].Pos()
+// reportError 报告错误（避免重复）
+func (uc *UninitializedChecker) reportError(varName string, pos token.Position) {
+	// 使用 位置+变量名 作为唯一键避免重复报告
+	key := fmt.Sprintf("%s:%d:%d:%s", pos.Filename, pos.Line, pos.Column, varName)
+	if uc.reported[key] {
+		return
 	}
+	uc.reported[key] = true
 	
 	uc.errors = append(uc.errors, TypeError{
 		Pos:     pos,
 		Code:    "compiler.uninitialized_variable",
 		Message: fmt.Sprintf("variable '%s' may not have been initialized", varName),
 	})
+}
+
+// GetErrors 获取错误列表
+func (uc *UninitializedChecker) GetErrors() []TypeError {
+	return uc.errors
 }
 
 // UnreachableChecker 不可达代码检测器

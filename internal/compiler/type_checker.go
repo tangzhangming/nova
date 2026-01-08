@@ -198,10 +198,9 @@ func (tc *TypeChecker) checkMethodDecl(method *ast.MethodDecl, className string)
 		}
 		
 		// 检查未初始化变量
-		// TODO: 修复 UninitializedChecker 的数据流分析
-		// uc := NewUninitializedChecker(tc.currentFunc.CFG)
-		// uc.Check()
-		// tc.errors = append(tc.errors, uc.errors...)
+		uc := NewUninitializedChecker(tc.currentFunc.CFG)
+		uc.Check()
+		tc.errors = append(tc.errors, uc.errors...)
 		
 		// 检查不可达代码
 		urc := NewUnreachableChecker(tc.currentFunc.CFG)

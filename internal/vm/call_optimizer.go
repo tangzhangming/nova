@@ -246,7 +246,8 @@ func (vm *VM) callTwoArgs(closure *bytecode.Closure) InterpretResult {
 // ============================================================================
 
 // invokeMethodOptimized 优化的方法调用
-func (vm *VM) invokeMethodOptimized(name string, argCount int) InterpretResult {
+// callSiteIP 用于内联缓存，-1 表示不使用缓存
+func (vm *VM) invokeMethodOptimized(name string, argCount int, callSiteIP int) InterpretResult {
 	receiver := vm.peek(argCount)
 
 	// 处理 SuperArray 内置方法
@@ -260,13 +261,31 @@ func (vm *VM) invokeMethodOptimized(name string, argCount int) InterpretResult {
 
 	obj := receiver.AsObject()
 
-	// 快速路径：使用内联缓存（如果已实现）
-	// TODO: 集成内联缓存 (B1)
+	// 内联缓存快速路径：检查是否有缓存命中
+	if vm.icManager.IsEnabled() && callSiteIP >= 0 && vm.frameCount > 0 {
+		currentFunc := vm.frames[vm.frameCount-1].Closure.Function
+		ic := vm.icManager.GetMethodCache(currentFunc, callSiteIP)
+		if ic != nil {
+			if method, hit := ic.Lookup(obj.Class); hit {
+				// 缓存命中：直接调用已缓存的方法
+				return vm.callMethodDirect(obj, method, argCount)
+			}
+		}
+	}
 
 	// 查找方法
 	method := vm.findMethodWithDefaults(obj.Class, name, argCount)
 	if method == nil {
 		return vm.runtimeError(i18n.T(i18n.ErrUndefinedMethod, name, argCount))
+	}
+	
+	// 更新内联缓存
+	if vm.icManager.IsEnabled() && callSiteIP >= 0 && vm.frameCount > 0 {
+		currentFunc := vm.frames[vm.frameCount-1].Closure.Function
+		ic := vm.icManager.GetMethodCache(currentFunc, callSiteIP)
+		if ic != nil {
+			ic.Update(obj.Class, method)
+		}
 	}
 
 	// 检查访问权限

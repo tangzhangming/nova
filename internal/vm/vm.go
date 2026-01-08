@@ -1685,7 +1685,7 @@ func (vm *VM) execute() InterpretResult {
 				}
 			}
 			
-			if result := vm.invokeMethod(name, argCount); result != InterpretOK {
+			if result := vm.invokeMethod(name, argCount, callSiteIP); result != InterpretOK {
 				return result
 			}
 			frame = &vm.frames[vm.frameCount-1]
@@ -3464,7 +3464,8 @@ func (vm *VM) callMethodDirect(obj *bytecode.Object, method *bytecode.Method, ar
 // 维护者注意：
 //   - name+argCount 是分派的关键维度（支持重载/默认参数范围）
 //   - 该函数自身不刷新 frame/chunk；调用方（解释循环）在 OpCallMethod 后会刷新。
-func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
+//   - callSiteIP 用于内联缓存，-1 表示不使用缓存
+func (vm *VM) invokeMethod(name string, argCount int, callSiteIP int) InterpretResult {
 	receiver := vm.peek(argCount)
 
 	// 处理 SuperArray 内置方法
@@ -3477,6 +3478,19 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 	}
 	
 	obj := receiver.AsObject()
+	
+	// 内联缓存快速路径：检查是否有缓存命中
+	if vm.icManager.IsEnabled() && callSiteIP >= 0 && vm.frameCount > 0 {
+		currentFunc := vm.frames[vm.frameCount-1].Closure.Function
+		ic := vm.icManager.GetMethodCache(currentFunc, callSiteIP)
+		if ic != nil {
+			if method, hit := ic.Lookup(obj.Class); hit {
+				// 缓存命中：直接调用已缓存的方法
+				return vm.callMethodDirect(obj, method, argCount)
+			}
+		}
+	}
+	
 	// 尝试使用 VTable 优化接口方法查找
 	method := vm.findMethodWithVTable(obj.Class, name, argCount)
 	if method == nil {
@@ -3484,6 +3498,15 @@ func (vm *VM) invokeMethod(name string, argCount int) InterpretResult {
 		method = vm.findMethodWithDefaults(obj.Class, name, argCount)
 		if method == nil {
 			return vm.runtimeError(i18n.T(i18n.ErrUndefinedMethod, name, argCount))
+		}
+	}
+	
+	// 更新内联缓存
+	if vm.icManager.IsEnabled() && callSiteIP >= 0 && vm.frameCount > 0 {
+		currentFunc := vm.frames[vm.frameCount-1].Closure.Function
+		ic := vm.icManager.GetMethodCache(currentFunc, callSiteIP)
+		if ic != nil {
+			ic.Update(obj.Class, method)
 		}
 	}
 
