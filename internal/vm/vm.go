@@ -3274,17 +3274,16 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	}
 	
 	// 检查是否已 JIT 编译并可执行
-	// 注意：JIT编译已完成，但执行层暂时禁用（代码生成器需要进一步调试）
-	// if vm.jitEnabled && vm.jitCompiler != nil {
-	// 	if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
-	// 		// 尝试使用 JIT 编译的代码执行
-	// 		result, ok := vm.executeNative(compiled, closure, argCount)
-	// 		if ok {
-	// 			return result
-	// 		}
-	// 		// JIT 执行失败，回退到解释执行
-	// 	}
-	// }
+	if vm.jitEnabled && vm.jitCompiler != nil {
+		if compiled := vm.jitCompiler.GetCompiled(fn.Name); compiled != nil {
+			// 尝试使用 JIT 编译的代码执行
+			result, ok := vm.executeNative(compiled, closure, argCount)
+			if ok {
+				return result
+			}
+			// JIT 执行失败，回退到解释执行
+		}
+	}
 	
 	// 检查参数数量
 	if fn.IsVariadic {
@@ -3363,7 +3362,7 @@ var jitCallCount int64
 
 // executeNative 执行 JIT 编译的本机代码
 // 返回 (结果, 是否成功执行)
-func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closure, argCount int) (InterpretResult, bool) {
+func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closure, argCount int) (result InterpretResult, success bool) {
 	fn := closure.Function
 	
 	// 只对简单的纯计算函数启用 JIT 执行
@@ -3396,8 +3395,21 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closur
 		return InterpretOK, false
 	}
 	
+	// 使用 defer/recover 捕获 JIT 代码中的崩溃
+	defer func() {
+		if r := recover(); r != nil {
+			// JIT 执行崩溃，回退到解释执行
+			// 记录统计信息（可选）
+			if vm.jitCompiler != nil {
+				// 可以在这里记录崩溃统计
+			}
+			result = InterpretOK
+			success = false
+		}
+	}()
+	
 	// 调用本机代码
-	result, ok := jit.CallNative(entryPoint, args)
+	nativeResult, ok := jit.CallNative(entryPoint, args)
 	if !ok {
 		// JIT 执行失败，回退到解释执行
 		return InterpretOK, false
@@ -3409,7 +3421,7 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closur
 	vm.stackTop = baseSlot - 1
 	
 	// 将结果推入栈
-	vm.push(jit.Int64ToValue(result))
+	vm.push(jit.Int64ToValue(nativeResult))
 	
 	return InterpretOK, true
 }

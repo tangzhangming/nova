@@ -494,6 +494,42 @@ func (a *X64Assembler) SetGE(reg X64Reg) {
 	a.emit(modrm(3, 0, reg.LowBits()))
 }
 
+// SetB 设置低于（无符号）: setb reg (CF=1)
+func (a *X64Assembler) SetB(reg X64Reg) {
+	if reg.IsExtended() {
+		a.emit(rex(false, false, false, true))
+	}
+	a.emit(0x0F, 0x92)
+	a.emit(modrm(3, 0, reg.LowBits()))
+}
+
+// SetBE 设置低于等于（无符号）: setbe reg (CF=1 或 ZF=1)
+func (a *X64Assembler) SetBE(reg X64Reg) {
+	if reg.IsExtended() {
+		a.emit(rex(false, false, false, true))
+	}
+	a.emit(0x0F, 0x96)
+	a.emit(modrm(3, 0, reg.LowBits()))
+}
+
+// SetA 设置高于（无符号）: seta reg (CF=0 且 ZF=0)
+func (a *X64Assembler) SetA(reg X64Reg) {
+	if reg.IsExtended() {
+		a.emit(rex(false, false, false, true))
+	}
+	a.emit(0x0F, 0x97)
+	a.emit(modrm(3, 0, reg.LowBits()))
+}
+
+// SetAE 设置高于等于（无符号）: setae reg (CF=0)
+func (a *X64Assembler) SetAE(reg X64Reg) {
+	if reg.IsExtended() {
+		a.emit(rex(false, false, false, true))
+	}
+	a.emit(0x0F, 0x93)
+	a.emit(modrm(3, 0, reg.LowBits()))
+}
+
 // MovzxReg8 零扩展 8 位到 64 位: movzx dst, src (8-bit)
 func (a *X64Assembler) MovzxReg8(dst, src X64Reg) {
 	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
@@ -641,5 +677,231 @@ func (a *X64Assembler) resolveRelocations() {
 			offset := int32(target - (reloc.offset + reloc.size))
 			binary.LittleEndian.PutUint32(a.code[reloc.offset:], uint32(offset))
 		}
+	}
+}
+
+// ============================================================================
+// XMM 寄存器定义
+// ============================================================================
+
+// XMMReg XMM 寄存器（用于浮点运算）
+type XMMReg int
+
+const (
+	XMM0 XMMReg = iota
+	XMM1
+	XMM2
+	XMM3
+	XMM4
+	XMM5
+	XMM6
+	XMM7
+	XMM8
+	XMM9
+	XMM10
+	XMM11
+	XMM12
+	XMM13
+	XMM14
+	XMM15
+)
+
+// String 返回寄存器名称
+func (r XMMReg) String() string {
+	if r >= XMM0 && r <= XMM15 {
+		return "xmm" + string('0'+byte(r))
+	}
+	return "xmm?"
+}
+
+// IsExtended 检查是否是扩展寄存器（XMM8-XMM15）
+func (r XMMReg) IsExtended() bool {
+	return r >= XMM8
+}
+
+// LowBits 获取寄存器编码的低 3 位
+func (r XMMReg) LowBits() byte {
+	return byte(r) & 0x7
+}
+
+// ============================================================================
+// 浮点指令（SSE2）
+// ============================================================================
+
+// MovsdRegReg 移动双精度浮点: movsd dst, src
+func (a *X64Assembler) MovsdRegReg(dst, src XMMReg) {
+	// F2 0F 10 /r (MOVSD xmm1, xmm2/m64)
+	a.emit(0xF2)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x10)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// MovsdRegMem 从内存加载双精度浮点: movsd dst, [base+offset]
+func (a *X64Assembler) MovsdRegMem(dst XMMReg, base X64Reg, offset int32) {
+	// F2 0F 10 /r (MOVSD xmm1, xmm2/m64)
+	a.emit(0xF2)
+	if dst.IsExtended() || base.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, base.IsExtended()))
+	}
+	a.emit(0x0F, 0x10)
+	a.emitMemOp(dst.LowBits(), base, offset)
+}
+
+// MovsdMemReg 存储双精度浮点到内存: movsd [base+offset], src
+func (a *X64Assembler) MovsdMemReg(base X64Reg, offset int32, src XMMReg) {
+	// F2 0F 11 /r (MOVSD xmm2/m64, xmm1)
+	a.emit(0xF2)
+	if src.IsExtended() || base.IsExtended() {
+		a.emit(rex(false, src.IsExtended(), false, base.IsExtended()))
+	}
+	a.emit(0x0F, 0x11)
+	a.emitMemOp(src.LowBits(), base, offset)
+}
+
+// MovqRegXmm 从 XMM 移动到通用寄存器: movq reg, xmm
+func (a *X64Assembler) MovqRegXmm(dst X64Reg, src XMMReg) {
+	// 66 REX.W 0F 7E /r (MOVQ r/m64, xmm)
+	a.emit(0x66)
+	a.emit(rex(true, src.IsExtended(), false, dst.IsExtended()))
+	a.emit(0x0F, 0x7E)
+	a.emit(modrm(3, src.LowBits(), dst.LowBits()))
+}
+
+// MovqXmmReg 从通用寄存器移动到 XMM: movq xmm, reg
+func (a *X64Assembler) MovqXmmReg(dst XMMReg, src X64Reg) {
+	// 66 REX.W 0F 6E /r (MOVQ xmm, r/m64)
+	a.emit(0x66)
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x6E)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// AddsdRegReg 双精度加法: addsd dst, src
+func (a *X64Assembler) AddsdRegReg(dst, src XMMReg) {
+	// F2 0F 58 /r (ADDSD xmm1, xmm2/m64)
+	a.emit(0xF2)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x58)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// SubsdRegReg 双精度减法: subsd dst, src
+func (a *X64Assembler) SubsdRegReg(dst, src XMMReg) {
+	// F2 0F 5C /r (SUBSD xmm1, xmm2/m64)
+	a.emit(0xF2)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x5C)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// MulsdRegReg 双精度乘法: mulsd dst, src
+func (a *X64Assembler) MulsdRegReg(dst, src XMMReg) {
+	// F2 0F 59 /r (MULSD xmm1, xmm2/m64)
+	a.emit(0xF2)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x59)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// DivsdRegReg 双精度除法: divsd dst, src
+func (a *X64Assembler) DivsdRegReg(dst, src XMMReg) {
+	// F2 0F 5E /r (DIVSD xmm1, xmm2/m64)
+	a.emit(0xF2)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x5E)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// UcomisdRegReg 双精度比较（设置标志位）: ucomisd dst, src
+func (a *X64Assembler) UcomisdRegReg(dst, src XMMReg) {
+	// 66 0F 2E /r (UCOMISD xmm1, xmm2/m64)
+	a.emit(0x66)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x2E)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// Cvtsi2sdRegReg 整数转双精度: cvtsi2sd dst, src
+func (a *X64Assembler) Cvtsi2sdRegReg(dst XMMReg, src X64Reg) {
+	// F2 REX.W 0F 2A /r (CVTSI2SD xmm1, r/m64)
+	a.emit(0xF2)
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x2A)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// Cvttsd2siRegReg 双精度转整数（截断）: cvttsd2si dst, src
+func (a *X64Assembler) Cvttsd2siRegReg(dst X64Reg, src XMMReg) {
+	// F2 REX.W 0F 2C /r (CVTTSD2SI r64, xmm1/m64)
+	a.emit(0xF2)
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x2C)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// XorpdRegReg 双精度异或（用于清零）: xorpd dst, src
+func (a *X64Assembler) XorpdRegReg(dst, src XMMReg) {
+	// 66 0F 57 /r (XORPD xmm1, xmm2/m128)
+	a.emit(0x66)
+	if dst.IsExtended() || src.IsExtended() {
+		a.emit(rex(false, dst.IsExtended(), false, src.IsExtended()))
+	}
+	a.emit(0x0F, 0x57)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// emitMemOp 生成内存操作数编码
+func (a *X64Assembler) emitMemOp(reg byte, base X64Reg, offset int32) {
+	// 特殊处理 RSP 和 R12（需要 SIB 字节）
+	if base == RSP || base == R12 {
+		if offset == 0 {
+			a.emit(modrm(0, reg, 4))
+			a.emit(0x24) // SIB: scale=0, index=RSP, base=RSP/R12
+		} else if offset >= -128 && offset <= 127 {
+			a.emit(modrm(1, reg, 4))
+			a.emit(0x24) // SIB
+			a.emit(byte(offset))
+		} else {
+			a.emit(modrm(2, reg, 4))
+			a.emit(0x24) // SIB
+			a.emitU32(uint32(offset))
+		}
+		return
+	}
+	
+	// 特殊处理 RBP 和 R13（不能用 mod=00）
+	if base == RBP || base == R13 {
+		if offset >= -128 && offset <= 127 {
+			a.emit(modrm(1, reg, base.LowBits()))
+			a.emit(byte(offset))
+		} else {
+			a.emit(modrm(2, reg, base.LowBits()))
+			a.emitU32(uint32(offset))
+		}
+		return
+	}
+	
+	// 普通情况
+	if offset == 0 {
+		a.emit(modrm(0, reg, base.LowBits()))
+	} else if offset >= -128 && offset <= 127 {
+		a.emit(modrm(1, reg, base.LowBits()))
+		a.emit(byte(offset))
+	} else {
+		a.emit(modrm(2, reg, base.LowBits()))
+		a.emitU32(uint32(offset))
 	}
 }

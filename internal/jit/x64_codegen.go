@@ -148,19 +148,39 @@ func (cg *X64CodeGenerator) emitInstr(instr *IRInstr) {
 	case OpStoreLocal:
 		cg.emitStoreLocal(instr)
 	case OpAdd:
-		cg.emitBinary(instr, cg.asm.AddRegReg)
+		if cg.isFloatOp(instr) {
+			cg.emitFloatBinary(instr, cg.asm.AddsdRegReg)
+		} else {
+			cg.emitBinary(instr, cg.asm.AddRegReg)
+		}
 	case OpSub:
-		cg.emitBinary(instr, cg.asm.SubRegReg)
+		if cg.isFloatOp(instr) {
+			cg.emitFloatBinary(instr, cg.asm.SubsdRegReg)
+		} else {
+			cg.emitBinary(instr, cg.asm.SubRegReg)
+		}
 	case OpMul:
-		cg.emitMul(instr)
+		if cg.isFloatOp(instr) {
+			cg.emitFloatBinary(instr, cg.asm.MulsdRegReg)
+		} else {
+			cg.emitMul(instr)
+		}
 	case OpDiv:
-		cg.emitDiv(instr)
+		if cg.isFloatOp(instr) {
+			cg.emitFloatBinary(instr, cg.asm.DivsdRegReg)
+		} else {
+			cg.emitDiv(instr)
+		}
 	case OpMod:
 		cg.emitMod(instr)
 	case OpNeg:
 		cg.emitNeg(instr)
 	case OpEq, OpNe, OpLt, OpLe, OpGt, OpGe:
-		cg.emitCompare(instr)
+		if cg.isFloatOp(instr) {
+			cg.emitFloatCompare(instr)
+		} else {
+			cg.emitCompare(instr)
+		}
 	case OpNot:
 		cg.emitNot(instr)
 	case OpBitAnd:
@@ -181,12 +201,33 @@ func (cg *X64CodeGenerator) emitInstr(instr *IRInstr) {
 		cg.emitBranch(instr)
 	case OpReturn:
 		cg.emitReturn(instr)
+	case OpIntToFloat:
+		cg.emitIntToFloat(instr)
+	case OpFloatToInt:
+		cg.emitFloatToInt(instr)
+	case OpPhi:
+		// Phi 节点在代码生成阶段已经通过寄存器分配处理，不需要额外代码
 	case OpNop:
 		// 空操作，不生成代码
 	default:
 		// 不支持的操作
 		fmt.Printf("Warning: unsupported opcode: %s\n", instr.Op)
 	}
+}
+
+// isFloatOp 检查是否是浮点运算
+func (cg *X64CodeGenerator) isFloatOp(instr *IRInstr) bool {
+	// 检查目标类型
+	if instr.Dest != nil && instr.Dest.Type == TypeFloat {
+		return true
+	}
+	// 检查操作数类型
+	for _, arg := range instr.Args {
+		if arg != nil && arg.Type == TypeFloat {
+			return true
+		}
+	}
+	return false
 }
 
 // ============================================================================
@@ -609,8 +650,8 @@ func (cg *X64CodeGenerator) loadValue(v *IRValue, hint X64Reg) X64Reg {
 				imm = 1
 			}
 		case TypeFloat:
-			// 简化：将浮点数转为整数
-			imm = int64(v.ConstVal.AsFloat())
+			// 使用 IEEE 754 位表示保持精度
+			imm = FloatBitsToInt64(v.ConstVal.AsFloat())
 		}
 		cg.asm.MovRegImm64(hint, uint64(imm))
 		return hint
@@ -643,4 +684,145 @@ func (cg *X64CodeGenerator) getSpillOffset(slot int) int32 {
 		paramSpace = 32
 	}
 	return int32(-(paramSpace + (slot+1)*8))
+}
+
+// ============================================================================
+// 浮点运算指令生成
+// ============================================================================
+
+// emitFloatBinary 生成浮点二元运算
+func (cg *X64CodeGenerator) emitFloatBinary(instr *IRInstr, op func(dst, src XMMReg)) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+	
+	// 加载左操作数到 XMM0
+	left := cg.loadValue(instr.Args[0], RAX)
+	cg.asm.MovqXmmReg(XMM0, left)
+	
+	// 加载右操作数到 XMM1
+	right := cg.loadValue(instr.Args[1], R11)
+	cg.asm.MovqXmmReg(XMM1, right)
+	
+	// 执行运算 XMM0 = XMM0 op XMM1
+	op(XMM0, XMM1)
+	
+	// 将结果移回通用寄存器
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	cg.asm.MovqRegXmm(dst, XMM0)
+	
+	// 如果目标被溢出，存回栈
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, dst)
+	}
+}
+
+// emitFloatCompare 生成浮点比较
+func (cg *X64CodeGenerator) emitFloatCompare(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+	
+	// 加载左操作数到 XMM0
+	left := cg.loadValue(instr.Args[0], RAX)
+	cg.asm.MovqXmmReg(XMM0, left)
+	
+	// 加载右操作数到 XMM1
+	right := cg.loadValue(instr.Args[1], R11)
+	cg.asm.MovqXmmReg(XMM1, right)
+	
+	// 比较 (设置标志位)
+	cg.asm.UcomisdRegReg(XMM0, XMM1)
+	
+	// 根据比较类型设置结果
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	
+	switch instr.Op {
+	case OpEq:
+		// 浮点相等：需要检查 ZF=1 且 PF=0
+		cg.asm.SetE(dst)
+	case OpNe:
+		cg.asm.SetNE(dst)
+	case OpLt:
+		// 浮点小于：CF=1 (ucomisd 后)
+		cg.asm.SetB(dst)
+	case OpLe:
+		// 浮点小于等于：CF=1 或 ZF=1
+		cg.asm.SetBE(dst)
+	case OpGt:
+		// 浮点大于：CF=0 且 ZF=0
+		cg.asm.SetA(dst)
+	case OpGe:
+		// 浮点大于等于：CF=0
+		cg.asm.SetAE(dst)
+	}
+	
+	// 零扩展到 64 位
+	cg.asm.MovzxReg8(dst, dst)
+	
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, dst)
+	}
+}
+
+// emitIntToFloat 生成整数到浮点的转换
+func (cg *X64CodeGenerator) emitIntToFloat(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) == 0 {
+		return
+	}
+	
+	// 加载整数到通用寄存器
+	src := cg.loadValue(instr.Args[0], RAX)
+	
+	// 转换为浮点 (XMM0 = cvtsi2sd(src))
+	cg.asm.Cvtsi2sdRegReg(XMM0, src)
+	
+	// 将结果移回通用寄存器（作为 IEEE 754 位表示）
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	cg.asm.MovqRegXmm(dst, XMM0)
+	
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, dst)
+	}
+}
+
+// emitFloatToInt 生成浮点到整数的转换
+func (cg *X64CodeGenerator) emitFloatToInt(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) == 0 {
+		return
+	}
+	
+	// 加载浮点（IEEE 754 位表示）到通用寄存器
+	src := cg.loadValue(instr.Args[0], RAX)
+	
+	// 先移到 XMM 寄存器
+	cg.asm.MovqXmmReg(XMM0, src)
+	
+	// 转换为整数（截断）
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	cg.asm.Cvttsd2siRegReg(dst, XMM0)
+	
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, dst)
+	}
 }

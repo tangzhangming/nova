@@ -150,11 +150,12 @@ func TestOptimizer(t *testing.T) {
 // TestRegisterAllocator 测试寄存器分配
 func TestRegisterAllocator(t *testing.T) {
 	// 创建简单函数
+	// LocalCount 必须至少为 Arity + 1（local[0] 预留给 this/调用者）
 	fn := &bytecode.Function{
 		Name:       "simpleAdd",
 		Arity:      2,
 		Chunk:      bytecode.NewChunk(),
-		LocalCount: 2,
+		LocalCount: 3, // local[0] 预留 + local[1], local[2] 用于参数
 	}
 	
 	chunk := fn.Chunk

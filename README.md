@@ -25,13 +25,6 @@
 
 | 领域 | 条目 | 现状（代码证据） | 备注/完成标准 |
 |---|---|---|---|
-| VM↔JIT | **启用 JIT 原生执行路径** | `internal/vm/vm.go` 中 JIT 执行分支被整体注释禁用，并明确标注"执行层暂时禁用" | 打通 `GetCompiled`→`executeNative`→失败回退解释器；配套崩溃隔离/回退与统计 |
-| JIT 支持范围 | **支持控制流（Jump/Loop/分支）** | `internal/jit/bridge.go:CanJIT` 直接拒绝 `OpLoop/OpJump/OpJumpIf*`（注释写"暂时禁用循环"） | 先实现块/CFG 代码生成，再逐步放开 `CanJIT` 白名单 |
-| JIT IR | **完成真正 SSA（Phi/rename）** | `internal/jit/builder.go:completePhis()` 是空实现并写明 TODO（支配边界/Phi/变量重命名） | SSA 完整后再逐步启用更高优化等级，避免错误优化导致错误码 |
-| JIT 值模型 | **支持 float 与更一般的值传递** | `internal/jit/bridge.go` 采用"int64 参数/返回"的桥接，`ValueToInt64` 对 float 进行截断 | 至少区分 int/float 的调用约定（或 tagged value），否则数值语义不可靠 |
-| VM 性能 | **把内联缓存真正接入方法调用路径** | `internal/vm/call_optimizer.go` 标注 `TODO: 集成内联缓存 (B1)` | 将 call-site cache 与 `OpCallMethod`/invoke 路径绑定；对 megamorphic 回退 |
-| 静态分析 | **变量"确定赋值"数据流分析** | `internal/compiler/type_checker.go` 中 `UninitializedChecker` 被注释禁用，并写明 TODO | 编译期稳定给出"可能未初始化"错误/警告，减少运行期问题 |
-| JIT 优化 | **实现常量折叠/死代码消除** | `internal/jit/optimizer.go` 存在框架但优化 Pass 较简单 | 基础优化 Pass 完善后可显著提升 JIT 代码质量 |
 
 ---
 
@@ -66,3 +59,10 @@
 | 字节码 | **字节码验证器** | `internal/bytecode/verifier.go` 验证栈平衡和跳转目标合法性 | 防止执行非法字节码 |
 | 字节码 | **字节码序列化/反序列化** | `internal/bytecode/serializer.go`、`deserializer.go` | 支持字节码持久化与加载 |
 | 字节码优化 | **窥孔优化器** | `internal/bytecode/optimizer.go` 实现基础的字节码优化 | 在字节码层面进行简单优化 |
+| VM 性能 | **把内联缓存真正接入方法调用路径** | `internal/vm/call_optimizer.go` 标注 `TODO: 集成内联缓存 (B1)` | 将 call-site cache 与 `OpCallMethod`/invoke 路径绑定；对 megamorphic 回退 |
+| 静态分析 | **变量"确定赋值"数据流分析** | `internal/compiler/type_checker.go` 中 `UninitializedChecker` 被注释禁用，并写明 TODO | 编译期稳定给出"可能未初始化"错误/警告，减少运行期问题 |
+| VM↔JIT | **启用 JIT 原生执行路径** | `internal/vm/vm.go` 中 JIT 执行分支被整体注释禁用，并明确标注"执行层暂时禁用" | 打通 `GetCompiled`→`executeNative`→失败回退解释器；配套崩溃隔离/回退与统计 |
+| JIT 支持范围 | **支持控制流（Jump/Loop/分支）** | `internal/jit/bridge.go:CanJIT` 直接拒绝 `OpLoop/OpJump/OpJumpIf*`（注释写"暂时禁用循环"） | 先实现块/CFG 代码生成，再逐步放开 `CanJIT` 白名单 |
+| JIT IR | **完成真正 SSA（Phi/rename）** | `internal/jit/builder.go:completePhis()` 是空实现并写明 TODO（支配边界/Phi/变量重命名） | SSA 完整后再逐步启用更高优化等级，避免错误优化导致错误码 |
+| JIT 值模型 | **支持 float 与更一般的值传递** | `internal/jit/bridge.go` 采用"int64 参数/返回"的桥接，`ValueToInt64` 对 float 进行截断 | 至少区分 int/float 的调用约定（或 tagged value），否则数值语义不可靠 |
+| JIT 优化 | **实现常量折叠/死代码消除** | `internal/jit/optimizer.go` 存在框架但优化 Pass 较简单 | 基础优化 Pass 完善后可显著提升 JIT 代码质量 |

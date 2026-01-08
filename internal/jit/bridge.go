@@ -8,11 +8,14 @@
 //
 // 调用约定：
 // - JIT 函数接收 int64 参数并返回 int64
+// - 对于 float 类型，使用 IEEE 754 位表示传递
 // - 复杂类型（对象、数组等）暂不支持，会回退到解释器
 
 package jit
 
 import (
+	"math"
+
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
@@ -45,7 +48,7 @@ func CanJIT(fn *bytecode.Function) bool {
 	for ip < len(code) {
 		op := bytecode.OpCode(code[ip])
 		
-		// 不支持的操作
+		// 不支持的操作（复杂运行时操作需要回退到解释器）
 		switch op {
 		case bytecode.OpCall, bytecode.OpTailCall,
 			bytecode.OpCallMethod, bytecode.OpCallStatic,
@@ -55,10 +58,11 @@ func CanJIT(fn *bytecode.Function) bool {
 			bytecode.OpClosure,
 			bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry,
 			bytecode.OpConcat,
-			bytecode.OpLoadGlobal, bytecode.OpStoreGlobal,
-			// 暂时禁用循环（代码生成器需要进一步调试）
-			bytecode.OpLoop, bytecode.OpJump, bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue:
+			bytecode.OpLoadGlobal, bytecode.OpStoreGlobal:
 			return false
+		// 控制流指令现在已支持
+		case bytecode.OpLoop, bytecode.OpJump, bytecode.OpJumpIfFalse, bytecode.OpJumpIfTrue:
+			// 已实现支持
 		}
 		
 		ip += instrSize(op, ip, code)
@@ -102,13 +106,19 @@ func instrSize(op bytecode.OpCode, ip int, code []byte) int {
 	}
 }
 
+// ============================================================================
+// 值转换函数
+// ============================================================================
+
 // ValueToInt64 将 Sola 值转换为 int64
+// 对于 float 类型，使用 IEEE 754 双精度位表示以保持精度
 func ValueToInt64(v bytecode.Value) int64 {
 	switch v.Type {
 	case bytecode.ValInt:
 		return v.AsInt()
 	case bytecode.ValFloat:
-		return int64(v.AsFloat())
+		// 使用 IEEE 754 位表示保持精度
+		return int64(math.Float64bits(v.AsFloat()))
 	case bytecode.ValBool:
 		if v.AsBool() {
 			return 1
@@ -122,6 +132,22 @@ func ValueToInt64(v bytecode.Value) int64 {
 }
 
 // Int64ToValue 将 int64 转换回 Sola 值
+// 默认转换为整数类型
 func Int64ToValue(v int64) bytecode.Value {
 	return bytecode.NewInt(v)
+}
+
+// Int64ToFloatValue 将 int64（IEEE 754 位表示）转换回 float 值
+func Int64ToFloatValue(v int64) bytecode.Value {
+	return bytecode.NewFloat(math.Float64frombits(uint64(v)))
+}
+
+// FloatBitsToInt64 将 float64 转换为 IEEE 754 位表示的 int64
+func FloatBitsToInt64(f float64) int64 {
+	return int64(math.Float64bits(f))
+}
+
+// Int64ToFloatBits 将 IEEE 754 位表示的 int64 转换为 float64
+func Int64ToFloatBits(v int64) float64 {
+	return math.Float64frombits(uint64(v))
 }

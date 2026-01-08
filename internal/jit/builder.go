@@ -568,11 +568,14 @@ func (b *IRBuilder) instrSize(op bytecode.OpCode, ip int) int {
 }
 
 // completePhis 完成 Phi 节点的构建
-// 在简化实现中，我们不生成完整的 SSA 形式，因此这里是空操作
+// 执行完整的 SSA 转换：计算支配树、支配边界、插入 Phi 节点、重命名变量
 func (b *IRBuilder) completePhis() {
-	// TODO: 实现完整的 SSA 转换
-	// 这需要：
-	// 1. 计算支配边界
-	// 2. 在合并点插入 Phi 节点
-	// 3. 重命名变量
+	// 只有在有多个块时才需要 SSA 转换
+	if len(b.fn.Blocks) <= 1 {
+		return
+	}
+	
+	// 执行 SSA 转换
+	ssaBuilder := NewSSABuilder(b.fn)
+	ssaBuilder.Build()
 }
