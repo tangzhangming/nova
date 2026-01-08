@@ -12,11 +12,12 @@ import (
 
 // Parser 语法分析器
 type Parser struct {
-	lexer    *lexer.Lexer
-	tokens   []token.Token
-	current  int
-	errors   []Error
-	filename string
+	lexer     *lexer.Lexer
+	tokens    []token.Token
+	current   int
+	errors    []Error
+	filename  string
+	panicMode bool // 错误恢复模式标志，用于避免级联报错
 }
 
 // Error 语法分析错误
@@ -50,86 +51,54 @@ func (p *Parser) Parse() *ast.File {
 
 	// 解析命名空间
 	if p.check(token.NAMESPACE) {
-		if ns := p.tryParseNamespace(); ns != nil {
+		p.panicMode = false
+		ns := p.parseNamespace()
+		if p.panicMode {
+			p.synchronize()
+		} else if ns != nil {
 			file.Namespace = ns
 		}
 	}
 
 	// 解析 use 声明
 	for p.check(token.USE) {
-		if use := p.tryParseUse(); use != nil {
+		p.panicMode = false
+		use := p.parseUse()
+		if p.panicMode {
+			p.synchronize()
+		} else if use != nil {
 			file.Uses = append(file.Uses, use)
 		}
 	}
 
 	// 解析声明和语句
 	for !p.isAtEnd() {
+		p.panicMode = false // 每次迭代重置 panicMode
+
 		if p.checkAny(token.CLASS, token.INTERFACE, token.ENUM, token.ABSTRACT, token.FINAL, token.PUBLIC,
 			token.PROTECTED, token.PRIVATE, token.AT, token.TYPE) {
-			if decl := p.tryParseDeclaration(); decl != nil {
+			decl := p.parseDeclaration()
+			if p.panicMode {
+				p.synchronize()
+				continue
+			}
+			if decl != nil {
 				file.Declarations = append(file.Declarations, decl)
 			}
 		} else {
 			// 顶层语句 (入口文件)
-			if stmt := p.tryParseStatement(); stmt != nil {
+			stmt := p.parseStatement()
+			if p.panicMode {
+				p.synchronize()
+				continue
+			}
+			if stmt != nil {
 				file.Statements = append(file.Statements, stmt)
 			}
 		}
 	}
 
 	return file
-}
-
-// tryParseNamespace 尝试解析命名空间，出错时恢复
-func (p *Parser) tryParseNamespace() (ns *ast.NamespaceDecl) {
-	defer func() {
-		if r := recover(); r != nil {
-			if r != "max errors exceeded" {
-				p.synchronize()
-			}
-			ns = nil
-		}
-	}()
-	return p.parseNamespace()
-}
-
-// tryParseUse 尝试解析 use 声明，出错时恢复
-func (p *Parser) tryParseUse() (use *ast.UseDecl) {
-	defer func() {
-		if r := recover(); r != nil {
-			if r != "max errors exceeded" {
-				p.synchronize()
-			}
-			use = nil
-		}
-	}()
-	return p.parseUse()
-}
-
-// tryParseDeclaration 尝试解析声明，出错时恢复
-func (p *Parser) tryParseDeclaration() (decl ast.Declaration) {
-	defer func() {
-		if r := recover(); r != nil {
-			if r != "max errors exceeded" {
-				p.synchronize()
-			}
-			decl = nil
-		}
-	}()
-	return p.parseDeclaration()
-}
-
-// tryParseStatement 尝试解析语句，出错时恢复
-func (p *Parser) tryParseStatement() (stmt ast.Statement) {
-	defer func() {
-		if r := recover(); r != nil {
-			if r != "max errors exceeded" {
-				p.synchronize()
-			}
-			stmt = nil
-		}
-	}()
-	return p.parseStatement()
 }
 
 // Errors 返回所有语法错误
@@ -203,13 +172,19 @@ func (p *Parser) consume(t token.TokenType, message string) token.Token {
 		return p.advance()
 	}
 	p.error(message)
-	panic("parse error") // 触发 recover 进行错误恢复
+	p.panicMode = true
+	return token.Token{} // 返回零值，调用方应检查 panicMode
 }
 
 // maxParseErrors 最大错误数量限制，防止错误爆炸
 const maxParseErrors = 50
 
 func (p *Parser) error(message string) {
+	// panicMode 下跳过后续错误，避免级联报错
+	if p.panicMode {
+		return
+	}
+
 	pos := p.peek().Pos
 
 	// 避免在同一位置重复报错
@@ -226,7 +201,8 @@ func (p *Parser) error(message string) {
 			Pos:     pos,
 			Message: "too many errors, aborting",
 		})
-		panic("max errors exceeded")
+		p.panicMode = true // 设置 panicMode 而不是 panic
+		return
 	}
 
 	p.errors = append(p.errors, Error{
@@ -1821,10 +1797,30 @@ func (p *Parser) parseVarDeclOrExprStmt() ast.Statement {
 
 func (p *Parser) parseBlock() *ast.BlockStmt {
 	lbrace := p.consume(token.LBRACE, "expected '{'")
+	if p.panicMode {
+		return nil
+	}
 
 	var stmts []ast.Statement
-	for !p.check(token.RBRACE) && !p.isAtEnd() {
-		stmts = append(stmts, p.parseStatement())
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
+		stmt := p.parseStatement()
+		if p.panicMode {
+			// 块内错误恢复：跳到下一个语句或块结束
+			for !p.check(token.RBRACE) && !p.isAtEnd() && !p.checkAny(
+				token.IF, token.FOR, token.FOREACH, token.WHILE, token.DO,
+				token.RETURN, token.TRY, token.THROW, token.BREAK, token.CONTINUE,
+				token.ECHO, token.SWITCH, token.VARIABLE) {
+				if p.previous().Type == token.SEMICOLON || p.previous().Type == token.RBRACE {
+					break
+				}
+				p.advance()
+			}
+			p.panicMode = false
+			continue
+		}
+		if stmt != nil {
+			stmts = append(stmts, stmt)
+		}
 	}
 
 	rbrace := p.consume(token.RBRACE, "expected '}'")
@@ -1839,19 +1835,37 @@ func (p *Parser) parseBlock() *ast.BlockStmt {
 func (p *Parser) parseIfStmt() *ast.IfStmt {
 	ifToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'if'")
+	if p.panicMode {
+		return nil
+	}
 	condition := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
 	then := p.parseBlock()
+	if p.panicMode {
+		return nil
+	}
 
 	var elseIfs []*ast.ElseIfClause
 	var elseBlock *ast.BlockStmt
 
-	for p.check(token.ELSEIF) {
+	for p.check(token.ELSEIF) && !p.panicMode {
 		elseIfToken := p.advance()
 		p.consume(token.LPAREN, "expected '(' after 'elseif'")
+		if p.panicMode {
+			return nil
+		}
 		elseIfCond := p.parseExpression()
 		p.consume(token.RPAREN, "expected ')'")
+		if p.panicMode {
+			return nil
+		}
 		elseIfBody := p.parseBlock()
+		if p.panicMode {
+			return nil
+		}
 		elseIfs = append(elseIfs, &ast.ElseIfClause{
 			ElseIfToken: elseIfToken,
 			Condition:   elseIfCond,
@@ -1875,21 +1889,33 @@ func (p *Parser) parseIfStmt() *ast.IfStmt {
 func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 	switchToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'switch'")
+	if p.panicMode {
+		return nil
+	}
 	expr := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
 	lbrace := p.consume(token.LBRACE, "expected '{'")
+	if p.panicMode {
+		return nil
+	}
 
 	var cases []*ast.CaseClause
 	var defaultClause *ast.DefaultClause
 
-	for !p.check(token.RBRACE) && !p.isAtEnd() {
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 		if p.check(token.CASE) {
 			caseToken := p.advance()
 			value := p.parseExpression()
 			colon := p.consume(token.COLON, "expected ':'")
+			if p.panicMode {
+				return nil
+			}
 
 			var body []ast.Statement
-			for !p.checkAny(token.CASE, token.DEFAULT, token.RBRACE) && !p.isAtEnd() {
+			for !p.checkAny(token.CASE, token.DEFAULT, token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 				body = append(body, p.parseStatement())
 			}
 
@@ -1902,9 +1928,12 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 		} else if p.check(token.DEFAULT) {
 			defaultToken := p.advance()
 			colon := p.consume(token.COLON, "expected ':'")
+			if p.panicMode {
+				return nil
+			}
 
 			var body []ast.Statement
-			for !p.checkAny(token.CASE, token.RBRACE) && !p.isAtEnd() {
+			for !p.checkAny(token.CASE, token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 				body = append(body, p.parseStatement())
 			}
 
@@ -1934,11 +1963,17 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 func (p *Parser) parseForStmt() *ast.ForStmt {
 	forToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'for'")
+	if p.panicMode {
+		return nil
+	}
 
 	// 初始化
 	var init ast.Statement
 	if !p.check(token.SEMICOLON) {
 		init = p.parseExprOrVarDeclStmt()
+		if p.panicMode {
+			return nil
+		}
 	} else {
 		p.advance() // 消费 ;
 	}
@@ -1949,6 +1984,9 @@ func (p *Parser) parseForStmt() *ast.ForStmt {
 		condition = p.parseExpression()
 	}
 	p.consume(token.SEMICOLON, "expected ';' after for condition")
+	if p.panicMode {
+		return nil
+	}
 
 	// 后置表达式
 	var post ast.Expression
@@ -1956,6 +1994,9 @@ func (p *Parser) parseForStmt() *ast.ForStmt {
 		post = p.parseExpression()
 	}
 	p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
 
 	body := p.parseBlock()
 
@@ -1971,6 +2012,9 @@ func (p *Parser) parseForStmt() *ast.ForStmt {
 func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 	foreachToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'foreach'")
+	if p.panicMode {
+		return nil
+	}
 
 	// 解析 iterable 表达式，但使用 PREC_CAST 优先级，避免把 as 当作类型转换
 	// 使用 PREC_CAST 而不是 PREC_CAST - 1，因为 parsePrecedence 的条件是 precedence <= getPrecedence(token)
@@ -1978,9 +2022,15 @@ func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 	// 实际上应该使用 PREC_CAST + 1，这样遇到 as 时会停止
 	iterable := p.parsePrecedence(PREC_CAST + 1)
 	asToken := p.consume(token.AS, "expected 'as'")
+	if p.panicMode {
+		return nil
+	}
 
 	var key *ast.Variable
 	valueToken := p.consume(token.VARIABLE, "expected variable")
+	if p.panicMode {
+		return nil
+	}
 	// 安全检查：防止空 token 导致 panic
 	valueNameStr := ""
 	if len(valueToken.Literal) > 0 {
@@ -1992,6 +2042,9 @@ func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 	if p.match(token.DOUBLE_ARROW) {
 		key = value
 		valueToken = p.consume(token.VARIABLE, "expected variable after '=>'")
+		if p.panicMode {
+			return nil
+		}
 		valueNameStr = ""
 		if len(valueToken.Literal) > 0 {
 			valueNameStr = valueToken.Literal[1:]
@@ -2000,6 +2053,9 @@ func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 	}
 
 	p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
 	body := p.parseBlock()
 
 	return &ast.ForeachStmt{
@@ -2015,8 +2071,14 @@ func (p *Parser) parseForeachStmt() *ast.ForeachStmt {
 func (p *Parser) parseWhileStmt() *ast.WhileStmt {
 	whileToken := p.advance()
 	p.consume(token.LPAREN, "expected '(' after 'while'")
+	if p.panicMode {
+		return nil
+	}
 	condition := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
 	body := p.parseBlock()
 
 	return &ast.WhileStmt{
@@ -2029,10 +2091,22 @@ func (p *Parser) parseWhileStmt() *ast.WhileStmt {
 func (p *Parser) parseDoWhileStmt() *ast.DoWhileStmt {
 	doToken := p.advance()
 	body := p.parseBlock()
+	if p.panicMode {
+		return nil
+	}
 	whileToken := p.consume(token.WHILE, "expected 'while'")
+	if p.panicMode {
+		return nil
+	}
 	p.consume(token.LPAREN, "expected '('")
+	if p.panicMode {
+		return nil
+	}
 	condition := p.parseExpression()
 	p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
 	semicolon := p.consume(token.SEMICOLON, "expected ';'")
 
 	return &ast.DoWhileStmt{
@@ -2085,13 +2159,22 @@ func (p *Parser) parseReturnStmt() *ast.ReturnStmt {
 func (p *Parser) parseTryStmt() *ast.TryStmt {
 	tryToken := p.advance()
 	tryBlock := p.parseBlock()
+	if p.panicMode {
+		return nil
+	}
 
 	var catches []*ast.CatchClause
-	for p.check(token.CATCH) {
+	for p.check(token.CATCH) && !p.panicMode {
 		catchToken := p.advance()
 		p.consume(token.LPAREN, "expected '('")
+		if p.panicMode {
+			return nil
+		}
 		exType := p.parseType()
 		varToken := p.consume(token.VARIABLE, "expected variable")
+		if p.panicMode {
+			return nil
+		}
 		// 安全检查：防止空 token 导致 panic
 		varNameStr := ""
 		if len(varToken.Literal) > 0 {
@@ -2099,7 +2182,13 @@ func (p *Parser) parseTryStmt() *ast.TryStmt {
 		}
 		varName := &ast.Variable{Token: varToken, Name: varNameStr}
 		p.consume(token.RPAREN, "expected ')'")
+		if p.panicMode {
+			return nil
+		}
 		body := p.parseBlock()
+		if p.panicMode {
+			return nil
+		}
 
 		catches = append(catches, &ast.CatchClause{
 			CatchToken: catchToken,
@@ -2226,6 +2315,9 @@ func (p *Parser) parseAnnotation() *ast.Annotation {
 func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibility, isAbstract, isFinal bool) *ast.ClassDecl {
 	classToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected class name")
+	if p.panicMode {
+		return nil
+	}
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 
 	// 泛型类型参数 <T, K extends Comparable>
@@ -2235,6 +2327,9 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 	var extends *ast.Identifier
 	if p.match(token.EXTENDS) {
 		extendsToken := p.consume(token.IDENT, "expected parent class name")
+		if p.panicMode {
+			return nil
+		}
 		extends = &ast.Identifier{Token: extendsToken, Name: extendsToken.Literal}
 	}
 
@@ -2269,6 +2364,9 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 	}
 
 	lbrace := p.consume(token.LBRACE, "expected '{'")
+	if p.panicMode {
+		return nil
+	}
 
 	var constants []*ast.ConstDecl
 	var properties []*ast.PropertyDecl
@@ -2579,6 +2677,9 @@ func (p *Parser) parseMethodDecl(annotations []*ast.Annotation, visibility ast.V
 func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Visibility) *ast.InterfaceDecl {
 	interfaceToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected interface name")
+	if p.panicMode {
+		return nil
+	}
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 
 	// 泛型类型参数 <T, K extends Comparable>
@@ -2615,9 +2716,12 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 	}
 
 	lbrace := p.consume(token.LBRACE, "expected '{'")
+	if p.panicMode {
+		return nil
+	}
 
 	var methods []*ast.MethodDecl
-	for !p.check(token.RBRACE) && !p.isAtEnd() {
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 		// 接口中的方法都是抽象的
 		visibility := ast.VisibilityPublic
 		if p.match(token.PUBLIC) {

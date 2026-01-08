@@ -173,7 +173,7 @@ func (tc *TypeChecker) checkMethodDecl(method *ast.MethodDecl, className string)
 		if param.Type != nil {
 			paramType = tc.getTypeName(param.Type)
 		}
-		tc.declareVariable(param.Name.Name, paramType, param.Pos())
+		tc.declareVariable(param.Name.Name, paramType, param.Pos(), true) // 函数参数总是已初始化
 	}
 	
 	// 构建 CFG
@@ -273,8 +273,8 @@ func (tc *TypeChecker) checkVarDeclStmt(stmt *ast.VarDeclStmt) {
 		}
 	}
 	
-	// 声明变量
-	tc.declareVariable(stmt.Name.Name, declaredType, stmt.Name.Pos())
+	// 声明变量（只有当有初值时才标记为已初始化）
+	tc.declareVariable(stmt.Name.Name, declaredType, stmt.Name.Pos(), stmt.Value != nil)
 }
 
 // checkMultiVarDeclStmt 检查多变量声明
@@ -287,9 +287,9 @@ func (tc *TypeChecker) checkMultiVarDeclStmt(stmt *ast.MultiVarDeclStmt) {
 			fmt.Sprintf("multi-variable declaration requires array or tuple, got %s", valueType))
 	}
 	
-	// 声明所有变量
+	// 声明所有变量（多返回值解构，总是已初始化）
 	for _, name := range stmt.Names {
-		tc.declareVariable(name.Name, "any", name.Pos())
+		tc.declareVariable(name.Name, "any", name.Pos(), true)
 	}
 }
 
@@ -385,10 +385,10 @@ func (tc *TypeChecker) checkForeachStmt(stmt *ast.ForeachStmt) {
 	}
 	
 	if stmt.Key != nil {
-		tc.declareVariable(stmt.Key.Name, keyType, stmt.Key.Pos())
+		tc.declareVariable(stmt.Key.Name, keyType, stmt.Key.Pos(), true) // foreach key 总是已初始化
 	}
-	tc.declareVariable(stmt.Value.Name, valueType, stmt.Value.Pos())
-	
+	tc.declareVariable(stmt.Value.Name, valueType, stmt.Value.Pos(), true) // foreach value 总是已初始化
+
 	tc.checkStatement(stmt.Body)
 }
 
@@ -458,7 +458,7 @@ func (tc *TypeChecker) checkTryStmt(stmt *ast.TryStmt) {
 	for _, catchClause := range stmt.Catches {
 		tc.enterScope()
 		exceptionType := tc.getTypeName(catchClause.Type)
-		tc.declareVariable(catchClause.Variable.Name, exceptionType, catchClause.Variable.Pos())
+		tc.declareVariable(catchClause.Variable.Name, exceptionType, catchClause.Variable.Pos(), true) // catch 变量总是已初始化
 		tc.checkStatement(catchClause.Body)
 		tc.exitScope()
 	}
@@ -904,12 +904,13 @@ func (tc *TypeChecker) exitScope() {
 }
 
 // declareVariable 声明变量
-func (tc *TypeChecker) declareVariable(name, typeName string, pos token.Position) {
+// isInitialized 参数指示变量是否在声明时已被赋值
+func (tc *TypeChecker) declareVariable(name, typeName string, pos token.Position, isInitialized bool) {
 	tc.currentScope.variables[name] = &VarTypeInfo{
 		Name:          name,
 		DeclaredType:  typeName,
 		IsNullable:    tc.isNullableType(typeName),
-		IsInitialized: true, // 假设声明时已初始化
+		IsInitialized: isInitialized,
 		DefinedAt:     pos,
 	}
 }
@@ -1109,23 +1110,9 @@ func (tc *TypeChecker) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
-	// int 可以赋给 float
-	if actual == "int" && expected == "float" {
-		return true
-	}
-	
-	// int 可以赋给其他整数类型 (i8, i16, i32, i64, u8, u16, u32, u64)
-	integerTypes := map[string]bool{
-		"int": true, "i8": true, "i16": true, "i32": true, "i64": true,
-		"u8": true, "u16": true, "u32": true, "u64": true,
-	}
-	if actual == "int" && integerTypes[expected] {
-		return true
-	}
-	// 整数类型之间的兼容性（允许隐式转换）
-	if integerTypes[actual] && integerTypes[expected] {
-		return true
-	}
+	// 注意：禁止隐式类型转换！
+	// 不允许 int→float、整数类型之间的隐式转换
+	// 如需转换请使用显式类型转换：$x as float, $y as i32
 	
 	// 数组类型
 	if strings.HasSuffix(actual, "[]") && strings.HasSuffix(expected, "[]") {

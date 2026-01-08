@@ -2,6 +2,7 @@ package vm
 
 import (
 	"time"
+	"unsafe"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
@@ -163,12 +164,10 @@ func classToPtr(class *bytecode.Class) uintptr {
 	return uintptr(unsafePointer(class))
 }
 
-// unsafePointer 获取指针值（避免导入 unsafe 包）
+// unsafePointer 获取类的指针值，用于快速类型身份比较
 //go:noinline
 func unsafePointer(p *bytecode.Class) uintptr {
-	// 使用 Go 的指针语义，通过格式化获取地址
-	// 这是一个安全的方式，不使用 unsafe 包
-	return uintptr(0) // 占位符，实际使用 reflect
+	return uintptr(unsafe.Pointer(p))
 }
 
 // ============================================================================
