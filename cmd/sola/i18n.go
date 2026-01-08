@@ -29,6 +29,7 @@ type Messages struct {
 	// 命令描述
 	CmdRun     string
 	CmdBuild   string
+	CmdJvm     string
 	CmdCheck   string
 	CmdFormat  string
 	CmdVersion string
@@ -65,13 +66,15 @@ type Messages struct {
 	ErrDeserializeFailed   string
 	ErrFormatFailed        string
 	ErrFormatNotFormatted  string
+	ErrJvmGenFailed        string
 
 	// 成功信息
 	SuccessSyntaxOK      string
 	SuccessBuilding      string
 	SuccessBuildComplete string
-	SuccessFormatOK      string
+	SuccessFormatOK       string
 	SuccessFormatComplete string
+	SuccessJvmComplete    string
 
 	// 其他
 	NotImplemented string
@@ -93,6 +96,7 @@ var messagesEN = Messages{
 
 	CmdRun:     "Run a Sola source file or compiled bytecode",
 	CmdBuild:   "Compile to bytecode",
+	CmdJvm:     "Compile to JVM bytecode (.class file)",
 	CmdCheck:   "Check syntax without running",
 	CmdFormat:  "Format source code",
 	CmdVersion: "Show version information",
@@ -126,12 +130,14 @@ var messagesEN = Messages{
 	ErrDeserializeFailed:   "Failed to load compiled file",
 	ErrFormatFailed:        "Formatting failed",
 	ErrFormatNotFormatted:  "%s: not formatted",
+	ErrJvmGenFailed:        "JVM bytecode generation failed",
 
 	SuccessSyntaxOK:       "✓ %s: syntax OK",
 	SuccessBuilding:       "Building %s...",
 	SuccessBuildComplete:  "✓ Built %s (%d bytes)",
 	SuccessFormatOK:       "✓ %s: already formatted",
 	SuccessFormatComplete: "✓ Formatted: %s",
+	SuccessJvmComplete:    "✓ Generated JVM class: %s (%d bytes)",
 
 	NotImplemented: "Note: Build command is not yet implemented. Coming soon!",
 	Namespace:      "Namespace",
@@ -152,6 +158,7 @@ var messagesZH = Messages{
 
 	CmdRun:     "运行 Sola 源文件或编译后的字节码",
 	CmdBuild:   "编译为字节码",
+	CmdJvm:     "编译为 JVM 字节码（.class 文件）",
 	CmdCheck:   "检查语法，不运行",
 	CmdFormat:  "格式化源代码",
 	CmdVersion: "显示版本信息",
@@ -185,12 +192,14 @@ var messagesZH = Messages{
 	ErrDeserializeFailed:   "加载编译文件失败",
 	ErrFormatFailed:        "格式化失败",
 	ErrFormatNotFormatted:  "%s: 未格式化",
+	ErrJvmGenFailed:        "JVM 字节码生成失败",
 
 	SuccessSyntaxOK:       "✓ %s: 语法正确",
 	SuccessBuilding:       "正在编译 %s...",
 	SuccessBuildComplete:  "✓ 编译完成 %s (%d 字节)",
 	SuccessFormatOK:       "✓ %s: 已格式化",
 	SuccessFormatComplete: "✓ 已格式化: %s",
+	SuccessJvmComplete:    "✓ 已生成 JVM 类: %s (%d 字节)",
 
 	NotImplemented: "提示: 编译功能尚未实现，敬请期待！",
 	Namespace:      "命名空间",

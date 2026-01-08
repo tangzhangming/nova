@@ -11,6 +11,7 @@ import (
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/formatter"
 	"github.com/tangzhangming/nova/internal/i18n"
+	"github.com/tangzhangming/nova/internal/jvmgen"
 	"github.com/tangzhangming/nova/internal/lexer"
 	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
@@ -51,6 +52,8 @@ func main() {
 		cmdRun(args[1:])
 	case "build":
 		cmdBuild(args[1:])
+	case "jvm":
+		cmdJvm(args[1:])
 	case "check":
 		cmdCheck(args[1:])
 	case "format", "fmt":
@@ -107,6 +110,7 @@ func printUsage() {
 	fmt.Println(m.HelpCommands)
 	fmt.Printf("  run <file>      %s\n", m.CmdRun)
 	fmt.Printf("  build <file>    %s\n", m.CmdBuild)
+	fmt.Printf("  jvm <file>      %s\n", m.CmdJvm)
 	fmt.Printf("  check <file>    %s\n", m.CmdCheck)
 	fmt.Printf("  format <file>   %s\n", m.CmdFormat)
 	fmt.Printf("  version         %s\n", m.CmdVersion)
@@ -319,6 +323,77 @@ func cmdBuild(args []string) {
 	// 获取文件大小
 	fi, _ := os.Stat(outputFile)
 	fmt.Printf(m.SuccessBuildComplete+"\n", outputFile, fi.Size())
+}
+
+// cmdJvm 编译为 JVM 字节码
+func cmdJvm(args []string) {
+	m := Msg()
+	fs := flag.NewFlagSet("jvm", flag.ExitOnError)
+	output := fs.String("o", "", m.OptOutput)
+	className := fs.String("class", "Main", "Output class name")
+
+	fs.Usage = func() {
+		fmt.Println(m.HelpUsage + " sola jvm [options] <file>")
+		fmt.Println()
+		fmt.Println(m.HelpOptions)
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	if fs.NArg() < 1 {
+		fs.Usage()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, m.ErrNoInput)
+		os.Exit(1)
+	}
+
+	filename := fs.Arg(0)
+
+	// 读取源文件
+	source, err := os.ReadFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrReadFile+"\n", err)
+		os.Exit(1)
+	}
+
+	// 解析源代码
+	p := parser.New(string(source), filename)
+	file := p.Parse()
+
+	if p.HasErrors() {
+		fmt.Println(m.ErrParser)
+		for _, e := range p.Errors() {
+			fmt.Printf("  %s\n", e)
+		}
+		os.Exit(1)
+	}
+
+	// 生成 JVM 字节码
+	gen := jvmgen.NewGenerator(*className)
+	classData, err := gen.Generate(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrJvmGenFailed+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 确定输出文件名
+	outputFile := *output
+	if outputFile == "" {
+		outputFile = *className + ".class"
+	}
+
+	// 写入文件
+	if err := os.WriteFile(outputFile, classData, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, m.ErrWriteFile+": %s\n", err)
+		os.Exit(1)
+	}
+
+	// 获取文件大小
+	fi, _ := os.Stat(outputFile)
+	fmt.Printf(m.SuccessJvmComplete+"\n", outputFile, fi.Size())
 }
 
 // cmdCheck 语法检查
