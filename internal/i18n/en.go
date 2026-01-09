@@ -153,6 +153,17 @@ var messagesEN = map[string]string{
 	ErrCompileFailed:      "compile failed",
 	ErrCompileFailedFor:   "compile failed for %s",
 
+	// ========== Loader ==========
+	ErrGetExecutablePath:    "failed to get executable path: %v",
+	ErrResolveSymlinks:      "failed to resolve symlinks: %v",
+	ErrStdLibNotFound:       "standard library not found at %s",
+	ErrProjectConfigNotFound: "%s not found",
+	ErrOpenProjectConfig:    "failed to open %s: %v",
+	ErrReadProjectConfig:    "failed to read %s: %v",
+	ErrStdLibNotConfigured:  "standard library not configured, cannot import: %s",
+	ErrStdLibImportNotFound: "standard library not found: %s (tried %s)",
+	ErrImportNotFound:       "import not found: %s",
+
 	// ========== Suggestions ==========
 	// Variable related
 	"suggestion.declare_variable":      "Did you mean to declare a new variable? Use `$%s := value`",

@@ -153,6 +153,17 @@ const (
 	ErrCompileError       = "runtime.compile_error"
 	ErrCompileFailed      = "runtime.compile_failed"
 	ErrCompileFailedFor   = "runtime.compile_failed_for"
+
+	// ========== 包加载器 ==========
+	ErrGetExecutablePath    = "loader.get_executable_path"
+	ErrResolveSymlinks      = "loader.resolve_symlinks"
+	ErrStdLibNotFound       = "loader.stdlib_not_found"
+	ErrProjectConfigNotFound = "loader.project_config_not_found"
+	ErrOpenProjectConfig    = "loader.open_project_config"
+	ErrReadProjectConfig    = "loader.read_project_config"
+	ErrStdLibNotConfigured  = "loader.stdlib_not_configured"
+	ErrStdLibImportNotFound = "loader.stdlib_import_not_found"
+	ErrImportNotFound       = "loader.import_not_found"
 )
 
 

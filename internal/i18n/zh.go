@@ -153,6 +153,17 @@ var messagesZH = map[string]string{
 	ErrCompileFailed:      "编译失败",
 	ErrCompileFailedFor:   "%s 编译失败",
 
+	// ========== 包加载器 ==========
+	ErrGetExecutablePath:    "获取可执行文件路径失败: %v",
+	ErrResolveSymlinks:      "解析符号链接失败: %v",
+	ErrStdLibNotFound:       "标准库目录不存在: %s",
+	ErrProjectConfigNotFound: "未找到项目配置文件 %s",
+	ErrOpenProjectConfig:    "打开 %s 失败: %v",
+	ErrReadProjectConfig:    "读取 %s 失败: %v",
+	ErrStdLibNotConfigured:  "标准库未配置，无法导入: %s",
+	ErrStdLibImportNotFound: "标准库模块未找到: %s（尝试路径: %s）",
+	ErrImportNotFound:       "导入未找到: %s",
+
 	// ========== 修复建议 ==========
 	// 变量相关
 	"suggestion.declare_variable":      "是否想要声明新变量？使用 `$%s := 值`",

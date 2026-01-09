@@ -1,10 +1,8 @@
 *.exe
-*.log
-*.toml
+*.bat
+*.ps1
 /bin/
 /idea/
 /.cursor/
-/docs/
-/tests/
 /examples/
 /benchmarks/
