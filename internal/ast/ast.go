@@ -903,32 +903,60 @@ func (s *IfStmt) String() string { return "if (...) {...}" }
 func (s *IfStmt) stmtNode()      {}
 
 // SwitchStmt switch 语句
+// SwitchStmt switch 语句（支持多值和两种形式）
 type SwitchStmt struct {
 	SwitchToken token.Token
+	LParen      token.Token
 	Expr        Expression
+	RParen      token.Token
 	LBrace      token.Token
-	Cases       []*CaseClause
-	Default     *DefaultClause // 可为 nil
+	Cases       []*SwitchCase
+	Default     *SwitchDefaultCase // 可为 nil
 	RBrace      token.Token
 }
 
-type CaseClause struct {
-	CaseToken token.Token
-	Value     Expression
-	Colon     token.Token
-	Body      []Statement
+// SwitchExpr switch 表达式（返回值）
+type SwitchExpr struct {
+	SwitchToken token.Token
+	LParen      token.Token
+	Expr        Expression
+	RParen      token.Token
+	LBrace      token.Token
+	Cases       []*SwitchCase
+	Default     *SwitchDefaultCase // 可为 nil
+	RBrace      token.Token
 }
 
-type DefaultClause struct {
-	DefaultToken token.Token
-	Colon        token.Token
-	Body         []Statement
+// SwitchCase case 子句（支持多值：case 1, 2, 3 和两种形式：=> 或 :）
+type SwitchCase struct {
+	CaseToken token.Token
+	Values    []Expression // 多个值：case 1, 2, 3
+	Arrow     token.Token  // => token（表达式形式）
+	Colon     token.Token  // : token（语句形式）
+	Body      interface{}  // Expression（=>形式）或 []Statement（:形式）
 }
+
+// SwitchDefaultCase default 子句（支持两种形式）
+type SwitchDefaultCase struct {
+	DefaultToken token.Token
+	Arrow        token.Token // => token（表达式形式）
+	Colon        token.Token // : token（语句形式）
+	Body         interface{} // Expression（=>形式）或 []Statement（:形式）
+}
+
+// 保留旧类型别名以兼容现有代码（临时）
+type CaseClause = SwitchCase
+type DefaultClause = SwitchDefaultCase
 
 func (s *SwitchStmt) Pos() token.Position { return s.SwitchToken.Pos }
 func (s *SwitchStmt) End() token.Position { return s.RBrace.Pos }
 func (s *SwitchStmt) String() string      { return "switch (...) {...}" }
 func (s *SwitchStmt) stmtNode()           {}
+
+func (e *SwitchExpr) Pos() token.Position { return e.SwitchToken.Pos }
+func (e *SwitchExpr) End() token.Position { return e.RBrace.Pos }
+func (e *SwitchExpr) String() string      { return "switch (...) {...}" }
+func (e *SwitchExpr) exprNode()           {}
 
 // ForStmt for 语句
 type ForStmt struct {
@@ -1621,15 +1649,45 @@ func Walk(node Node, visitor Visitor) {
 
 	case *SwitchStmt:
 		Walk(n.Expr, visitor)
-		for _, caseClause := range n.Cases {
-			Walk(caseClause.Value, visitor)
-			for _, stmt := range caseClause.Body {
-				Walk(stmt, visitor)
+		for _, switchCase := range n.Cases {
+			// 遍历多个值
+			for _, value := range switchCase.Values {
+				Walk(value, visitor)
+			}
+			// Body 可能是 Expression 或 []Statement
+			if expr, ok := switchCase.Body.(Expression); ok {
+				Walk(expr, visitor)
+			} else if stmts, ok := switchCase.Body.([]Statement); ok {
+				for _, stmt := range stmts {
+					Walk(stmt, visitor)
+				}
 			}
 		}
 		if n.Default != nil {
-			for _, stmt := range n.Default.Body {
-				Walk(stmt, visitor)
+			if expr, ok := n.Default.Body.(Expression); ok {
+				Walk(expr, visitor)
+			} else if stmts, ok := n.Default.Body.([]Statement); ok {
+				for _, stmt := range stmts {
+					Walk(stmt, visitor)
+				}
+			}
+		}
+
+	case *SwitchExpr:
+		Walk(n.Expr, visitor)
+		for _, switchCase := range n.Cases {
+			// 遍历多个值
+			for _, value := range switchCase.Values {
+				Walk(value, visitor)
+			}
+			// SwitchExpr 的 body 应该总是 Expression
+			if expr, ok := switchCase.Body.(Expression); ok {
+				Walk(expr, visitor)
+			}
+		}
+		if n.Default != nil {
+			if expr, ok := n.Default.Body.(Expression); ok {
+				Walk(expr, visitor)
 			}
 		}
 

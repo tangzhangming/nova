@@ -1716,29 +1716,65 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 
 	var endJumps []int
 
-	for _, caseClause := range s.Cases {
-		// 复制 switch 表达式值
-		c.emit(bytecode.OpDup)
-		c.compileExpr(caseClause.Value)
-		c.emit(bytecode.OpEq)
+	for _, switchCase := range s.Cases {
+		// 多值匹配：case 1, 2, 3
+		// 对每个值进行 OR 匹配：value==1 || value==2 || value==3
+		var matchJumps []int // 记录匹配成功时跳转到body的位置
+		var nextCaseJump int // 记录所有值都不匹配时跳转到下一个case的位置
 
-		nextCase := c.emitJump(bytecode.OpJumpIfFalse)
-		c.emit(bytecode.OpPop)
+		for i, value := range switchCase.Values {
+			c.emit(bytecode.OpDup) // 复制 switch 表达式值
+			c.compileExpr(value)
+			c.emit(bytecode.OpEq)
 
-		// case 体
-		for _, stmt := range caseClause.Body {
-			c.compileStmt(stmt)
+			if i < len(switchCase.Values)-1 {
+				// 不是最后一个值：如果匹配（true），跳到body；否则继续检查下一个值
+				matchJump := c.emitJump(bytecode.OpJumpIfTrue)
+				matchJumps = append(matchJumps, matchJump)
+				c.emit(bytecode.OpPop) // 弹出 false
+			} else {
+				// 最后一个值：如果不匹配（false），跳到下一个case
+				nextCaseJump = c.emitJump(bytecode.OpJumpIfFalse)
+				c.emit(bytecode.OpPop) // 弹出 true
+			}
+		}
+
+		// 修补所有匹配跳转到这里（body开始处）
+		for _, jump := range matchJumps {
+			c.patchJump(jump)
+			c.emit(bytecode.OpPop) // 弹出匹配成功的 true
+		}
+
+		// 编译 body
+		if expr, ok := switchCase.Body.(ast.Expression); ok {
+			// => 形式：编译表达式但丢弃结果（语句形式不需要返回值）
+			c.compileExpr(expr)
+			c.emit(bytecode.OpPop)
+		} else if stmts, ok := switchCase.Body.([]ast.Statement); ok {
+			// : 形式：编译语句块
+			for _, stmt := range stmts {
+				c.compileStmt(stmt)
+			}
 		}
 
 		endJumps = append(endJumps, c.emitJump(bytecode.OpJump))
-		c.patchJump(nextCase)
-		c.emit(bytecode.OpPop)
+		
+		// 修补不匹配跳转到下一个case
+		c.patchJump(nextCaseJump)
+		c.emit(bytecode.OpPop) // 弹出不匹配的 false
 	}
 
 	// default
 	if s.Default != nil {
-		for _, stmt := range s.Default.Body {
-			c.compileStmt(stmt)
+		if expr, ok := s.Default.Body.(ast.Expression); ok {
+			// => 形式
+			c.compileExpr(expr)
+			c.emit(bytecode.OpPop)
+		} else if stmts, ok := s.Default.Body.([]ast.Statement); ok {
+			// : 形式
+			for _, stmt := range stmts {
+				c.compileStmt(stmt)
+			}
 		}
 	}
 
@@ -1747,7 +1783,7 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 		c.patchJump(jump)
 	}
 
-	c.emit(bytecode.OpPop) // 弹出 switch 表达式
+	c.emit(bytecode.OpPop) // 弹出 switch 表达式值
 }
 
 // checkSwitchExhaustiveness 检查 switch 语句的穷尽性
@@ -1766,11 +1802,14 @@ func (c *Compiler) checkSwitchExhaustiveness(s *ast.SwitchStmt, exprType string)
 	
 	// 收集所有 case 覆盖的值
 	coveredValues := make(map[string]bool)
-	for _, caseClause := range s.Cases {
-		// 尝试从 case 值中提取枚举成员名
-		if sa, ok := caseClause.Value.(*ast.StaticAccess); ok {
-			if member, ok := sa.Member.(*ast.Identifier); ok {
-				coveredValues[member.Name] = true
+	for _, switchCase := range s.Cases {
+		// 遍历多个值：case 1, 2, 3
+		for _, value := range switchCase.Values {
+			// 尝试从 case 值中提取枚举成员名
+			if sa, ok := value.(*ast.StaticAccess); ok {
+				if member, ok := sa.Member.(*ast.Identifier); ok {
+					coveredValues[member.Name] = true
+				}
 			}
 		}
 	}
@@ -2154,6 +2193,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 
 	case *ast.MatchExpr:
 		c.compileMatchExpr(e)
+
+	case *ast.SwitchExpr:
+		c.compileSwitchExpr(e)
 
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
@@ -3655,6 +3697,86 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) {
 	}
 }
 
+// compileSwitchExpr 编译 switch 表达式（返回值形式）
+func (c *Compiler) compileSwitchExpr(e *ast.SwitchExpr) {
+	// 编译被匹配的表达式
+	c.compileExpr(e.Expr)
+
+	var endJumps []int
+
+	for _, switchCase := range e.Cases {
+		// 多值匹配：case 1, 2, 3
+		var matchJumps []int // 记录匹配成功时跳转到body的位置
+		var nextCaseJump int // 记录所有值都不匹配时跳转到下一个case的位置
+
+		for i, value := range switchCase.Values {
+			c.emit(bytecode.OpDup) // 复制 switch 表达式值
+			c.compileExpr(value)
+			c.emit(bytecode.OpEq)
+
+			if i < len(switchCase.Values)-1 {
+				// 不是最后一个值：如果匹配（true），跳到body
+				matchJump := c.emitJump(bytecode.OpJumpIfTrue)
+				matchJumps = append(matchJumps, matchJump)
+				c.emit(bytecode.OpPop) // 弹出 false
+			} else {
+				// 最后一个值：如果不匹配（false），跳到下一个case
+				nextCaseJump = c.emitJump(bytecode.OpJumpIfFalse)
+				c.emit(bytecode.OpPop) // 弹出 true
+			}
+		}
+
+		// 修补所有匹配跳转到这里（body开始处）
+		for _, jump := range matchJumps {
+			c.patchJump(jump)
+			c.emit(bytecode.OpPop) // 弹出匹配成功的 true
+		}
+
+		// 编译 body（必须是表达式，结果留在栈上）
+		if expr, ok := switchCase.Body.(ast.Expression); ok {
+			c.compileExpr(expr) // 表达式结果留在栈上
+		} else {
+			c.error(switchCase.CaseToken.Pos, "switch表达式的case必须使用 => 形式")
+			return
+		}
+
+		// 交换栈顶：[switch_value, case_result] -> [case_result, switch_value]
+		c.emit(bytecode.OpSwap)
+		c.emit(bytecode.OpPop) // 弹出 switch 值
+
+		// 跳转到结束
+		endJump := c.emitJump(bytecode.OpJump)
+		endJumps = append(endJumps, endJump)
+
+		// 修补不匹配跳转到下一个case
+		c.patchJump(nextCaseJump)
+		c.emit(bytecode.OpPop) // 弹出不匹配的 false
+	}
+
+	// default
+	if e.Default != nil {
+		if expr, ok := e.Default.Body.(ast.Expression); ok {
+			c.compileExpr(expr) // 表达式结果留在栈上
+		} else {
+			c.error(e.Default.DefaultToken.Pos, "switch表达式的default必须使用 => 形式")
+			return
+		}
+
+		// 交换并弹出 switch 值
+		c.emit(bytecode.OpSwap)
+		c.emit(bytecode.OpPop)
+	} else {
+		// 如果没有 default 且所有 case 都不匹配，返回 null
+		c.emit(bytecode.OpNull)
+		c.emit(bytecode.OpSwap)
+		c.emit(bytecode.OpPop) // 弹出 switch 值
+	}
+
+	// 修补所有结束跳转
+	for _, jump := range endJumps {
+		c.patchJump(jump)
+	}
+}
 
 // checkMatchExhaustiveness 检查 match 表达式的穷尽性（可选）
 func (c *Compiler) checkMatchExhaustiveness(e *ast.MatchExpr, exprType string) {
@@ -4254,6 +4376,9 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.MatchExpr:
 		// match 表达式：返回所有 case body 的公共类型
 		return c.inferMatchExprType(e)
+	case *ast.SwitchExpr:
+		// switch 表达式：返回所有 case body 的公共类型
+		return c.inferSwitchExprType(e)
 	case *ast.Identifier:
 		// 可能是类名、枚举等
 		return e.Name
@@ -4302,6 +4427,70 @@ func (c *Compiler) inferMatchExprType(e *ast.MatchExpr) string {
 		return firstType
 	}
 	
+	// 如果类型不同，检查是否兼容
+	// 简化处理：返回第一个类型（未来可以改进为真正的联合类型推断）
+	return firstType
+}
+
+// inferSwitchExprType 推断 switch 表达式的返回类型
+func (c *Compiler) inferSwitchExprType(e *ast.SwitchExpr) string {
+	if len(e.Cases) == 0 && e.Default == nil {
+		c.error(e.Pos(), "switch 表达式至少需要一个 case 或 default")
+		return "error"
+	}
+
+	// 收集所有 case body 的类型
+	var types []string
+	for _, switchCase := range e.Cases {
+		if expr, ok := switchCase.Body.(ast.Expression); ok {
+			bodyType := c.inferExprType(expr)
+			if bodyType == "error" {
+				return "error"
+			}
+			if bodyType != "" {
+				types = append(types, bodyType)
+			}
+		} else {
+			c.error(switchCase.CaseToken.Pos, "switch表达式的case必须使用 => 形式")
+			return "error"
+		}
+	}
+
+	// 如果有 default，也要检查它的类型
+	if e.Default != nil {
+		if expr, ok := e.Default.Body.(ast.Expression); ok {
+			bodyType := c.inferExprType(expr)
+			if bodyType == "error" {
+				return "error"
+			}
+			if bodyType != "" {
+				types = append(types, bodyType)
+			}
+		} else {
+			c.error(e.Default.DefaultToken.Pos, "switch表达式的default必须使用 => 形式")
+			return "error"
+		}
+	}
+
+	if len(types) == 0 {
+		c.error(e.Pos(), "无法推断 switch 表达式的返回类型")
+		return "error"
+	}
+
+	// 如果所有类型相同，返回该类型
+	firstType := types[0]
+	allSame := true
+	for _, t := range types {
+		if t != firstType {
+			allSame = false
+			break
+		}
+	}
+
+	if allSame {
+		return firstType
+	}
+
 	// 如果类型不同，检查是否兼容
 	// 简化处理：返回第一个类型（未来可以改进为真正的联合类型推断）
 	return firstType

@@ -506,23 +506,81 @@ if ($value is string) {
 }
 ```
 
-### switch
+### switch 语句与表达式
+
+Sola 的 switch 支持两种形式：**语句形式**（执行操作）和**表达式形式**（返回值）。单个 case 支持多个值。
+
+#### Switch 表达式（返回值）
+
+switch 表达式可以赋值给变量，每个 case 使用 `=>` 返回值：
+
 ```sola
-switch ($day) {
-    case 1:
-        echo "周一";
+// 单值匹配
+$dayName := switch ($day) {
+    case 1 => "周一",
+    case 2 => "周二",
+    case 3 => "周三",
+    default => "未知"
+};
+
+// 多值匹配
+$category := switch ($day) {
+    case 1, 2, 3, 4, 5 => "工作日",
+    case 6, 7 => "周末",
+    default => "无效"
+};
+
+// 复杂表达式
+$price := switch ($level) {
+    case 1 => calculateBasicPrice(),
+    case 2, 3 => calculatePremiumPrice() * 0.9,
+    case 4, 5 => getVipPrice(),
+    default => throw new Exception("Invalid level")
+};
+```
+
+#### Switch 语句（多行 body）
+
+switch 语句用于执行多条语句，使用 `:` 和 `break`：
+
+```sola
+switch ($status) {
+    case 0, 1:
+        echo "待处理";
+        sendNotification();
         break;
-    case 2:
-        echo "周二";
-        break;
-    case 6:
-    case 7:
-        echo "周末";
+    case 2, 3, 4:
+        echo "进行中";
+        updateProgress();
         break;
     default:
-        echo "工作日";
+        echo "已完成";
 }
 ```
+
+#### Switch 语法规则
+
+1. **多值 case**：单个 case 可以匹配多个值，用逗号分隔：`case 1, 2, 3`
+2. **箭头形式 `=>`**：用于单行表达式，自动 break，不需要显式写 break
+3. **冒号形式 `:`**：用于多行语句块，需要显式 break
+4. **禁止混合**：同一个 switch 中所有 case 必须使用相同形式（全部 `=>` 或全部 `:`）
+5. **Switch 表达式**：所有 case 使用 `=>` 时，switch 可作为表达式返回值，类型必须兼容
+6. **穷尽性**：switch 表达式建议包含 default 分支以确保所有情况都被覆盖
+
+#### Switch vs Match
+
+| 特性 | switch | match |
+|------|--------|-------|
+| 用途 | 值匹配 | 值匹配 + 类型匹配 + 模式匹配 |
+| 语法 | `case value =>` | `pattern =>` |
+| 类型模式 | ❌ 不支持 | ✅ 支持 `int $n` |
+| 守卫条件 | ❌ 不支持 | ✅ 支持 `if $n > 0` |
+| 多值 | ✅ `case 1, 2, 3` | ❌ 需分开写 |
+| 多行 body | ✅ 支持 `:` 形式 | ❌ 仅表达式 |
+
+**使用建议**：
+- 简单值匹配 + 需要多行操作：用 **switch**
+- 需要类型匹配或守卫条件：用 **match**
 
 ### match 表达式（模式匹配）
 

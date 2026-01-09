@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Sola Crypto Library - AES
  * AES对称加密库
  */
@@ -265,16 +265,12 @@ class Aes {
      * @return byte[] 密钥
      */
     public static function generateKey(int $bits = 256): byte[] {
-        switch ($bits) {
-            case 128:
-                return Random::bytes(16);
-            case 192:
-                return Random::bytes(24);
-            case 256:
-                return Random::bytes(32);
-            default:
-                throw new CryptoException("Invalid key size: " + $bits, CryptoException::INVALID_KEY);
-        }
+        return switch ($bits) {
+            case 128 => Random::bytes(16),
+            case 192 => Random::bytes(24),
+            case 256 => Random::bytes(32),
+            default => throw new CryptoException("Invalid key size: " + $bits, CryptoException::INVALID_KEY)
+        };
     }
     
     /**

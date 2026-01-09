@@ -682,6 +682,8 @@ func (p *Parser) parsePrefixExpr() ast.Expression {
 		return p.parseClosureExpr()
 	case token.MATCH:
 		return p.parseMatchExpr()
+	case token.SWITCH:
+		return p.parseSwitchExpr()
 	// Go 风格数组字面量: int{1, 2, 3}
 	case token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
 		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
@@ -1888,12 +1890,12 @@ func (p *Parser) parseIfStmt() *ast.IfStmt {
 
 func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 	switchToken := p.advance()
-	p.consume(token.LPAREN, "expected '(' after 'switch'")
+	lparen := p.consume(token.LPAREN, "expected '(' after 'switch'")
 	if p.panicMode {
 		return nil
 	}
 	expr := p.parseExpression()
-	p.consume(token.RPAREN, "expected ')'")
+	rparen := p.consume(token.RPAREN, "expected ')'")
 	if p.panicMode {
 		return nil
 	}
@@ -1902,46 +1904,16 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 		return nil
 	}
 
-	var cases []*ast.CaseClause
-	var defaultClause *ast.DefaultClause
+	var cases []*ast.SwitchCase
+	var defaultClause *ast.SwitchDefaultCase
+	// 跟踪是表达式形式还是语句形式（nil=未确定, true=表达式, false=语句）
+	var isExprForm *bool
 
 	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 		if p.check(token.CASE) {
-			caseToken := p.advance()
-			value := p.parseExpression()
-			colon := p.consume(token.COLON, "expected ':'")
-			if p.panicMode {
-				return nil
-			}
-
-			var body []ast.Statement
-			for !p.checkAny(token.CASE, token.DEFAULT, token.RBRACE) && !p.isAtEnd() && !p.panicMode {
-				body = append(body, p.parseStatement())
-			}
-
-			cases = append(cases, &ast.CaseClause{
-				CaseToken: caseToken,
-				Value:     value,
-				Colon:     colon,
-				Body:      body,
-			})
+			cases = append(cases, p.parseSwitchCase(&isExprForm))
 		} else if p.check(token.DEFAULT) {
-			defaultToken := p.advance()
-			colon := p.consume(token.COLON, "expected ':'")
-			if p.panicMode {
-				return nil
-			}
-
-			var body []ast.Statement
-			for !p.checkAny(token.CASE, token.RBRACE) && !p.isAtEnd() && !p.panicMode {
-				body = append(body, p.parseStatement())
-			}
-
-			defaultClause = &ast.DefaultClause{
-				DefaultToken: defaultToken,
-				Colon:        colon,
-				Body:         body,
-			}
+			defaultClause = p.parseSwitchDefaultCase(&isExprForm)
 		} else {
 			p.error(i18n.T(i18n.ErrExpectedCaseDefault))
 			break
@@ -1952,7 +1924,186 @@ func (p *Parser) parseSwitchStmt() *ast.SwitchStmt {
 
 	return &ast.SwitchStmt{
 		SwitchToken: switchToken,
+		LParen:      lparen,
 		Expr:        expr,
+		RParen:      rparen,
+		LBrace:      lbrace,
+		Cases:       cases,
+		Default:     defaultClause,
+		RBrace:      rbrace,
+	}
+}
+
+// parseSwitchCase 解析 case 子句（支持多值和两种形式）
+func (p *Parser) parseSwitchCase(isExprForm **bool) *ast.SwitchCase {
+	caseToken := p.advance() // 消费 case
+
+	// 解析多个值：case 1, 2, 3
+	values := []ast.Expression{p.parseExpression()}
+	for p.match(token.COMMA) {
+		// 如果遇到 => 或 :，说明逗号是分隔case的，不是多值
+		if p.check(token.DOUBLE_ARROW) || p.check(token.COLON) {
+			break
+		}
+		values = append(values, p.parseExpression())
+	}
+
+	// 检查是 => 还是 :
+	if p.check(token.DOUBLE_ARROW) {
+		// 表达式形式（=>）
+		if *isExprForm != nil && !**isExprForm {
+			p.error("不能混合使用 => 和 : 形式，此switch已使用 : 形式")
+			return nil
+		}
+		isTrue := true
+		*isExprForm = &isTrue
+
+		arrow := p.advance()
+		body := p.parseExpression() // 单行表达式
+		p.match(token.COMMA)        // 允许尾逗号
+
+		return &ast.SwitchCase{
+			CaseToken: caseToken,
+			Values:    values,
+			Arrow:     arrow,
+			Body:      body, // Expression
+		}
+	} else {
+		// 语句形式（:）
+		if *isExprForm != nil && **isExprForm {
+			p.error("不能混合使用 => 和 : 形式，此switch已使用 => 形式")
+			return nil
+		}
+		isFalse := false
+		*isExprForm = &isFalse
+
+		colon := p.consume(token.COLON, "expected ':' or '=>' after case values")
+		if p.panicMode {
+			return nil
+		}
+
+		// 解析语句块直到遇到 case/default/}
+		var body []ast.Statement
+		for !p.checkAny(token.CASE, token.DEFAULT, token.RBRACE) && !p.isAtEnd() && !p.panicMode {
+			body = append(body, p.parseStatement())
+		}
+
+		return &ast.SwitchCase{
+			CaseToken: caseToken,
+			Values:    values,
+			Colon:     colon,
+			Body:      body, // []Statement
+		}
+	}
+}
+
+// parseSwitchDefaultCase 解析 default 子句（支持两种形式）
+func (p *Parser) parseSwitchDefaultCase(isExprForm **bool) *ast.SwitchDefaultCase {
+	defaultToken := p.advance() // 消费 default
+
+	// 检查是 => 还是 :
+	if p.check(token.DOUBLE_ARROW) {
+		// 表达式形式（=>）
+		if *isExprForm != nil && !**isExprForm {
+			p.error("不能混合使用 => 和 : 形式，此switch已使用 : 形式")
+			return nil
+		}
+		isTrue := true
+		*isExprForm = &isTrue
+
+		arrow := p.advance()
+		body := p.parseExpression()
+
+		return &ast.SwitchDefaultCase{
+			DefaultToken: defaultToken,
+			Arrow:        arrow,
+			Body:         body, // Expression
+		}
+	} else {
+		// 语句形式（:）
+		if *isExprForm != nil && **isExprForm {
+			p.error("不能混合使用 => 和 : 形式，此switch已使用 => 形式")
+			return nil
+		}
+		isFalse := false
+		*isExprForm = &isFalse
+
+		colon := p.consume(token.COLON, "expected ':' or '=>' after 'default'")
+		if p.panicMode {
+			return nil
+		}
+
+		// 解析语句块直到遇到 case/}
+		var body []ast.Statement
+		for !p.checkAny(token.CASE, token.RBRACE) && !p.isAtEnd() && !p.panicMode {
+			body = append(body, p.parseStatement())
+		}
+
+		return &ast.SwitchDefaultCase{
+			DefaultToken: defaultToken,
+			Colon:        colon,
+			Body:         body, // []Statement
+		}
+	}
+}
+
+// parseSwitchExpr 解析 switch 表达式（返回值形式）
+func (p *Parser) parseSwitchExpr() ast.Expression {
+	switchToken := p.advance()
+	lparen := p.consume(token.LPAREN, "expected '(' after 'switch'")
+	if p.panicMode {
+		return nil
+	}
+	expr := p.parseExpression()
+	rparen := p.consume(token.RPAREN, "expected ')'")
+	if p.panicMode {
+		return nil
+	}
+	lbrace := p.consume(token.LBRACE, "expected '{'")
+	if p.panicMode {
+		return nil
+	}
+
+	var cases []*ast.SwitchCase
+	var defaultClause *ast.SwitchDefaultCase
+	// switch表达式必须使用 => 形式
+	var isExprForm *bool
+	isTrue := true
+	isExprForm = &isTrue
+
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
+		if p.check(token.CASE) {
+			switchCase := p.parseSwitchCase(&isExprForm)
+			if switchCase != nil {
+				// 验证是表达式形式
+				if _, ok := switchCase.Body.(ast.Expression); !ok {
+					p.error("switch表达式的case必须使用 => 形式")
+					return nil
+				}
+				cases = append(cases, switchCase)
+			}
+		} else if p.check(token.DEFAULT) {
+			defaultClause = p.parseSwitchDefaultCase(&isExprForm)
+			if defaultClause != nil {
+				// 验证是表达式形式
+				if _, ok := defaultClause.Body.(ast.Expression); !ok {
+					p.error("switch表达式的default必须使用 => 形式")
+					return nil
+				}
+			}
+		} else {
+			p.error(i18n.T(i18n.ErrExpectedCaseDefault))
+			break
+		}
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}'")
+
+	return &ast.SwitchExpr{
+		SwitchToken: switchToken,
+		LParen:      lparen,
+		Expr:        expr,
+		RParen:      rparen,
 		LBrace:      lbrace,
 		Cases:       cases,
 		Default:     defaultClause,

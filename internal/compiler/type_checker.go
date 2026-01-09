@@ -396,24 +396,36 @@ func (tc *TypeChecker) checkSwitchStmt(stmt *ast.SwitchStmt) {
 	exprType := tc.checkExpression(stmt.Expr)
 	
 	// 检查所有 case
-	for _, caseClause := range stmt.Cases {
-		caseType := tc.checkExpression(caseClause.Value)
-		
-		// case 值类型应该与 switch 表达式类型兼容
-		if !tc.isTypeCompatible(caseType, exprType) && !tc.isTypeCompatible(exprType, caseType) {
-			tc.addError(caseClause.Value.Pos(), i18n.ErrTypeMismatch,
-				fmt.Sprintf("case type %s incompatible with switch type %s", caseType, exprType))
+	for _, switchCase := range stmt.Cases {
+		// 检查所有 case 值
+		for _, value := range switchCase.Values {
+			caseType := tc.checkExpression(value)
+			
+			// case 值类型应该与 switch 表达式类型兼容
+			if !tc.isTypeCompatible(caseType, exprType) && !tc.isTypeCompatible(exprType, caseType) {
+				tc.addError(value.Pos(), i18n.ErrTypeMismatch,
+					fmt.Sprintf("case type %s incompatible with switch type %s", caseType, exprType))
+			}
 		}
 		
-		for _, s := range caseClause.Body {
-			tc.checkStatement(s)
+		// Body 可能是 Expression 或 []Statement
+		if expr, ok := switchCase.Body.(ast.Expression); ok {
+			tc.checkExpression(expr)
+		} else if stmts, ok := switchCase.Body.([]ast.Statement); ok {
+			for _, s := range stmts {
+				tc.checkStatement(s)
+			}
 		}
 	}
 	
 	// 检查 default
 	if stmt.Default != nil {
-		for _, s := range stmt.Default.Body {
-			tc.checkStatement(s)
+		if expr, ok := stmt.Default.Body.(ast.Expression); ok {
+			tc.checkExpression(expr)
+		} else if stmts, ok := stmt.Default.Body.([]ast.Statement); ok {
+			for _, s := range stmts {
+				tc.checkStatement(s)
+			}
 		}
 	}
 }

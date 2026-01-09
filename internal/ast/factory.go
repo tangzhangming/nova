@@ -521,17 +521,40 @@ func (a *Arena) NewSwitchStmt(switchTok token.Token, expr Expression, lbrace tok
 	return node
 }
 
-// NewCaseClause 创建 case 子句节点
-func (a *Arena) NewCaseClause(caseTok token.Token, value Expression, colon token.Token, body []Statement) *CaseClause {
-	node := AllocType[CaseClause](a)
+// NewSwitchCase 创建 switch case 子句节点（支持多值和两种形式）
+func (a *Arena) NewSwitchCase(caseTok token.Token, values []Expression, arrow token.Token, colon token.Token, body interface{}) *SwitchCase {
+	node := AllocType[SwitchCase](a)
 	node.CaseToken = caseTok
-	node.Value = value
+	node.Values = values
+	node.Arrow = arrow
 	node.Colon = colon
 	node.Body = body
 	return node
 }
 
-// NewDefaultClause 创建 default 子句节点
+// NewSwitchDefaultCase 创建 switch default 子句节点
+func (a *Arena) NewSwitchDefaultCase(defaultTok token.Token, arrow token.Token, colon token.Token, body interface{}) *SwitchDefaultCase {
+	node := AllocType[SwitchDefaultCase](a)
+	node.DefaultToken = defaultTok
+	node.Arrow = arrow
+	node.Colon = colon
+	node.Body = body
+	return node
+}
+
+// NewCaseClause 创建 case 子句节点（兼容旧接口，单值版本）
+// Deprecated: 请使用 NewSwitchCase
+func (a *Arena) NewCaseClause(caseTok token.Token, value Expression, colon token.Token, body []Statement) *CaseClause {
+	node := AllocType[CaseClause](a)
+	node.CaseToken = caseTok
+	node.Values = []Expression{value}
+	node.Colon = colon
+	node.Body = body
+	return node
+}
+
+// NewDefaultClause 创建 default 子句节点（兼容旧接口）
+// Deprecated: 请使用 NewSwitchDefaultCase
 func (a *Arena) NewDefaultClause(defaultTok token.Token, colon token.Token, body []Statement) *DefaultClause {
 	node := AllocType[DefaultClause](a)
 	node.DefaultToken = defaultTok

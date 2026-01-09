@@ -67,6 +67,34 @@ public class Example {
         };
     }
     
+    // switch 表达式 - 多值匹配
+    public function getDayType(int $day): string {
+        return switch ($day) {
+            case 1, 2, 3, 4, 5 => "工作日",
+            case 6, 7 => "周末",
+            default => "无效"
+        };
+    }
+    
+    // switch 语句 - 多行 body
+    public function handleStatus(int $status): void {
+        switch ($status) {
+            case 0, 1:
+                echo "待处理";
+                sendNotification();
+                break;
+            case 2, 3, 4:
+                echo "进行中";
+                break;
+            default:
+                echo "已完成";
+        }
+    }
+    
+    private function sendNotification(): void {
+        echo "发送通知";
+    }
+    
     // 类型检查和转换
     public function checkType(object $obj): void {
         // 类型检查 (is)

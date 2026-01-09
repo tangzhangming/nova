@@ -595,6 +595,41 @@ func (p *Printer) printExpression(expr ast.Expression) {
 		}
 		p.writeln()
 		p.closeBrace()
+
+	case *ast.SwitchExpr:
+		p.write("switch (")
+		p.printExpression(e.Expr)
+		p.write(")")
+		p.openBrace()
+		for i, switchCase := range e.Cases {
+			p.writeIndent()
+			p.write("case ")
+			// 打印多个值：case 1, 2, 3
+			for j, value := range switchCase.Values {
+				if j > 0 {
+					p.write(", ")
+				}
+				p.printExpression(value)
+			}
+			// SwitchExpr 必须使用 => 形式
+			if expr, ok := switchCase.Body.(ast.Expression); ok {
+				p.write(" => ")
+				p.printExpression(expr)
+				if i < len(e.Cases)-1 || e.Default != nil {
+					p.write(",")
+				}
+				p.writeln()
+			}
+		}
+		if e.Default != nil {
+			p.writeIndent()
+			if expr, ok := e.Default.Body.(ast.Expression); ok {
+				p.write("default => ")
+				p.printExpression(expr)
+				p.writeln()
+			}
+		}
+		p.closeBrace()
 	}
 }
 
@@ -713,25 +748,49 @@ func (p *Printer) printStatement(stmt ast.Statement) {
 		p.printExpression(s.Expr)
 		p.write(")")
 		p.openBrace()
-		for _, caseClause := range s.Cases {
+		for _, switchCase := range s.Cases {
 			p.writeIndent()
 			p.write("case ")
-			p.printExpression(caseClause.Value)
-			p.writeln(":")
-			p.indent++
-			for _, stmt := range caseClause.Body {
-				p.printStatement(stmt)
+			// 打印多个值：case 1, 2, 3
+			for i, value := range switchCase.Values {
+				if i > 0 {
+					p.write(", ")
+				}
+				p.printExpression(value)
 			}
-			p.indent--
+			
+			// 检查是 => 还是 : 形式
+			if expr, ok := switchCase.Body.(ast.Expression); ok {
+				// => 形式
+				p.write(" => ")
+				p.printExpression(expr)
+				p.writeln(",")
+			} else if stmts, ok := switchCase.Body.([]ast.Statement); ok {
+				// : 形式
+				p.writeln(":")
+				p.indent++
+				for _, stmt := range stmts {
+					p.printStatement(stmt)
+				}
+				p.indent--
+			}
 		}
 		if s.Default != nil {
 			p.writeIndent()
-			p.writeln("default:")
-			p.indent++
-			for _, stmt := range s.Default.Body {
-				p.printStatement(stmt)
+			if expr, ok := s.Default.Body.(ast.Expression); ok {
+				// => 形式
+				p.write("default => ")
+				p.printExpression(expr)
+				p.writeln()
+			} else if stmts, ok := s.Default.Body.([]ast.Statement); ok {
+				// : 形式
+				p.writeln("default:")
+				p.indent++
+				for _, stmt := range stmts {
+					p.printStatement(stmt)
+				}
+				p.indent--
 			}
-			p.indent--
 		}
 		p.closeBrace()
 		p.writeln()

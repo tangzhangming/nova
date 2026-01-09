@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Sola Crypto Library - Hash
  * 哈希算法库
  */
@@ -256,20 +256,14 @@ class Hash {
      * @return string 哈希结果（十六进制）
      */
     public static function hash(string $algorithm, dynamic $data): string {
-        switch ($algorithm) {
-            case "md5":
-                return self::md5($data);
-            case "sha1":
-                return self::sha1($data);
-            case "sha256":
-                return self::sha256($data);
-            case "sha384":
-                return self::sha384($data);
-            case "sha512":
-                return self::sha512($data);
-            default:
-                throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM);
-        }
+        return switch ($algorithm) {
+            case "md5" => self::md5($data),
+            case "sha1" => self::sha1($data),
+            case "sha256" => self::sha256($data),
+            case "sha384" => self::sha384($data),
+            case "sha512" => self::sha512($data),
+            default => throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM)
+        };
     }
     
     /**

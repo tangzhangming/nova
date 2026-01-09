@@ -172,18 +172,13 @@ public class JsonNaming {
      * @return string 转换后的名称
      */
     public static function apply(string $name, int $strategy): string {
-        switch ($strategy) {
-            case JsonNaming::SNAKE_CASE:
-                return JsonNaming::toSnakeCase($name);
-            case JsonNaming::CAMEL_CASE:
-                return JsonNaming::toCamelCase($name);
-            case JsonNaming::PASCAL_CASE:
-                return JsonNaming::toPascalCase($name);
-            case JsonNaming::KEBAB_CASE:
-                return JsonNaming::toKebabCase($name);
-            default:
-                return $name;
-        }
+        return switch ($strategy) {
+            case JsonNaming::SNAKE_CASE => JsonNaming::toSnakeCase($name),
+            case JsonNaming::CAMEL_CASE => JsonNaming::toCamelCase($name),
+            case JsonNaming::PASCAL_CASE => JsonNaming::toPascalCase($name),
+            case JsonNaming::KEBAB_CASE => JsonNaming::toKebabCase($name),
+            default => $name
+        };
     }
 }
 

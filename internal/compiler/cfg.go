@@ -504,8 +504,11 @@ func (cb *CFGBuilder) buildSwitchStmt(stmt *ast.SwitchStmt) {
 		switchBlock.AddSuccessor(caseBlock)
 		
 		cb.currentBlock = caseBlock
-		for _, s := range caseClause.Body {
-			cb.buildStatement(s)
+		// Body 可能是 []Statement 或 Expression
+		if stmts, ok := caseClause.Body.([]ast.Statement); ok {
+			for _, s := range stmts {
+				cb.buildStatement(s)
+			}
 		}
 		
 		// case 结束后到合并点
@@ -520,8 +523,11 @@ func (cb *CFGBuilder) buildSwitchStmt(stmt *ast.SwitchStmt) {
 		switchBlock.AddSuccessor(defaultBlock)
 		
 		cb.currentBlock = defaultBlock
-		for _, s := range stmt.Default.Body {
-			cb.buildStatement(s)
+		// Body 可能是 []Statement 或 Expression
+		if stmts, ok := stmt.Default.Body.([]ast.Statement); ok {
+			for _, s := range stmts {
+				cb.buildStatement(s)
+			}
 		}
 		
 		if cb.currentBlock != nil {
