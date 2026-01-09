@@ -21,7 +21,8 @@
 8. [泛型](#泛型)
 9. [异常处理](#异常处理)
 10. [模块系统](#模块系统)
-11. [其他特性](#其他特性)
+11. [并发编程](#并发编程)
+12. [其他特性](#其他特性)
 
 ---
 
@@ -1377,6 +1378,178 @@ $map := new Map<string, int>();
 ```sola
 // 不导入时使用完整路径
 $list := new sola.collections.ArrayList<int>();
+```
+
+---
+
+## 并发编程
+
+Sola 采用 CSP（Communicating Sequential Processes）并发模型，通过协程和通道实现高效的并发编程。
+
+### go 语句
+
+使用 `go` 关键字启动协程：
+
+```sola
+// 启动协程执行函数
+go processData();
+
+// 启动协程执行方法
+go $worker->run();
+
+// 启动协程执行闭包
+go function(): void {
+    echo "Hello from goroutine";
+}();
+
+// 带参数的闭包
+$count := 100;
+go function(): void use ($count) {
+    echo "Count: " + $count;
+}();
+```
+
+### Channel\<T\> 通道
+
+通道是协程间通信的主要机制：
+
+```sola
+use sola.concurrent.Channel;
+
+// 创建无缓冲通道（同步通道）
+$ch := new Channel<int>();
+
+// 创建有缓冲通道
+$buffered := new Channel<string>(10);
+
+// 发送数据（可能阻塞）
+$ch->send(42);
+
+// 接收数据（可能阻塞）
+$value := $ch->receive();
+
+// 非阻塞发送
+if ($ch->trySend(100)) {
+    echo "Sent successfully";
+}
+
+// 非阻塞接收
+$msg := $ch->tryReceive();
+if ($msg != null) {
+    echo "Received: " + $msg;
+}
+
+// 关闭通道
+$ch->close();
+```
+
+### select 语句
+
+`select` 用于多路通道选择：
+
+```sola
+use sola.concurrent.Channel;
+
+$ch1 := new Channel<int>();
+$ch2 := new Channel<string>();
+$quit := new Channel<bool>();
+
+select {
+    case $num := $ch1->receive():
+        echo "Received number: " + $num;
+        
+    case $msg := $ch2->receive():
+        echo "Received message: " + $msg;
+        
+    case $quit->receive():
+        echo "Quit signal received";
+        return;
+        
+    default:
+        echo "No channel ready";
+}
+```
+
+### WaitGroup 等待组
+
+等待一组协程完成：
+
+```sola
+use sola.concurrent.WaitGroup;
+
+$wg := new WaitGroup();
+
+for ($i := 0; $i < 10; $i++) {
+    $wg->add();
+    go function(): void use ($i, $wg) {
+        processTask($i);
+        $wg->done();
+    }();
+}
+
+$wg->wait();
+echo "All tasks done!";
+```
+
+### 并发模式示例
+
+#### 生产者-消费者
+
+```sola
+use sola.concurrent.Channel;
+
+$jobs := new Channel<int>(100);
+$results := new Channel<int>(100);
+
+// 启动工作协程
+for ($w := 0; $w < 3; $w++) {
+    go function(): void use ($jobs, $results) {
+        loop {
+            $job := $jobs->tryReceive();
+            if ($job == null) {
+                break;
+            }
+            $results->send($job * 2);
+        }
+    }();
+}
+
+// 发送任务
+for ($i := 0; $i < 10; $i++) {
+    $jobs->send($i);
+}
+$jobs->close();
+
+// 收集结果
+for ($i := 0; $i < 10; $i++) {
+    $result := $results->receive();
+    echo $result;
+}
+```
+
+#### 超时控制
+
+```sola
+use sola.concurrent.Channel;
+
+$result := new Channel<string>();
+
+// 启动工作协程
+go function(): void use ($result) {
+    // 模拟耗时操作
+    $data := fetchData();
+    $result->send($data);
+}();
+
+// 使用 select 实现超时
+select {
+    case $data := $result->receive():
+        echo "Got result: " + $data;
+        
+    default:
+        // 超时处理（实际超时需要配合定时器通道）
+        echo "Operation timed out";
+}
 ```
 
 ---

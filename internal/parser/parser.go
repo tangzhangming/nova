@@ -1599,6 +1599,10 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseThrowStmt()
 	case token.ECHO:
 		return p.parseEchoStmt()
+	case token.GO:
+		return p.parseGoStmt()
+	case token.SELECT:
+		return p.parseSelectStmt()
 	case token.LBRACE:
 		return p.parseBlock()
 	default:
@@ -2388,6 +2392,162 @@ func (p *Parser) parseEchoStmt() *ast.EchoStmt {
 		EchoToken: echoToken,
 		Value:     value,
 		Semicolon: semicolon,
+	}
+}
+
+// parseGoStmt 解析 go 语句
+//
+// 语法:
+//
+//	go <call_expression>;
+//
+// 示例:
+//
+//	go processData();
+//	go $obj->method();
+//	go function() { ... }();
+func (p *Parser) parseGoStmt() *ast.GoStmt {
+	goToken := p.advance() // 消费 'go'
+
+	// 解析函数调用表达式
+	call := p.parseExpression()
+
+	// 验证必须是函数调用
+	switch call.(type) {
+	case *ast.CallExpr, *ast.MethodCall:
+		// 有效的函数调用
+	default:
+		p.error("go statement requires a function call")
+	}
+
+	semicolon := p.consume(token.SEMICOLON, "expected ';' after go statement")
+
+	return &ast.GoStmt{
+		GoToken:   goToken,
+		Call:      call,
+		Semicolon: semicolon,
+	}
+}
+
+// parseSelectStmt 解析 select 语句
+//
+// 语法:
+//
+//	select {
+//	    case $v := $ch->receive():
+//	        <statements>
+//	    case $ch->send($value):
+//	        <statements>
+//	    default:
+//	        <statements>
+//	}
+func (p *Parser) parseSelectStmt() *ast.SelectStmt {
+	selectToken := p.advance() // 消费 'select'
+
+	lbrace := p.consume(token.LBRACE, "expected '{' after select")
+
+	var cases []*ast.SelectCase
+	var defaultCase *ast.SelectDefaultCase
+
+	for !p.check(token.RBRACE) && !p.isAtEnd() {
+		if p.check(token.CASE) {
+			selectCase := p.parseSelectCase()
+			cases = append(cases, selectCase)
+		} else if p.check(token.DEFAULT) {
+			if defaultCase != nil {
+				p.error("multiple default cases in select")
+			}
+			defaultCase = p.parseSelectDefaultCase()
+		} else {
+			p.error("expected 'case' or 'default' in select")
+			p.synchronize()
+			break
+		}
+	}
+
+	rbrace := p.consume(token.RBRACE, "expected '}' after select")
+
+	return &ast.SelectStmt{
+		SelectToken: selectToken,
+		LBrace:      lbrace,
+		Cases:       cases,
+		Default:     defaultCase,
+		RBrace:      rbrace,
+	}
+}
+
+// parseSelectCase 解析 select case 分支
+//
+// 语法:
+//
+//	case $v := $ch->receive():
+//	    <statements>
+//	case $ch->send($value):
+//	    <statements>
+func (p *Parser) parseSelectCase() *ast.SelectCase {
+	caseToken := p.advance() // 消费 'case'
+
+	var varNode *ast.Variable
+	var operator token.Token
+	var comm ast.Expression
+
+	// 检查是否是接收赋值形式: $v := $ch->receive()
+	if p.check(token.VARIABLE) {
+		// 先尝试看是否是 $var := 形式
+		savedPos := p.current
+		tok := p.advance()
+		varNode = &ast.Variable{Token: tok, Name: tok.Literal[1:]}
+
+		if p.check(token.DECLARE) {
+			operator = p.advance() // 消费 ':='
+			comm = p.parseExpression()
+		} else {
+			// 不是赋值形式，回退并解析为普通表达式
+			p.current = savedPos
+			varNode = nil
+			comm = p.parseExpression()
+		}
+	} else {
+		// 解析通道操作表达式（如 $ch->send($value)）
+		comm = p.parseExpression()
+	}
+
+	colon := p.consume(token.COLON, "expected ':' after case")
+
+	// 解析 case 体
+	var body []ast.Statement
+	for !p.check(token.CASE) && !p.check(token.DEFAULT) && !p.check(token.RBRACE) && !p.isAtEnd() {
+		stmt := p.parseStatement()
+		body = append(body, stmt)
+	}
+
+	return &ast.SelectCase{
+		CaseToken: caseToken,
+		Var:       varNode,
+		Operator:  operator,
+		Comm:      comm,
+		Colon:     colon,
+		Body:      body,
+	}
+}
+
+// parseSelectDefaultCase 解析 select default 分支
+func (p *Parser) parseSelectDefaultCase() *ast.SelectDefaultCase {
+	defaultToken := p.advance() // 消费 'default'
+
+	colon := p.consume(token.COLON, "expected ':' after default")
+
+	// 解析 default 体
+	var body []ast.Statement
+	for !p.check(token.CASE) && !p.check(token.RBRACE) && !p.isAtEnd() {
+		stmt := p.parseStatement()
+		body = append(body, stmt)
+	}
+
+	return &ast.SelectDefaultCase{
+		DefaultToken: defaultToken,
+		Colon:        colon,
+		Body:         body,
 	}
 }
 

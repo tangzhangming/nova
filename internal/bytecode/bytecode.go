@@ -148,6 +148,24 @@ const (
 	// 调试
 	OpDebugPrint // 调试打印
 
+	// 协程操作
+	OpGo    // 启动协程 [stack: closure -> goroutine_id]
+	OpYield // 让出执行权（协作式调度）
+
+	// 通道操作
+	OpChanMake    // 创建通道 (capacity: u16) [stack: -> channel]
+	OpChanSend    // 发送到通道 [stack: channel, value -> ]
+	OpChanRecv    // 从通道接收 [stack: channel -> value]
+	OpChanClose   // 关闭通道 [stack: channel -> ]
+	OpChanTrySend // 非阻塞发送 [stack: channel, value -> bool]
+	OpChanTryRecv // 非阻塞接收 [stack: channel -> value, bool]
+
+	// select 操作
+	OpSelectStart   // 开始 select (caseCount: u8)
+	OpSelectCase    // 添加 case (isRecv: u8, jumpOffset: i16)
+	OpSelectDefault // 添加 default (jumpOffset: i16)
+	OpSelectWait    // 等待 select 完成，返回匹配的 case 索引
+
 	// 终止
 	OpHalt // 停止执行
 )
@@ -245,8 +263,20 @@ var opNames = map[OpCode]string{
 	OpEnterFinally: "ENTER_FINALLY",
 	OpLeaveFinally: "LEAVE_FINALLY",
 	OpRethrow:      "RETHROW",
-	OpDebugPrint:  "DEBUG_PRINT",
-	OpHalt:        "HALT",
+	OpDebugPrint:    "DEBUG_PRINT",
+	OpGo:            "GO",
+	OpYield:         "YIELD",
+	OpChanMake:      "CHAN_MAKE",
+	OpChanSend:      "CHAN_SEND",
+	OpChanRecv:      "CHAN_RECV",
+	OpChanClose:     "CHAN_CLOSE",
+	OpChanTrySend:   "CHAN_TRY_SEND",
+	OpChanTryRecv:   "CHAN_TRY_RECV",
+	OpSelectStart:   "SELECT_START",
+	OpSelectCase:    "SELECT_CASE",
+	OpSelectDefault: "SELECT_DEFAULT",
+	OpSelectWait:    "SELECT_WAIT",
+	OpHalt:          "HALT",
 }
 
 func (op OpCode) String() string {

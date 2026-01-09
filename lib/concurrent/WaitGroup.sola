@@ -1,0 +1,88 @@
+// Sola 标准库 - 等待组
+namespace sola.concurrent
+
+/**
+ * WaitGroup - 等待多个协程完成
+ * 
+ * WaitGroup 用于等待一组协程完成执行。主协程调用 add() 设置要等待的协程数量，
+ * 每个协程完成时调用 done()，主协程调用 wait() 阻塞直到所有协程完成。
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.concurrent.WaitGroup;
+ * 
+ * $wg := new WaitGroup();
+ * 
+ * // 启动 10 个工作协程
+ * for ($i := 0; $i < 10; $i++) {
+ *     $wg->add();
+ *     go function(): void use ($i, $wg) {
+ *         processTask($i);
+ *         $wg->done();
+ *     }();
+ * }
+ * 
+ * // 等待所有协程完成
+ * $wg->wait();
+ * echo "All tasks done!";
+ * ```
+ */
+public class WaitGroup {
+    
+    /** 计数器 */
+    private int $count;
+    
+    /** 完成通道 */
+    private Channel<bool> $done;
+    
+    /**
+     * 创建等待组
+     */
+    public function __construct() {
+        $this->count = 0;
+        $this->done = new Channel<bool>();
+    }
+    
+    /**
+     * 增加计数
+     * 
+     * @param int $delta 增加的数量（默认 1）
+     */
+    public function add(int $delta = 1): void {
+        $this->count += $delta;
+    }
+    
+    /**
+     * 减少计数
+     * 
+     * 当计数变为 0 时，所有等待的协程会被唤醒。
+     */
+    public function done(): void {
+        $this->count--;
+        if ($this->count <= 0) {
+            $this->done->close();
+        }
+    }
+    
+    /**
+     * 等待所有协程完成
+     * 
+     * 阻塞当前协程，直到计数变为 0。
+     */
+    public function wait(): void {
+        if ($this->count > 0) {
+            try {
+                $this->done->receive();
+            } catch (ChannelClosedException $e) {
+                // 正常结束
+            }
+        }
+    }
+    
+    /**
+     * 获取当前计数
+     */
+    public function getCount(): int {
+        return $this->count;
+    }
+}

@@ -1110,6 +1110,67 @@ func (s *EchoStmt) End() token.Position { return s.Semicolon.Pos }
 func (s *EchoStmt) String() string      { return "echo " + s.Value.String() + ";" }
 func (s *EchoStmt) stmtNode()           {}
 
+// GoStmt go 语句 (启动协程)
+type GoStmt struct {
+	GoToken   token.Token
+	Call      Expression // 必须是函数调用表达式
+	Semicolon token.Token
+}
+
+func (s *GoStmt) Pos() token.Position { return s.GoToken.Pos }
+func (s *GoStmt) End() token.Position { return s.Semicolon.Pos }
+func (s *GoStmt) String() string      { return "go " + s.Call.String() + ";" }
+func (s *GoStmt) stmtNode()           {}
+
+// SelectStmt select 语句 (多路选择)
+type SelectStmt struct {
+	SelectToken token.Token
+	LBrace      token.Token
+	Cases       []*SelectCase
+	Default     *SelectDefaultCase
+	RBrace      token.Token
+}
+
+func (s *SelectStmt) Pos() token.Position { return s.SelectToken.Pos }
+func (s *SelectStmt) End() token.Position { return s.RBrace.Pos }
+func (s *SelectStmt) String() string      { return "select {...}" }
+func (s *SelectStmt) stmtNode()           {}
+
+// SelectCase select 分支
+type SelectCase struct {
+	CaseToken token.Token
+	Comm      Expression  // 通道操作: $ch->send($v) 或 $ch->receive()
+	Var       *Variable   // 接收操作的目标变量 (可为 nil，用于 $v := $ch->receive())
+	Operator  token.Token // := 或 = (用于接收赋值，可为空)
+	Colon     token.Token
+	Body      []Statement
+}
+
+func (s *SelectCase) Pos() token.Position { return s.CaseToken.Pos }
+func (s *SelectCase) End() token.Position {
+	if len(s.Body) > 0 {
+		return s.Body[len(s.Body)-1].End()
+	}
+	return s.Colon.Pos
+}
+func (s *SelectCase) String() string { return "case ...:" }
+
+// SelectDefaultCase select 默认分支
+type SelectDefaultCase struct {
+	DefaultToken token.Token
+	Colon        token.Token
+	Body         []Statement
+}
+
+func (s *SelectDefaultCase) Pos() token.Position { return s.DefaultToken.Pos }
+func (s *SelectDefaultCase) End() token.Position {
+	if len(s.Body) > 0 {
+		return s.Body[len(s.Body)-1].End()
+	}
+	return s.Colon.Pos
+}
+func (s *SelectDefaultCase) String() string { return "default:" }
+
 // ============================================================================
 // 声明节点
 // ============================================================================
@@ -1696,6 +1757,25 @@ func Walk(node Node, visitor Visitor) {
 
 	case *EchoStmt:
 		Walk(n.Value, visitor)
+
+	case *GoStmt:
+		Walk(n.Call, visitor)
+
+	case *SelectStmt:
+		for _, selectCase := range n.Cases {
+			if selectCase.Var != nil {
+				Walk(selectCase.Var, visitor)
+			}
+			Walk(selectCase.Comm, visitor)
+			for _, stmt := range selectCase.Body {
+				Walk(stmt, visitor)
+			}
+		}
+		if n.Default != nil {
+			for _, stmt := range n.Default.Body {
+				Walk(stmt, visitor)
+			}
+		}
 
 	case *ThrowStmt:
 		Walk(n.Exception, visitor)

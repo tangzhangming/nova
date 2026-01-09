@@ -1,0 +1,12 @@
+// Sola 标准库 - 通道为空异常
+namespace sola.concurrent
+
+/**
+ * 通道为空异常（用于非阻塞操作）
+ */
+public class ChannelEmptyException extends ChannelException {
+    
+    public function __construct(string $message = "channel is empty") {
+        parent::__construct($message);
+    }
+}

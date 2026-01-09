@@ -517,6 +517,14 @@ type VM struct {
 	jitEnabled bool
 
 	// =========================================================================
+	// 协程支持
+	// =========================================================================
+
+	// scheduler 协程调度器
+	// 管理所有协程的创建、调度和销毁
+	scheduler *Scheduler
+
+	// =========================================================================
 	// 错误状态
 	// =========================================================================
 
@@ -602,9 +610,10 @@ func NewWithConfig(jitConfig *jit.Config) *VM {
 		enums:   make(map[string]*bytecode.Enum),
 
 		// 创建运行时子系统
-		gc:              NewGC(),             // 垃圾回收器
-		icManager:       NewICManager(),      // 内联缓存管理器
+		gc:              NewGC(),              // 垃圾回收器
+		icManager:       NewICManager(),       // 内联缓存管理器
 		hotspotDetector: NewHotspotDetector(), // 热点检测器
+		scheduler:       NewScheduler(),       // 协程调度器
 	}
 
 	// 初始化 JIT 编译器
@@ -878,6 +887,17 @@ func (vm *VM) SetICEnabled(enabled bool) {
 // HotspotDetector 实例指针。
 func (vm *VM) GetHotspotDetector() *HotspotDetector {
 	return vm.hotspotDetector
+}
+
+// GetScheduler 获取协程调度器
+//
+// 调度器管理所有协程的创建、调度和销毁。
+//
+// # 返回值
+//
+// Scheduler 实例指针。
+func (vm *VM) GetScheduler() *Scheduler {
+	return vm.scheduler
 }
 
 // SetHotspotEnabled 启用或禁用热点检测。
@@ -2636,6 +2656,185 @@ func (vm *VM) execute() InterpretResult {
 		// 调试
 		case bytecode.OpDebugPrint:
 			fmt.Println(vm.pop().String())
+
+		// =====================================================================
+		// 协程操作
+		// =====================================================================
+
+		case bytecode.OpGo:
+			// 启动协程
+			// 栈: [closure] -> [goroutine_id]
+			closureVal := vm.pop()
+			if closureVal.Type != bytecode.ValClosure {
+				return vm.runtimeError("go: expected closure, got %s", closureVal.Type)
+			}
+			closure := closureVal.Data.(*bytecode.Closure)
+
+			// 创建新协程
+			g := vm.scheduler.Spawn(closure)
+			if g == nil {
+				return vm.runtimeError("go: too many goroutines")
+			}
+
+			// 压入协程 ID
+			vm.push(bytecode.NewGoroutineValue(g.ID))
+
+		case bytecode.OpYield:
+			// 让出执行权（协作式调度点）
+			// 当前实现：立即返回，由调度器选择下一个协程
+			// 注意：这是简化实现，完整实现需要保存/恢复协程上下文
+			vm.scheduler.Yield()
+
+		// =====================================================================
+		// 通道操作
+		// =====================================================================
+
+		case bytecode.OpChanMake:
+			// 创建通道
+			// 参数: capacity (u16)
+			// 栈: [] -> [channel]
+			capacity := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			ch := NewChannel("", capacity) // 元素类型在编译时已检查
+			vm.push(bytecode.NewChannelValue(ch))
+
+		case bytecode.OpChanSend:
+			// 发送到通道
+			// 栈: [channel, value] -> []
+			value := vm.pop()
+			chanVal := vm.pop()
+
+			if !chanVal.IsChannel() {
+				return vm.runtimeError("send: expected channel, got %s", chanVal.Type)
+			}
+			ch := chanVal.AsChannel().(*Channel)
+
+			// 尝试发送
+			g := vm.scheduler.Current()
+			if g == nil {
+				// 主协程直接发送（可能阻塞）
+				ok, blocked := ch.Send(value, nil, vm.scheduler)
+				if !ok {
+					return vm.runtimeError("send on closed channel")
+				}
+				if blocked {
+					// 主协程阻塞 - 这里简化处理，实际需要调度
+					return vm.runtimeError("main goroutine blocked on channel send")
+				}
+			} else {
+				ok, blocked := ch.Send(value, g, vm.scheduler)
+				if !ok {
+					return vm.runtimeError("send on closed channel")
+				}
+				if blocked {
+					vm.scheduler.Block(g, ch, BlockSend)
+				}
+			}
+
+		case bytecode.OpChanRecv:
+			// 从通道接收
+			// 栈: [channel] -> [value]
+			chanVal := vm.pop()
+
+			if !chanVal.IsChannel() {
+				return vm.runtimeError("receive: expected channel, got %s", chanVal.Type)
+			}
+			ch := chanVal.AsChannel().(*Channel)
+
+			// 尝试接收
+			g := vm.scheduler.Current()
+			if g == nil {
+				// 主协程直接接收（可能阻塞）
+				value, ok, blocked := ch.Receive(nil, vm.scheduler)
+				if blocked {
+					return vm.runtimeError("main goroutine blocked on channel receive")
+				}
+				if !ok {
+					vm.push(bytecode.NullValue)
+				} else {
+					vm.push(value)
+				}
+			} else {
+				value, ok, blocked := ch.Receive(g, vm.scheduler)
+				if blocked {
+					vm.scheduler.Block(g, ch, BlockRecv)
+					// 阻塞后，接收值会在协程被唤醒时设置到 g.RecvValue
+				} else if !ok {
+					vm.push(bytecode.NullValue)
+				} else {
+					vm.push(value)
+				}
+			}
+
+		case bytecode.OpChanClose:
+			// 关闭通道
+			// 栈: [channel] -> []
+			chanVal := vm.pop()
+
+			if !chanVal.IsChannel() {
+				return vm.runtimeError("close: expected channel, got %s", chanVal.Type)
+			}
+			ch := chanVal.AsChannel().(*Channel)
+			ch.Close(vm.scheduler)
+
+		case bytecode.OpChanTrySend:
+			// 非阻塞发送
+			// 栈: [channel, value] -> [bool]
+			value := vm.pop()
+			chanVal := vm.pop()
+
+			if !chanVal.IsChannel() {
+				return vm.runtimeError("trySend: expected channel, got %s", chanVal.Type)
+			}
+			ch := chanVal.AsChannel().(*Channel)
+
+			ok := ch.TrySend(value, vm.scheduler)
+			vm.push(bytecode.NewBool(ok))
+
+		case bytecode.OpChanTryRecv:
+			// 非阻塞接收
+			// 栈: [channel] -> [value, bool]
+			chanVal := vm.pop()
+
+			if !chanVal.IsChannel() {
+				return vm.runtimeError("tryReceive: expected channel, got %s", chanVal.Type)
+			}
+			ch := chanVal.AsChannel().(*Channel)
+
+			value, ok, _ := ch.TryReceive(vm.scheduler)
+			vm.push(value)
+			vm.push(bytecode.NewBool(ok))
+
+		// =====================================================================
+		// Select 操作（简化实现）
+		// =====================================================================
+
+		case bytecode.OpSelectStart:
+			// 开始 select 语句
+			// 参数: caseCount (u8)
+			// 当前简化实现：不做特殊处理
+			_ = chunk.Code[frame.IP] // caseCount
+			frame.IP++
+
+		case bytecode.OpSelectCase:
+			// 添加 select case
+			// 参数: isRecv (u8), jumpOffset (i16)
+			_ = chunk.Code[frame.IP] // isRecv
+			frame.IP++
+			_ = chunk.ReadI16(frame.IP) // jumpOffset
+			frame.IP += 2
+
+		case bytecode.OpSelectDefault:
+			// 添加 select default
+			// 参数: jumpOffset (i16)
+			_ = chunk.ReadI16(frame.IP) // jumpOffset
+			frame.IP += 2
+
+		case bytecode.OpSelectWait:
+			// 等待 select 完成
+			// 当前简化实现：总是执行 default 或第一个可用的 case
+			// 完整实现需要配合 SelectStart/SelectCase 收集的信息
+			vm.push(bytecode.NewInt(0)) // 返回选中的 case 索引
 
 		case bytecode.OpHalt:
 			return InterpretOK

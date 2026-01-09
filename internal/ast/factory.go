@@ -677,6 +677,47 @@ func (a *Arena) NewEchoStmt(echoTok token.Token, value Expression, semicolon tok
 	return node
 }
 
+// NewGoStmt 创建 go 语句节点（启动协程）
+func (a *Arena) NewGoStmt(goTok token.Token, call Expression, semicolon token.Token) *GoStmt {
+	node := AllocType[GoStmt](a)
+	node.GoToken = goTok
+	node.Call = call
+	node.Semicolon = semicolon
+	return node
+}
+
+// NewSelectStmt 创建 select 语句节点（多路选择）
+func (a *Arena) NewSelectStmt(selectTok token.Token, lbrace token.Token, cases []*SelectCase, defaultCase *SelectDefaultCase, rbrace token.Token) *SelectStmt {
+	node := AllocType[SelectStmt](a)
+	node.SelectToken = selectTok
+	node.LBrace = lbrace
+	node.Cases = cases
+	node.Default = defaultCase
+	node.RBrace = rbrace
+	return node
+}
+
+// NewSelectCase 创建 select case 分支节点
+func (a *Arena) NewSelectCase(caseTok token.Token, varNode *Variable, operator token.Token, comm Expression, colon token.Token, body []Statement) *SelectCase {
+	node := AllocType[SelectCase](a)
+	node.CaseToken = caseTok
+	node.Var = varNode
+	node.Operator = operator
+	node.Comm = comm
+	node.Colon = colon
+	node.Body = body
+	return node
+}
+
+// NewSelectDefaultCase 创建 select default 分支节点
+func (a *Arena) NewSelectDefaultCase(defaultTok token.Token, colon token.Token, body []Statement) *SelectDefaultCase {
+	node := AllocType[SelectDefaultCase](a)
+	node.DefaultToken = defaultTok
+	node.Colon = colon
+	node.Body = body
+	return node
+}
+
 // ============================================================================
 // 声明节点工厂
 // ============================================================================

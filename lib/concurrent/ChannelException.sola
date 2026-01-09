@@ -1,0 +1,14 @@
+// Sola 标准库 - 通道异常基类
+namespace sola.concurrent
+
+use sola.lang.RuntimeException;
+
+/**
+ * 通道异常基类
+ */
+public class ChannelException extends RuntimeException {
+    
+    public function __construct(string $message = "channel error") {
+        parent::__construct($message);
+    }
+}

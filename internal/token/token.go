@@ -176,6 +176,12 @@ const (
 	RETURN   // return
 
 	// ----------------------------------------------------------
+	// 关键字 - 并发
+	// ----------------------------------------------------------
+	GO     // go (启动协程)
+	SELECT // select (多路选择)
+
+	// ----------------------------------------------------------
 	// 关键字 - 异常处理
 	// ----------------------------------------------------------
 	TRY     // try
@@ -341,6 +347,10 @@ var tokenNames = map[TokenType]string{
 	CONTINUE: "continue",
 	RETURN:   "return",
 
+	// 并发关键字
+	GO:     "go",
+	SELECT: "select",
+
 	// 异常处理关键字
 	TRY:     "try",
 	CATCH:   "catch",
@@ -436,6 +446,10 @@ var keywords = map[string]TokenType{
 	"continue": CONTINUE,
 	"return":   RETURN,
 
+	// 并发关键字
+	"go":     GO,
+	"select": SELECT,
+
 	// 异常处理关键字
 	"try":     TRY,
 	"catch":   CATCH,
@@ -486,7 +500,7 @@ func LookupIdent(ident string) TokenType {
 
 	switch len(ident) {
 	case 2:
-		// 两字符关键字：if, do, as, is, i8, u8
+		// 两字符关键字：if, do, as, is, go, i8, u8
 		switch ident {
 		case "if":
 			return IF
@@ -496,6 +510,8 @@ func LookupIdent(ident string) TokenType {
 			return AS
 		case "is":
 			return IS
+		case "go":
+			return GO
 		case "i8":
 			return I8_TYPE
 		case "u8":
@@ -600,7 +616,7 @@ func LookupIdent(ident string) TokenType {
 		}
 
 	case 6:
-		// 六字符关键字：return, switch, static, public, parent, object, elseif, string
+		// 六字符关键字：return, switch, static, public, parent, select, elseif, string
 		switch ident {
 		case "return":
 			return RETURN
@@ -612,6 +628,8 @@ func LookupIdent(ident string) TokenType {
 			return PUBLIC
 		case "parent":
 			return PARENT
+		case "select":
+			return SELECT
 		case "unknown":
 			return UNKNOWN
 		case "dynamic":

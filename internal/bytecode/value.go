@@ -25,9 +25,11 @@ const (
 	ValClass
 	ValMethod
 	ValIterator
-	ValEnum         // 枚举值
-	ValException    // 异常值
+	ValEnum          // 枚举值
+	ValException     // 异常值
 	ValStringBuilder // 字符串构建器（用于高效拼接）
+	ValChannel       // 通道
+	ValGoroutine     // 协程引用
 )
 
 // FixedArray 定长数组
@@ -449,6 +451,43 @@ func (v Value) AsStringBuilder() *StringBuilder {
 		return v.Data.(*StringBuilder)
 	}
 	return nil
+}
+
+// NewChannelValue 创建通道值
+// 注意: channel 数据结构在 vm 包中定义，这里只存储接口引用
+func NewChannelValue(ch interface{}) Value {
+	return Value{Type: ValChannel, Data: ch}
+}
+
+// AsChannel 获取通道（返回 interface{}，需要在 vm 包中断言）
+func (v Value) AsChannel() interface{} {
+	if v.Type == ValChannel {
+		return v.Data
+	}
+	return nil
+}
+
+// IsChannel 检查是否为通道
+func (v Value) IsChannel() bool {
+	return v.Type == ValChannel
+}
+
+// NewGoroutineValue 创建协程引用值
+func NewGoroutineValue(id int64) Value {
+	return Value{Type: ValGoroutine, Data: id}
+}
+
+// AsGoroutineID 获取协程 ID
+func (v Value) AsGoroutineID() int64 {
+	if v.Type == ValGoroutine {
+		return v.Data.(int64)
+	}
+	return -1
+}
+
+// IsGoroutine 检查是否为协程引用
+func (v Value) IsGoroutine() bool {
+	return v.Type == ValGoroutine
 }
 
 // NewArray 创建数组值

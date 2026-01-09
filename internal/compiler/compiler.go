@@ -859,6 +859,12 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 		c.compileExpr(s.Exception)
 		c.emit(bytecode.OpThrow)
 
+	case *ast.GoStmt:
+		c.compileGoStmt(s)
+
+	case *ast.SelectStmt:
+		c.compileSelectStmt(s)
+
 	default:
 		c.error(stmt.Pos(), i18n.T(i18n.ErrUnsupportedStmt))
 	}
@@ -1901,6 +1907,112 @@ func (c *Compiler) compileReturnStmt(s *ast.ReturnStmt) {
 		}
 		c.emitU16(bytecode.OpNewArray, uint16(len(s.Values)))
 		c.emit(bytecode.OpReturn)
+	}
+}
+
+// ============================================================================
+// 协程相关编译
+// ============================================================================
+
+// compileGoStmt 编译 go 语句
+func (c *Compiler) compileGoStmt(s *ast.GoStmt) {
+	// 编译调用表达式
+	// go 语句需要将调用转换为闭包创建 + OpGo
+	
+	switch call := s.Call.(type) {
+	case *ast.CallExpr:
+		// 编译函数表达式
+		c.compileExpr(call.Function)
+		
+		// 编译参数
+		for _, arg := range call.Arguments {
+			c.compileExpr(arg)
+		}
+		
+		// 创建闭包并启动协程
+		// 注意：这是简化实现，实际需要创建一个包装闭包
+		c.emit(bytecode.OpGo)
+		c.emit(bytecode.OpPop) // 丢弃协程 ID
+		
+	case *ast.MethodCall:
+		// 编译对象
+		c.compileExpr(call.Object)
+		
+		// 编译参数
+		for _, arg := range call.Arguments {
+			c.compileExpr(arg)
+		}
+		
+		// 这里也需要创建闭包
+		c.emit(bytecode.OpGo)
+		c.emit(bytecode.OpPop) // 丢弃协程 ID
+		
+	default:
+		c.error(s.Pos(), "go statement requires a function call")
+	}
+}
+
+// compileSelectStmt 编译 select 语句
+func (c *Compiler) compileSelectStmt(s *ast.SelectStmt) {
+	// 简化实现：编译 select 为一系列条件检查
+	// 完整实现需要更复杂的调度器支持
+	
+	// 发出 select 开始指令
+	caseCount := len(s.Cases)
+	if s.Default != nil {
+		caseCount++
+	}
+	c.emit(bytecode.OpSelectStart)
+	c.currentChunk().WriteU8(uint8(caseCount), c.currentLine)
+	
+	// 编译每个 case 的通道操作
+	for _, selectCase := range s.Cases {
+		// 编译通道操作表达式
+		c.compileExpr(selectCase.Comm)
+		
+		// 发出 case 指令
+		isRecv := byte(0)
+		if selectCase.Var != nil {
+			isRecv = 1 // 接收操作
+		}
+		c.emit(bytecode.OpSelectCase)
+		c.currentChunk().WriteU8(isRecv, c.currentLine)
+		c.currentChunk().WriteI16(0, c.currentLine) // 占位
+	}
+	
+	// 编译 default
+	if s.Default != nil {
+		c.emit(bytecode.OpSelectDefault)
+		c.currentChunk().WriteI16(0, c.currentLine) // 占位
+	}
+	
+	// 发出等待指令
+	c.emit(bytecode.OpSelectWait)
+	
+	// 编译各个 case 的 body（简化：顺序执行第一个）
+	for _, selectCase := range s.Cases {
+		// 如果是接收操作，需要存储接收的值
+		if selectCase.Var != nil {
+			// 声明变量
+			c.declareVariable(selectCase.Var.Name)
+			slot := c.resolveLocal(selectCase.Var.Name)
+			if slot != -1 {
+				c.emitU16(bytecode.OpStoreLocal, uint16(slot))
+			}
+		}
+		
+		// 编译 case body
+		for _, stmt := range selectCase.Body {
+			c.compileStmt(stmt)
+		}
+		break // 简化：只执行第一个 case
+	}
+	
+	// 编译 default body
+	if s.Default != nil && len(s.Cases) == 0 {
+		for _, stmt := range s.Default.Body {
+			c.compileStmt(stmt)
+		}
 	}
 }
 
