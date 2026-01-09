@@ -219,9 +219,9 @@ public class Str {
      * 分割字符串
      * @param string $str 输入字符串
      * @param string $delimiter 分隔符
-     * @return array 分割后的字符串数组
+     * @return string[] 分割后的字符串数组
      */
-    public static function split(string $str, string $delimiter): array {
+    public static function split(string $str, string $delimiter): string[] {
         return native_str_split($str, $delimiter);
     }
     

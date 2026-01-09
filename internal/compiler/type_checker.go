@@ -572,16 +572,31 @@ func (tc *TypeChecker) checkBinaryExpr(expr *ast.BinaryExpr) string {
 	rightType := tc.checkExpression(expr.Right)
 	
 	switch expr.Operator.Type {
-	case token.PLUS, token.MINUS, token.STAR, token.SLASH, token.PERCENT:
-		// 算术运算
-		if !tc.isNumericType(leftType) || !tc.isNumericType(rightType) {
+	// 重要：PLUS 必须单独处理，因为它支持字符串拼接！
+	// 不要把 PLUS 和其他算术运算符合并到一个 case 里，否则会破坏字符串拼接功能。
+	// 此逻辑必须与 compiler.go 中的 checkBinaryOpTypes 保持一致。
+	case token.PLUS:
+		// + 运算符：严格类型检查，两边必须是相同类型
+		// 只允许: string + string, 或相同数字类型相加（int + int, float + float）
+		// 不允许: int + float, string + int 等混合类型
+		if leftType == "string" && rightType == "string" {
+			return "string"
+		}
+		if leftType == rightType && tc.isNumericType(leftType) {
+			return leftType
+		}
+		// 其他组合都是错误的（包括 int + float, string + int 等）
+		tc.addError(expr.Operator.Pos, i18n.ErrOperandsMustBeNumbers,
+			i18n.T(i18n.ErrOperandsMustBeNumbers))
+		return leftType
+
+	case token.MINUS, token.STAR, token.SLASH, token.PERCENT:
+		// 算术运算：严格类型检查，两边必须是相同的数字类型
+		if leftType != rightType || !tc.isNumericType(leftType) {
 			tc.addError(expr.Operator.Pos, i18n.ErrOperandsMustBeNumbers,
 				i18n.T(i18n.ErrOperandsMustBeNumbers))
 		}
-		if leftType == "float" || rightType == "float" {
-			return "float"
-		}
-		return "int"
+		return leftType
 		
 	case token.EQ, token.NE, token.LT, token.LE, token.GT, token.GE:
 		// 比较运算
@@ -1107,6 +1122,8 @@ func (tc *TypeChecker) getTypeName(typeNode ast.TypeNode) string {
 }
 
 // isTypeCompatible 检查类型兼容性
+// 重要：此函数的逻辑必须与 compiler.go 中的 isTypeCompatible 保持一致！
+// 如果修改此函数，请同时检查 compiler.go 中的对应函数。
 func (tc *TypeChecker) isTypeCompatible(actual, expected string) bool {
 	if actual == expected {
 		return true
@@ -1125,9 +1142,32 @@ func (tc *TypeChecker) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
-	// 注意：禁止隐式类型转换！
-	// 不允许 int→float、整数类型之间的隐式转换
-	// 如需转换请使用显式类型转换：$x as float, $y as i32
+	// ========================================================================
+	// 重要：整数类型之间的兼容性检查
+	// 这不是隐式类型转换！这是允许整数字面量（如 22）赋值给任何整数类型（i8, i16, i32, i64, int 等）
+	// 例如：i64 $b = 22; 这里 22 的类型是 int，但可以赋值给 i64
+	// 此逻辑必须与 compiler.go 中的 isTypeCompatible 保持一致，否则会导致编译错误！
+	// ========================================================================
+	intTypes := map[string]bool{"int": true, "i8": true, "i16": true, "i32": true, "i64": true, "byte": true}
+	uintTypes := map[string]bool{"uint": true, "u8": true, "u16": true, "u32": true, "u64": true}
+	floatTypes := map[string]bool{"float": true, "f32": true, "f64": true}
+	
+	// 整数类型之间兼容
+	if intTypes[actual] && intTypes[expected] {
+		return true
+	}
+	// 无符号整数类型之间兼容
+	if uintTypes[actual] && uintTypes[expected] {
+		return true
+	}
+	// 浮点类型之间兼容
+	if floatTypes[actual] && floatTypes[expected] {
+		return true
+	}
+	// 任意整数可以赋给 float
+	if (intTypes[actual] || uintTypes[actual]) && floatTypes[expected] {
+		return true
+	}
 	
 	// 数组类型
 	if strings.HasSuffix(actual, "[]") && strings.HasSuffix(expected, "[]") {
