@@ -573,12 +573,6 @@ func NewCoroutineValue(co *CoroutineObject) Value {
 	return Value{Type: ValGoroutine, Data: co}
 }
 
-// NewGoroutineValue 创建协程引用值（兼容旧 API）
-// Deprecated: 请使用 NewCoroutineValue
-func NewGoroutineValue(id int64) Value {
-	return Value{Type: ValGoroutine, Data: NewCoroutineObject(id)}
-}
-
 // AsCoroutine 获取协程对象
 func (v Value) AsCoroutine() *CoroutineObject {
 	if v.Type == ValGoroutine {

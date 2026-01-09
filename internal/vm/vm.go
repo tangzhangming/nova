@@ -2676,8 +2676,8 @@ func (vm *VM) execute() InterpretResult {
 				return vm.runtimeError("go: too many goroutines")
 			}
 
-			// 压入协程 ID
-			vm.push(bytecode.NewGoroutineValue(g.ID))
+			// 压入协程对象
+			vm.push(bytecode.NewCoroutineValue(bytecode.NewCoroutineObject(g.ID)))
 
 		case bytecode.OpYield:
 			// 让出执行权（协作式调度点）

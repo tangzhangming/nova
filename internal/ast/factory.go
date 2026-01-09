@@ -542,27 +542,6 @@ func (a *Arena) NewSwitchDefaultCase(defaultTok token.Token, arrow token.Token, 
 	return node
 }
 
-// NewCaseClause 创建 case 子句节点（兼容旧接口，单值版本）
-// Deprecated: 请使用 NewSwitchCase
-func (a *Arena) NewCaseClause(caseTok token.Token, value Expression, colon token.Token, body []Statement) *CaseClause {
-	node := AllocType[CaseClause](a)
-	node.CaseToken = caseTok
-	node.Values = []Expression{value}
-	node.Colon = colon
-	node.Body = body
-	return node
-}
-
-// NewDefaultClause 创建 default 子句节点（兼容旧接口）
-// Deprecated: 请使用 NewSwitchDefaultCase
-func (a *Arena) NewDefaultClause(defaultTok token.Token, colon token.Token, body []Statement) *DefaultClause {
-	node := AllocType[DefaultClause](a)
-	node.DefaultToken = defaultTok
-	node.Colon = colon
-	node.Body = body
-	return node
-}
-
 // NewForStmt 创建 for 语句节点
 func (a *Arena) NewForStmt(forTok token.Token, init Statement, cond Expression, post Expression, body *BlockStmt) *ForStmt {
 	node := AllocType[ForStmt](a)
