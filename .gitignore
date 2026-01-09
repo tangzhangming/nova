@@ -1,6 +1,7 @@
 *.exe
 *.log
 *.toml
+/bin/
 /idea/
 /.cursor/
 /docs/

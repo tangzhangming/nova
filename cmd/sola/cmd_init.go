@@ -16,10 +16,9 @@ func cmdInit(args []string) {
 
 	// 可选参数
 	name := fs.String("name", "", m.InitOptName)
-	namespace := fs.String("namespace", "", m.InitOptNamespace)
 
 	fs.Usage = func() {
-		fmt.Println(m.HelpUsage + " sola init [options]")
+		fmt.Println(m.HelpUsage + " sola init [namespace]")
 		fmt.Println()
 		fmt.Println(m.InitDesc)
 		fmt.Println()
@@ -52,8 +51,10 @@ func cmdInit(args []string) {
 	if *name != "" {
 		config.Package.Name = *name
 	}
-	if *namespace != "" {
-		config.Package.Namespace = *namespace
+	
+	// 位置参数指定命名空间：sola init [namespace]
+	if fs.NArg() > 0 {
+		config.Package.Namespace = fs.Arg(0)
 	}
 
 	// 保存配置文件

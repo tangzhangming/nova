@@ -75,7 +75,7 @@ func generateConfigWithComments(c *PackageConfig) string {
 }
 
 // GenerateDefault 生成默认配置
-// dir 是项目目录路径，用于生成默认的项目名和命名空间
+// dir 是项目目录路径，用于生成默认的项目名
 func GenerateDefault(dir string) *PackageConfig {
 	// 从目录名生成默认名称
 	baseName := filepath.Base(dir)
@@ -85,13 +85,12 @@ func GenerateDefault(dir string) *PackageConfig {
 
 	// 清理名称（移除特殊字符）
 	name := sanitizeName(baseName)
-	namespace := sanitizeNamespace(baseName)
 
 	return &PackageConfig{
 		Package: PackageInfo{
 			Name:      name,
 			Version:   "0.1.0",
-			Namespace: namespace,
+			Namespace: "company.project", // 默认命名空间
 		},
 	}
 }
