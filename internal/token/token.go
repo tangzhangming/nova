@@ -101,8 +101,9 @@ const (
 	AT            // @
 	HASH          // #
 	ELLIPSIS      // ...
-	SAFE_DOT      // ?.
-	NULL_COALESCE // ??
+	SAFE_DOT       // ?.
+	NULL_COALESCE  // ??
+	NON_NULL_ASSERT // !! (非空断言操作符)
 
 	// ----------------------------------------------------------
 	// 关键字 - 类型
@@ -284,8 +285,9 @@ var tokenNames = map[TokenType]string{
 	AT:            "@",
 	HASH:          "#",
 	ELLIPSIS:      "...",
-	SAFE_DOT:      "?.",
-	NULL_COALESCE: "??",
+	SAFE_DOT:        "?.",
+	NULL_COALESCE:   "??",
+	NON_NULL_ASSERT: "!!",
 
 	// 类型关键字
 	INT_TYPE:    "int",

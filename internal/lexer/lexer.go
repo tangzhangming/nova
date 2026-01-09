@@ -268,8 +268,12 @@ func (l *Lexer) scanToken() {
 	// 中频：比较和逻辑运算符
 	// ----------------------------------------------------------
 	case '!':
-		// ! 或 !=
-		if l.match('=') {
+		// ! 或 != 或 !! (非空断言)
+		// BUG FIX 2026-01-10: 空安全系统完善 - 添加 !! 非空断言操作符
+		// 注意: !! 必须在 != 之前检查，因为需要两个连续的 !
+		if l.match('!') {
+			l.addToken(token.NON_NULL_ASSERT)
+		} else if l.match('=') {
 			l.addToken(token.NE)
 		} else {
 			l.addToken(token.NOT)
@@ -822,10 +826,24 @@ func (l *Lexer) number() {
 //
 // 标识符以字母或下划线开头，后跟字母、数字或下划线。
 // 扫描完成后查找关键字表，确定是标识符还是关键字。
+// maxIdentifierLength 标识符最大长度限制，防止内存暴涨
+const maxIdentifierLength = 1000
+
 func (l *Lexer) identifier() {
-	// 读取标识符的剩余部分
-	for isAlphaNumeric(l.peek()) {
+	// 读取标识符的剩余部分，添加长度限制
+	identLen := 0
+	for isAlphaNumeric(l.peek()) && identLen < maxIdentifierLength {
 		l.advance()
+		identLen++
+	}
+
+	// 如果标识符过长，跳过剩余字符并报错
+	if identLen >= maxIdentifierLength {
+		for isAlphaNumeric(l.peek()) {
+			l.advance()
+		}
+		l.error("identifier too long")
+		return
 	}
 
 	text := l.source[l.start:l.current]
@@ -1085,11 +1103,18 @@ func (l *Lexer) addTokenWithValue(tokenType token.TokenType, value interface{}) 
 // 错误处理
 // ============================================================================
 
+// maxLexErrors 最大错误数量限制，防止内存暴涨
+const maxLexErrors = 100
+
 // error 记录一个词法错误
 //
 // 错误会被收集起来，不会中断扫描过程。
 // 同时会生成一个 ILLEGAL token。
 func (l *Lexer) error(message string) {
+	// 检查是否超过最大错误数量
+	if len(l.errors) >= maxLexErrors {
+		return // 静默忽略后续错误，防止内存暴涨
+	}
 	l.errors = append(l.errors, Error{
 		Pos:     l.currentPos(),
 		Message: message,

@@ -40,14 +40,43 @@ func (s *Server) handleHover(id json.RawMessage, params json.RawMessage) {
 
 // getHoverInfo 获取悬停信息
 func (s *Server) getHoverInfo(doc *Document, line, character int) *protocol.Hover {
+	// 获取当前行文本
+	lineText := doc.GetLine(line)
+	if lineText == "" || character > len(lineText) {
+		return nil
+	}
+
 	// 获取当前位置的单词
 	word := doc.GetWordAt(line, character)
 	if word == "" {
 		return nil
 	}
 
+	// 获取 AST 和符号表
+	astFile := doc.GetAST()
+	symbols := doc.GetSymbols()
+
+	if astFile == nil {
+		return nil
+	}
+
+	var content string
+	var hoverRange *protocol.Range
+
+	// 检查是否是静态访问 (ClassName::methodName)
+	staticInfo := s.checkStaticAccess(lineText, character, astFile, symbols)
+	if staticInfo != "" {
+		return &protocol.Hover{
+			Contents: protocol.MarkupContent{
+				Kind:  protocol.Markdown,
+				Value: staticInfo,
+			},
+			Range: hoverRange,
+		}
+	}
+
 	// 检查是否是变量（以 $ 开头）
-	lineText := doc.GetLine(line)
+	isVariable := false
 	if character > 0 && character <= len(lineText) {
 		// 向前查找 $
 		start := character
@@ -56,37 +85,33 @@ func (s *Server) getHoverInfo(doc *Document, line, character int) *protocol.Hove
 		}
 		if start > 0 && lineText[start-1] == '$' {
 			word = "$" + word
+			isVariable = true
 		}
 	}
 
-	// 获取 AST 和符号表
-	astFile := doc.GetAST()
-	symbols := doc.GetSymbols()
-
-	if astFile == nil || symbols == nil {
-		return nil
-	}
-
-	var content string
-	var hoverRange *protocol.Range
-
 	// 查找符号信息
-	if strings.HasPrefix(word, "$") {
+	if isVariable {
 		// 变量
 		varName := word[1:]
 		content = s.getVariableHoverInfo(astFile, varName, line+1) // AST 行号从 1 开始
 	} else {
 		// 尝试查找函数
-		if fn := symbols.GetFunction(word); fn != nil {
-			content = formatFunctionSignature(fn)
-		} else {
-			// 尝试查找类
-			if classSig := symbols.GetClassSignature(word); classSig != nil {
-				content = formatClassSignature(classSig)
-			} else {
-				// 尝试在 AST 中查找声明
-				content = s.findDeclarationInfo(astFile, word)
+		if symbols != nil {
+			if fn := symbols.GetFunction(word); fn != nil {
+				content = formatFunctionSignature(fn)
 			}
+		}
+		if content == "" {
+			// 尝试查找类
+			if symbols != nil {
+				if classSig := symbols.GetClassSignature(word); classSig != nil {
+					content = formatClassSignature(classSig)
+				}
+			}
+		}
+		if content == "" {
+			// 尝试在 AST 中查找声明
+			content = s.findDeclarationInfo(astFile, word)
 		}
 	}
 
@@ -103,16 +128,177 @@ func (s *Server) getHoverInfo(doc *Document, line, character int) *protocol.Hove
 	}
 }
 
+// checkStaticAccess 检查是否是静态访问并返回hover信息
+func (s *Server) checkStaticAccess(lineText string, character int, astFile *ast.File, symbols *compiler.SymbolTable) string {
+	// 查找 :: 的位置
+	doubleColonIdx := strings.LastIndex(lineText[:min(character+20, len(lineText))], "::")
+	if doubleColonIdx < 0 || doubleColonIdx >= character {
+		return ""
+	}
+
+	// 检查光标是否在 :: 后面的部分
+	afterDoubleColon := lineText[doubleColonIdx+2:]
+
+	// 提取方法/属性名
+	memberStart := 0
+	memberEnd := 0
+	for i, c := range afterDoubleColon {
+		if isWordChar(byte(c)) || c == '$' {
+			if memberStart == 0 && c != '$' {
+				memberStart = i
+			}
+			memberEnd = i + 1
+		} else if memberStart > 0 {
+			break
+		}
+	}
+
+	if memberEnd <= memberStart {
+		return ""
+	}
+
+	memberName := afterDoubleColon[memberStart:memberEnd]
+
+	// 提取类名
+	classEnd := doubleColonIdx
+	classStart := classEnd
+	for classStart > 0 && isWordChar(lineText[classStart-1]) {
+		classStart--
+	}
+
+	if classStart >= classEnd {
+		return ""
+	}
+
+	className := lineText[classStart:classEnd]
+
+	// 查找方法信息
+	// 先从 AST 中查找
+	if astFile != nil {
+		for _, decl := range astFile.Declarations {
+			if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == className {
+				// 查找静态方法
+				for _, method := range classDecl.Methods {
+					if method.Static && method.Name.Name == memberName {
+						return formatMethodHover(className, method)
+					}
+				}
+				// 查找静态属性
+				for _, prop := range classDecl.Properties {
+					if prop.Static && prop.Name.Name == strings.TrimPrefix(memberName, "$") {
+						return formatPropertyHover(className, prop)
+					}
+				}
+				// 查找常量
+				for _, c := range classDecl.Constants {
+					if c.Name.Name == memberName {
+						return fmt.Sprintf("```sola\nconst %s %s\n```\n\n常量来自: %s", typeNodeToString(c.Type), memberName, className)
+					}
+				}
+			}
+		}
+	}
+
+	// 从符号表中查找
+	if symbols != nil {
+		// 查找方法
+		if methods, ok := symbols.ClassMethods[className]; ok {
+			if sigs, ok := methods[memberName]; ok && len(sigs) > 0 {
+				sig := sigs[0]
+				if sig.IsStatic {
+					return formatMethodSigHover(className, sig)
+				}
+			}
+		}
+		// 查找属性
+		propName := strings.TrimPrefix(memberName, "$")
+		if props, ok := symbols.ClassProperties[className]; ok {
+			if sig, ok := props[propName]; ok && sig.IsStatic {
+				return fmt.Sprintf("```sola\nstatic %s $%s\n```\n\n属性来自: %s", sig.Type, propName, className)
+			}
+		}
+	}
+
+	return ""
+}
+
+// formatMethodSigHover 格式化方法签名的hover信息
+func formatMethodSigHover(className string, sig *compiler.MethodSignature) string {
+	var sb strings.Builder
+	sb.WriteString("```sola\n")
+
+	if sig.IsStatic {
+		sb.WriteString("static ")
+	}
+	sb.WriteString("function ")
+	sb.WriteString(sig.MethodName)
+	sb.WriteString("(")
+
+	for i, pt := range sig.ParamTypes {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(pt)
+		if i < len(sig.ParamNames) {
+			sb.WriteString(" $")
+			sb.WriteString(sig.ParamNames[i])
+		}
+	}
+
+	sb.WriteString(")")
+
+	if sig.ReturnType != "" && sig.ReturnType != "void" {
+		sb.WriteString(": ")
+		sb.WriteString(sig.ReturnType)
+	}
+
+	sb.WriteString("\n```\n\n方法来自: ")
+	sb.WriteString(className)
+
+	return sb.String()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // getVariableHoverInfo 获取变量悬停信息
 func (s *Server) getVariableHoverInfo(file *ast.File, varName string, line int) string {
-	// 遍历语句查找变量声明
+	// 首先遍历语句查找局部变量声明（优先级更高）
 	for _, stmt := range file.Statements {
 		if info := findVariableInStatement(stmt, varName, line); info != "" {
 			return info
 		}
 	}
 
-	// 遍历类声明查找属性
+	// 遍历类方法查找局部变量
+	for _, decl := range file.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			for _, method := range classDecl.Methods {
+				// 检查方法参数
+				for _, param := range method.Parameters {
+					if param.Name.Name == varName {
+						typeName := "dynamic"
+						if param.Type != nil {
+							typeName = typeNodeToString(param.Type)
+						}
+						return fmt.Sprintf("```sola\n%s $%s\n```\n\n方法参数", typeName, varName)
+					}
+				}
+				// 检查方法体内的变量
+				if method.Body != nil {
+					if info := findVariableInStatement(method.Body, varName, line); info != "" {
+						return info
+					}
+				}
+			}
+		}
+	}
+
+	// 最后才查找类属性（只有在没找到局部变量时）
 	for _, decl := range file.Declarations {
 		if classDecl, ok := decl.(*ast.ClassDecl); ok {
 			for _, prop := range classDecl.Properties {
@@ -131,11 +317,21 @@ func findVariableInStatement(stmt ast.Statement, varName string, line int) strin
 	switch s := stmt.(type) {
 	case *ast.VarDeclStmt:
 		if s.Name.Name == varName {
-			typeName := "dynamic"
+			typeName := ""
 			if s.Type != nil {
 				typeName = typeNodeToString(s.Type)
+			} else if s.Value != nil {
+				// 从初始化表达式推断类型
+				typeName = inferTypeFromExprForHover(s.Value)
 			}
-			return fmt.Sprintf("```sola\n%s $%s\n```\n\n变量声明", typeName, varName)
+			if typeName == "" {
+				typeName = "dynamic"
+			}
+			declType := "变量声明"
+			if s.Operator.Literal == ":=" {
+				declType = "短变量声明"
+			}
+			return fmt.Sprintf("```sola\n%s $%s\n```\n\n%s", typeName, varName, declType)
 		}
 	case *ast.MultiVarDeclStmt:
 		for _, v := range s.Names {
@@ -171,10 +367,36 @@ func findVariableInStatement(stmt ast.Statement, varName string, line int) strin
 		}
 	case *ast.ForeachStmt:
 		if s.Key != nil && s.Key.Name == varName {
-			return fmt.Sprintf("```sola\n$%s\n```\n\nforeach 键变量", varName)
+			// 尝试推断key的类型
+			keyType := "dynamic"
+			if s.Iterable != nil {
+				iterType := inferTypeFromExprForHover(s.Iterable)
+				if strings.HasPrefix(iterType, "map[") {
+					// map[K]V -> K
+					if idx := strings.Index(iterType, "]"); idx > 4 {
+						keyType = iterType[4:idx]
+					}
+				} else if strings.HasSuffix(iterType, "[]") {
+					keyType = "int"
+				}
+			}
+			return fmt.Sprintf("```sola\n%s $%s\n```\n\nforeach 键变量", keyType, varName)
 		}
 		if s.Value != nil && s.Value.Name == varName {
-			return fmt.Sprintf("```sola\n$%s\n```\n\nforeach 值变量", varName)
+			// 尝试推断value的类型
+			valueType := "dynamic"
+			if s.Iterable != nil {
+				iterType := inferTypeFromExprForHover(s.Iterable)
+				if strings.HasPrefix(iterType, "map[") {
+					// map[K]V -> V
+					if idx := strings.Index(iterType, "]"); idx > 0 && idx+1 < len(iterType) {
+						valueType = iterType[idx+1:]
+					}
+				} else if strings.HasSuffix(iterType, "[]") {
+					valueType = iterType[:len(iterType)-2]
+				}
+			}
+			return fmt.Sprintf("```sola\n%s $%s\n```\n\nforeach 值变量", valueType, varName)
 		}
 		if s.Body != nil {
 			if info := findVariableInStatement(s.Body, varName, line); info != "" {
@@ -183,6 +405,12 @@ func findVariableInStatement(stmt ast.Statement, varName string, line int) strin
 		}
 	}
 	return ""
+}
+
+// inferTypeFromExprForHover 从表达式推断类型（用于hover显示）
+// 注意：这是 inferTypeFromExpr 的别名，保持一致性
+func inferTypeFromExprForHover(expr ast.Expression) string {
+	return inferTypeFromExpr(expr)
 }
 
 // findDeclarationInfo 在 AST 中查找声明信息

@@ -7,6 +7,7 @@ import (
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/compiler"
 	"github.com/tangzhangming/nova/internal/parser"
+	"github.com/tangzhangming/nova/internal/token"
 	"go.lsp.dev/protocol"
 )
 
@@ -134,9 +135,24 @@ func (dm *DocumentManager) GetAll() []*Document {
 	return docs
 }
 
+// maxDocumentSize 文档大小限制（5MB），防止内存暴涨
+const maxDocumentSize = 5 * 1024 * 1024
+
 // parse 解析文档
 func (doc *Document) parse() {
 	if !doc.dirty {
+		return
+	}
+
+	// 检查文档大小，防止内存暴涨
+	if len(doc.Content) > maxDocumentSize {
+		doc.AST = nil
+		doc.ParseErrs = []parser.Error{{
+			Pos:     token.Position{Line: 1, Column: 1},
+			Message: "document too large to parse",
+		}}
+		doc.Symbols = nil
+		doc.dirty = false
 		return
 	}
 

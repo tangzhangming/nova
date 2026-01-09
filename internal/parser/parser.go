@@ -12,13 +12,17 @@ import (
 
 // Parser 语法分析器
 type Parser struct {
-	lexer     *lexer.Lexer
-	tokens    []token.Token
-	current   int
-	errors    []Error
-	filename  string
-	panicMode bool // 错误恢复模式标志，用于避免级联报错
+	lexer      *lexer.Lexer
+	tokens     []token.Token
+	current    int
+	errors     []Error
+	filename   string
+	panicMode  bool // 错误恢复模式标志，用于避免级联报错
+	exprDepth  int  // 表达式解析深度，防止栈溢出
 }
+
+// maxExprDepth 最大表达式嵌套深度，防止栈溢出
+const maxExprDepth = 200
 
 // Error 语法分析错误
 type Error struct {
@@ -584,7 +588,8 @@ func (p *Parser) getPrecedence(t token.TokenType) int {
 	case token.NULL_COALESCE:
 		return PREC_COALESCE
 	case token.LBRACKET, token.ARROW, token.SAFE_DOT, token.DOUBLE_COLON, token.LPAREN, token.DOT,
-		token.INCREMENT, token.DECREMENT:
+		token.INCREMENT, token.DECREMENT, token.NON_NULL_ASSERT:
+		// BUG FIX 2026-01-10: 空安全系统完善 - 添加 !! 非空断言操作符优先级
 		return PREC_POSTFIX
 	default:
 		return PREC_NONE
@@ -592,6 +597,16 @@ func (p *Parser) getPrecedence(t token.TokenType) int {
 }
 
 func (p *Parser) parseExpression() ast.Expression {
+	// 检查递归深度，防止栈溢出
+	p.exprDepth++
+	if p.exprDepth > maxExprDepth {
+		p.error("expression too deeply nested")
+		p.panicMode = true
+		p.exprDepth--
+		return nil
+	}
+	defer func() { p.exprDepth-- }()
+
 	return p.parsePrecedence(PREC_ASSIGNMENT)
 }
 
@@ -601,7 +616,7 @@ func (p *Parser) parsePrecedence(precedence int) ast.Expression {
 		return nil
 	}
 
-	for precedence <= p.getPrecedence(p.peek().Type) {
+	for precedence <= p.getPrecedence(p.peek().Type) && !p.panicMode {
 		left = p.parseInfixExpr(left)
 		if left == nil {
 			return nil
@@ -732,6 +747,9 @@ func (p *Parser) parseInfixExpr(left ast.Expression) ast.Expression {
 		return p.parseDotAccess(left)
 	case token.INCREMENT, token.DECREMENT:
 		return p.parsePostfixIncDec(left)
+	case token.NON_NULL_ASSERT:
+		// BUG FIX 2026-01-10: 空安全系统完善 - 解析非空断言表达式 (expr!!)
+		return p.parseNonNullAssertExpr(left)
 	default:
 		return left
 	}
@@ -1302,6 +1320,17 @@ func (p *Parser) parseNullCoalesceExpr(left ast.Expression) ast.Expression {
 		Left:     left,
 		Operator: op,
 		Right:    right,
+	}
+}
+
+// parseNonNullAssertExpr 解析非空断言表达式 (expr!!)
+// BUG FIX 2026-01-10: 空安全系统完善 - 添加非空断言解析
+// 用于断言表达式非空，运行时如果为null则抛出异常
+func (p *Parser) parseNonNullAssertExpr(left ast.Expression) ast.Expression {
+	op := p.advance() // 消费 !!
+	return &ast.NonNullAssertExpr{
+		Expr:     left,
+		Operator: op,
 	}
 }
 

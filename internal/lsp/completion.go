@@ -118,16 +118,16 @@ func detectCompletionContext(prefix string) completionContext {
 		}
 	}
 
-	// 检查是否是静态访问 ClassName::
-	if strings.HasSuffix(prefix, "::") {
-		idx := strings.LastIndex(prefix, "::")
-		if idx > 0 {
-			classPart := strings.TrimRight(prefix[:idx], " \t")
-			start := len(classPart) - 1
-			for start >= 0 && isWordChar(classPart[start]) {
-				start--
-			}
-			className := classPart[start+1:]
+	// 检查是否是静态访问 ClassName:: 或 ClassName::$ 或 ClassName::xxx
+	// 使用更宽松的检测：查找 :: 并检查其后的内容
+	if idx := strings.LastIndex(prefix, "::"); idx > 0 {
+		classPart := strings.TrimRight(prefix[:idx], " \t")
+		start := len(classPart) - 1
+		for start >= 0 && isWordChar(classPart[start]) {
+			start--
+		}
+		className := classPart[start+1:]
+		if className != "" {
 			return completionContext{Type: contextStaticAccess, ClassName: className}
 		}
 	}
@@ -143,9 +143,11 @@ func detectCompletionContext(prefix string) completionContext {
 		return completionContext{Type: contextNew}
 	}
 
-	// 检查是否在类型位置（如参数类型、返回类型）
-	if strings.HasSuffix(trimmed, ":") || strings.HasSuffix(trimmed, "extends ") ||
-		strings.HasSuffix(trimmed, "implements ") {
+	// 检查是否在类型位置（如参数类型、返回类型）- 但排除 ::
+	if strings.HasSuffix(trimmed, ":") && !strings.HasSuffix(trimmed, "::") {
+		return completionContext{Type: contextType}
+	}
+	if strings.HasSuffix(trimmed, "extends ") || strings.HasSuffix(trimmed, "implements ") {
 		return completionContext{Type: contextType}
 	}
 
@@ -157,13 +159,10 @@ func (s *Server) getMemberCompletions(doc *Document, objectName string) []protoc
 	var items []protocol.CompletionItem
 
 	symbols := doc.GetSymbols()
-	if symbols == nil {
-		return items
-	}
+	astFile := doc.GetAST()
 
 	// 如果是 $this，查找当前类的成员
 	if objectName == "$this" || objectName == "this" {
-		astFile := doc.GetAST()
 		if astFile != nil {
 			for _, decl := range astFile.Declarations {
 				if classDecl, ok := decl.(*ast.ClassDecl); ok {
@@ -190,21 +189,70 @@ func (s *Server) getMemberCompletions(doc *Document, objectName string) []protoc
 		return items
 	}
 
-	// 对于其他对象，尝试从符号表获取类型信息
-	// 这里简化处理，返回所有已知类的公共成员
-	for className, methods := range symbols.ClassMethods {
-		for methodName, sigs := range methods {
-			if len(sigs) > 0 {
-				sig := sigs[0]
-				if !sig.IsStatic {
-					items = append(items, protocol.CompletionItem{
-						Label:      methodName,
-						Kind:       protocol.CompletionItemKindMethod,
-						Detail:     className + "::" + methodName,
-						InsertText: methodName + "()",
-					})
+	// 尝试推断变量的类型
+	varName := strings.TrimPrefix(objectName, "$")
+	varType := inferVariableType(astFile, varName)
+
+	// 如果推断出了类型，获取该类的方法
+	if varType != "" && varType != "dynamic" {
+		// 从符号表获取类方法
+		if symbols != nil {
+			if methods, ok := symbols.ClassMethods[varType]; ok {
+				for methodName, sigs := range methods {
+					if len(sigs) > 0 && !sigs[0].IsStatic {
+						items = append(items, protocol.CompletionItem{
+							Label:      methodName,
+							Kind:       protocol.CompletionItemKindMethod,
+							Detail:     formatMethodSigShort(sigs[0]),
+							InsertText: methodName + "()",
+						})
+					}
 				}
 			}
+			// 获取类属性
+			if props, ok := symbols.ClassProperties[varType]; ok {
+				for propName, sig := range props {
+					if !sig.IsStatic {
+						items = append(items, protocol.CompletionItem{
+							Label:  propName,
+							Kind:   protocol.CompletionItemKindProperty,
+							Detail: sig.Type,
+						})
+					}
+				}
+			}
+		}
+
+		// 从AST中查找类定义
+		if astFile != nil {
+			for _, decl := range astFile.Declarations {
+				if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == varType {
+					for _, prop := range classDecl.Properties {
+						if !prop.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:  prop.Name.Name,
+								Kind:   protocol.CompletionItemKindProperty,
+								Detail: typeNodeToString(prop.Type),
+							})
+						}
+					}
+					for _, method := range classDecl.Methods {
+						if !method.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:      method.Name.Name,
+								Kind:       protocol.CompletionItemKindMethod,
+								Detail:     formatMethodSignatureShort(method),
+								InsertText: method.Name.Name + "()",
+							})
+						}
+					}
+				}
+			}
+		}
+
+		// 如果已经找到了类的方法，直接返回
+		if len(items) > 0 {
+			return items
 		}
 	}
 
@@ -236,54 +284,297 @@ func (s *Server) getMemberCompletions(doc *Document, objectName string) []protoc
 	return items
 }
 
+// inferVariableType 推断变量类型
+func inferVariableType(file *ast.File, varName string) string {
+	if file == nil {
+		return ""
+	}
+
+	// 从顶层语句中查找变量声明
+	for _, stmt := range file.Statements {
+		if t := inferTypeFromStmt(stmt, varName); t != "" {
+			return t
+		}
+	}
+
+	// 从类方法中查找
+	for _, decl := range file.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			for _, method := range classDecl.Methods {
+				// 检查方法参数
+				for _, param := range method.Parameters {
+					if param.Name.Name == varName && param.Type != nil {
+						return typeNodeToString(param.Type)
+					}
+				}
+				// 检查方法体
+				if method.Body != nil {
+					if t := inferTypeFromStmt(method.Body, varName); t != "" {
+						return t
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// inferTypeFromStmt 从语句中推断变量类型
+func inferTypeFromStmt(stmt ast.Statement, varName string) string {
+	if stmt == nil {
+		return ""
+	}
+
+	switch s := stmt.(type) {
+	case *ast.VarDeclStmt:
+		if s.Name.Name == varName {
+			// 如果有显式类型
+			if s.Type != nil {
+				return typeNodeToString(s.Type)
+			}
+			// 从初始化表达式推断类型
+			return inferTypeFromExpr(s.Value)
+		}
+	case *ast.BlockStmt:
+		for _, inner := range s.Statements {
+			if t := inferTypeFromStmt(inner, varName); t != "" {
+				return t
+			}
+		}
+	case *ast.IfStmt:
+		if t := inferTypeFromStmt(s.Then, varName); t != "" {
+			return t
+		}
+		if s.Else != nil {
+			if t := inferTypeFromStmt(s.Else, varName); t != "" {
+				return t
+			}
+		}
+	case *ast.ForStmt:
+		if s.Init != nil {
+			if t := inferTypeFromStmt(s.Init, varName); t != "" {
+				return t
+			}
+		}
+		if s.Body != nil {
+			if t := inferTypeFromStmt(s.Body, varName); t != "" {
+				return t
+			}
+		}
+	case *ast.ForeachStmt:
+		if s.Body != nil {
+			if t := inferTypeFromStmt(s.Body, varName); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
+// inferTypeFromExpr 从表达式推断类型
+func inferTypeFromExpr(expr ast.Expression) string {
+	if expr == nil {
+		return ""
+	}
+
+	switch e := expr.(type) {
+	case *ast.NewExpr:
+		return e.ClassName.Name
+	case *ast.StringLiteral:
+		return "string"
+	case *ast.InterpStringLiteral:
+		return "string"
+	case *ast.IntegerLiteral:
+		return "int"
+	case *ast.FloatLiteral:
+		return "float"
+	case *ast.BoolLiteral:
+		return "bool"
+	case *ast.NullLiteral:
+		return "null"
+	case *ast.ArrayLiteral:
+		if e.ElementType != nil {
+			return typeNodeToString(e.ElementType) + "[]"
+		}
+		// 尝试从元素推断
+		if len(e.Elements) > 0 {
+			elemType := inferTypeFromExpr(e.Elements[0])
+			if elemType != "" {
+				return elemType + "[]"
+			}
+		}
+		return "array"
+	case *ast.MapLiteral:
+		if e.KeyType != nil && e.ValueType != nil {
+			return "map[" + typeNodeToString(e.KeyType) + "]" + typeNodeToString(e.ValueType)
+		}
+		return "map"
+	case *ast.SuperArrayLiteral:
+		return "SuperArray"
+	case *ast.BinaryExpr:
+		// 二元表达式 - 尝试推断
+		leftType := inferTypeFromExpr(e.Left)
+		rightType := inferTypeFromExpr(e.Right)
+		op := e.Operator.Literal
+		// 字符串连接
+		if op == "." || op == "+" {
+			if leftType == "string" || rightType == "string" {
+				return "string"
+			}
+		}
+		// 数值运算
+		if op == "+" || op == "-" || op == "*" || op == "/" || op == "%" {
+			if leftType == "float" || rightType == "float" {
+				return "float"
+			}
+			if leftType == "int" && rightType == "int" {
+				return "int"
+			}
+		}
+		// 比较运算
+		if op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=" || op == "&&" || op == "||" {
+			return "bool"
+		}
+		return ""
+	case *ast.TernaryExpr:
+		// 三元表达式 - 返回then分支的类型
+		return inferTypeFromExpr(e.Then)
+	}
+	return ""
+}
+
 // getStaticCompletions 获取静态成员补全
 func (s *Server) getStaticCompletions(doc *Document, className string) []protocol.CompletionItem {
 	var items []protocol.CompletionItem
 
 	symbols := doc.GetSymbols()
-	if symbols == nil {
-		return items
-	}
+	astFile := doc.GetAST()
 
-	// 查找类的静态方法
-	if methods, ok := symbols.ClassMethods[className]; ok {
-		for methodName, sigs := range methods {
-			if len(sigs) > 0 && sigs[0].IsStatic {
-				items = append(items, protocol.CompletionItem{
-					Label:      methodName,
-					Kind:       protocol.CompletionItemKindMethod,
-					Detail:     formatMethodSigShort(sigs[0]),
-					InsertText: methodName + "()",
-				})
+	// 尝试解析类名（可能是简短名或完整名）
+	fullClassName := resolveClassName(astFile, className)
+
+	// 从符号表查找
+	if symbols != nil {
+		// 尝试多种类名形式
+		classNames := []string{className, fullClassName}
+		for _, cn := range classNames {
+			if cn == "" {
+				continue
+			}
+			// 查找类的静态方法
+			if methods, ok := symbols.ClassMethods[cn]; ok {
+				for methodName, sigs := range methods {
+					if len(sigs) > 0 && sigs[0].IsStatic {
+						items = append(items, protocol.CompletionItem{
+							Label:      methodName,
+							Kind:       protocol.CompletionItemKindMethod,
+							Detail:     formatMethodSigShort(sigs[0]),
+							InsertText: methodName + "()",
+						})
+					}
+				}
+			}
+
+			// 查找类的静态属性
+			if props, ok := symbols.ClassProperties[cn]; ok {
+				for propName, sig := range props {
+					if sig.IsStatic {
+						items = append(items, protocol.CompletionItem{
+							Label:  "$" + propName,
+							Kind:   protocol.CompletionItemKindProperty,
+							Detail: sig.Type,
+						})
+					}
+				}
+			}
+
+			// 查找枚举值
+			if values := symbols.GetEnumValues(cn); len(values) > 0 {
+				for _, val := range values {
+					items = append(items, protocol.CompletionItem{
+						Label:  val,
+						Kind:   protocol.CompletionItemKindEnumMember,
+						Detail: cn + "::" + val,
+					})
+				}
 			}
 		}
 	}
 
-	// 查找类的静态属性
-	if props, ok := symbols.ClassProperties[className]; ok {
-		for propName, sig := range props {
-			if sig.IsStatic {
-				items = append(items, protocol.CompletionItem{
-					Label:  "$" + propName,
-					Kind:   protocol.CompletionItemKindProperty,
-					Detail: sig.Type,
-				})
+	// 从当前文件的AST中查找类定义
+	if astFile != nil {
+		for _, decl := range astFile.Declarations {
+			switch d := decl.(type) {
+			case *ast.ClassDecl:
+				if d.Name.Name == className {
+					// 添加静态属性
+					for _, prop := range d.Properties {
+						if prop.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:  "$" + prop.Name.Name,
+								Kind:   protocol.CompletionItemKindProperty,
+								Detail: typeNodeToString(prop.Type),
+							})
+						}
+					}
+					// 添加静态方法
+					for _, method := range d.Methods {
+						if method.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:      method.Name.Name,
+								Kind:       protocol.CompletionItemKindMethod,
+								Detail:     formatMethodSignatureShort(method),
+								InsertText: method.Name.Name + "()",
+							})
+						}
+					}
+					// 添加常量
+					for _, c := range d.Constants {
+						items = append(items, protocol.CompletionItem{
+							Label:  c.Name.Name,
+							Kind:   protocol.CompletionItemKindConstant,
+							Detail: typeNodeToString(c.Type),
+						})
+					}
+				}
+			case *ast.EnumDecl:
+				if d.Name.Name == className {
+					for _, c := range d.Cases {
+						items = append(items, protocol.CompletionItem{
+							Label:  c.Name.Name,
+							Kind:   protocol.CompletionItemKindEnumMember,
+							Detail: className + "::" + c.Name.Name,
+						})
+					}
+				}
 			}
-		}
-	}
-
-	// 查找枚举值
-	if values := symbols.GetEnumValues(className); len(values) > 0 {
-		for _, val := range values {
-			items = append(items, protocol.CompletionItem{
-				Label:  val,
-				Kind:   protocol.CompletionItemKindEnumMember,
-				Detail: className + "::" + val,
-			})
 		}
 	}
 
 	return items
+}
+
+// resolveClassName 解析类名（从use声明中查找完整名）
+func resolveClassName(file *ast.File, shortName string) string {
+	if file == nil {
+		return shortName
+	}
+
+	// 从 use 声明中查找
+	for _, use := range file.Uses {
+		// 检查是否有别名
+		if use.Alias != nil && use.Alias.Name == shortName {
+			return use.Path
+		}
+		// 检查路径的最后一部分是否匹配
+		parts := strings.Split(use.Path, ".")
+		if len(parts) > 0 && parts[len(parts)-1] == shortName {
+			return use.Path
+		}
+	}
+
+	return shortName
 }
 
 // getVariableCompletions 获取变量补全
