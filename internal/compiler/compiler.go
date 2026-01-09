@@ -2016,6 +2016,85 @@ func (c *Compiler) compileSelectStmt(s *ast.SelectStmt) {
 	}
 }
 
+// ============================================================================
+// 协程 OOP 编译
+// ============================================================================
+
+// compileAwaitExpr 编译 await 表达式: $task->await() 或 $task->await(timeout)
+func (c *Compiler) compileAwaitExpr(e *ast.AwaitExpr) {
+	// 编译协程对象表达式
+	c.compileExpr(e.Coroutine)
+
+	// 检查是否有超时参数
+	if e.Timeout != nil {
+		c.compileExpr(e.Timeout)
+		c.emit(bytecode.OpCoroutineAwait)
+		c.currentChunk().WriteU8(1, c.currentLine) // hasTimeout = 1
+	} else {
+		c.emit(bytecode.OpCoroutineAwait)
+		c.currentChunk().WriteU8(0, c.currentLine) // hasTimeout = 0
+	}
+}
+
+// compileCoroutineSpawnExpr 编译 Coroutine::spawn(fn)
+func (c *Compiler) compileCoroutineSpawnExpr(e *ast.CoroutineSpawnExpr) {
+	// 编译闭包表达式
+	c.compileExpr(e.Closure)
+
+	// 发出 spawn 指令，返回 Coroutine 对象
+	c.emit(bytecode.OpCoroutineSpawn)
+}
+
+// compileCoroutineAllExpr 编译 Coroutine::all(tasks)
+func (c *Compiler) compileCoroutineAllExpr(e *ast.CoroutineAllExpr) {
+	// 编译任务数组
+	c.compileExpr(e.Tasks)
+
+	// 发出 all 指令
+	c.emit(bytecode.OpCoroutineAll)
+}
+
+// compileCoroutineAnyExpr 编译 Coroutine::any(tasks)
+func (c *Compiler) compileCoroutineAnyExpr(e *ast.CoroutineAnyExpr) {
+	// 编译任务数组
+	c.compileExpr(e.Tasks)
+
+	// 发出 any 指令
+	c.emit(bytecode.OpCoroutineAny)
+}
+
+// compileCoroutineRaceExpr 编译 Coroutine::race(tasks)
+func (c *Compiler) compileCoroutineRaceExpr(e *ast.CoroutineRaceExpr) {
+	// 编译任务数组
+	c.compileExpr(e.Tasks)
+
+	// 发出 race 指令
+	c.emit(bytecode.OpCoroutineRace)
+}
+
+// compileCoroutineDelayExpr 编译 Coroutine::delay(ms)
+func (c *Compiler) compileCoroutineDelayExpr(e *ast.CoroutineDelayExpr) {
+	// 编译毫秒数
+	c.compileExpr(e.Milliseconds)
+
+	// 发出 delay 指令
+	c.emit(bytecode.OpCoroutineDelay)
+}
+
+// compileChannelSelectExpr 编译 Channel::select(cases)
+func (c *Compiler) compileChannelSelectExpr(e *ast.ChannelSelectExpr) {
+	// 编译 cases 数组
+	c.compileExpr(e.Cases)
+
+	// 发出 select 开始指令（OOP 版本）
+	// 注意：这里的实现与 select 语句不同，是基于回调的
+	c.emit(bytecode.OpSelectStart)
+	c.currentChunk().WriteU8(0, c.currentLine) // 占位，实际 case 数量在运行时确定
+
+	// 发出等待指令
+	c.emit(bytecode.OpSelectWait)
+}
+
 func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 	hasFinally := s.Finally != nil
 	catchCount := len(s.Catches)
@@ -2308,6 +2387,28 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 
 	case *ast.SwitchExpr:
 		c.compileSwitchExpr(e)
+
+	// 协程 OOP 表达式
+	case *ast.AwaitExpr:
+		c.compileAwaitExpr(e)
+
+	case *ast.CoroutineSpawnExpr:
+		c.compileCoroutineSpawnExpr(e)
+
+	case *ast.CoroutineAllExpr:
+		c.compileCoroutineAllExpr(e)
+
+	case *ast.CoroutineAnyExpr:
+		c.compileCoroutineAnyExpr(e)
+
+	case *ast.CoroutineRaceExpr:
+		c.compileCoroutineRaceExpr(e)
+
+	case *ast.CoroutineDelayExpr:
+		c.compileCoroutineDelayExpr(e)
+
+	case *ast.ChannelSelectExpr:
+		c.compileChannelSelectExpr(e)
 
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
@@ -3090,6 +3191,93 @@ func (c *Compiler) compileMethodCall(e *ast.MethodCall) {
 		c.compileExpr(e.Object)
 		c.emit(bytecode.OpArrayLen)
 		return
+
+	// =========================================================================
+	// 协程方法 (Coroutine<T>)
+	// =========================================================================
+	case "await":
+		// $task->await() 或 $task->await(timeout)
+		c.compileExpr(e.Object)
+		if len(e.Arguments) > 0 {
+			// 带超时
+			c.compileExpr(e.Arguments[0])
+			c.emit(bytecode.OpCoroutineAwait)
+			c.currentChunk().WriteU8(1, c.currentLine) // hasTimeout = 1
+		} else {
+			// 无超时
+			c.emit(bytecode.OpCoroutineAwait)
+			c.currentChunk().WriteU8(0, c.currentLine) // hasTimeout = 0
+		}
+		return
+	case "cancel":
+		// $task->cancel()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpCoroutineCancel)
+		return
+	case "join":
+		// $task->join() - 等价于 await() 但丢弃结果
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpCoroutineAwait)
+		c.currentChunk().WriteU8(0, c.currentLine)
+		c.emit(bytecode.OpPop) // 丢弃结果
+		c.emit(bytecode.OpNull) // join 返回 void
+		return
+	case "tryGetResult":
+		// $task->tryGetResult()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpCoroutineGetResult)
+		return
+
+	// =========================================================================
+	// 通道方法 (Channel<T>)
+	// =========================================================================
+	case "send":
+		// $ch->send(value)
+		c.compileExpr(e.Object)
+		if len(e.Arguments) > 0 {
+			c.compileExpr(e.Arguments[0])
+		} else {
+			c.emit(bytecode.OpNull)
+		}
+		c.emit(bytecode.OpChanSend)
+		c.emit(bytecode.OpNull) // send 返回 void
+		return
+	case "receive":
+		// $ch->receive()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpChanRecv)
+		return
+	case "trySend":
+		// $ch->trySend(value)
+		c.compileExpr(e.Object)
+		if len(e.Arguments) > 0 {
+			c.compileExpr(e.Arguments[0])
+		} else {
+			c.emit(bytecode.OpNull)
+		}
+		c.emit(bytecode.OpChanTrySend)
+		return
+	case "tryReceive":
+		// $ch->tryReceive()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpChanTryRecv)
+		return
+	case "close":
+		// $ch->close()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpChanClose)
+		c.emit(bytecode.OpNull) // close 返回 void
+		return
+	case "isClosed":
+		// $ch->isClosed()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpChanIsClosed)
+		return
+	case "capacity":
+		// $ch->capacity()
+		c.compileExpr(e.Object)
+		c.emit(bytecode.OpChanCap)
+		return
 	}
 
 	// 静态类型检查：检查方法参数类型
@@ -3302,6 +3490,77 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.CallExpr:
 		// 静态方法调用: Class::method()
 		if fn, ok := member.Function.(*ast.Identifier); ok {
+			// 检查是否是协程/通道的特殊方法
+			if className == "Coroutine" {
+				switch fn.Name {
+				case "spawn":
+					// Coroutine::spawn(fn)
+					if len(member.Arguments) != 1 {
+						c.error(e.Pos(), "Coroutine::spawn() requires exactly 1 argument")
+						return
+					}
+					c.compileExpr(member.Arguments[0])
+					c.emit(bytecode.OpCoroutineSpawn)
+					return
+				case "all":
+					// Coroutine::all(tasks)
+					if len(member.Arguments) != 1 {
+						c.error(e.Pos(), "Coroutine::all() requires exactly 1 argument")
+						return
+					}
+					c.compileExpr(member.Arguments[0])
+					c.emit(bytecode.OpCoroutineAll)
+					return
+				case "any":
+					// Coroutine::any(tasks)
+					if len(member.Arguments) != 1 {
+						c.error(e.Pos(), "Coroutine::any() requires exactly 1 argument")
+						return
+					}
+					c.compileExpr(member.Arguments[0])
+					c.emit(bytecode.OpCoroutineAny)
+					return
+				case "race":
+					// Coroutine::race(tasks)
+					if len(member.Arguments) != 1 {
+						c.error(e.Pos(), "Coroutine::race() requires exactly 1 argument")
+						return
+					}
+					c.compileExpr(member.Arguments[0])
+					c.emit(bytecode.OpCoroutineRace)
+					return
+				case "delay":
+					// Coroutine::delay(ms)
+					if len(member.Arguments) != 1 {
+						c.error(e.Pos(), "Coroutine::delay() requires exactly 1 argument")
+						return
+					}
+					c.compileExpr(member.Arguments[0])
+					c.emit(bytecode.OpCoroutineDelay)
+					return
+				case "yield":
+					// Coroutine::yield()
+					c.emit(bytecode.OpYield)
+					c.emit(bytecode.OpNull) // yield 返回 null
+					return
+				}
+			} else if className == "Channel" {
+				switch fn.Name {
+				case "select":
+					// Channel::select(cases)
+					if len(member.Arguments) != 1 {
+						c.error(e.Pos(), "Channel::select() requires exactly 1 argument")
+						return
+					}
+					c.compileExpr(member.Arguments[0])
+					c.emit(bytecode.OpSelectStart)
+					c.currentChunk().WriteU8(0, c.currentLine)
+					c.emit(bytecode.OpSelectWait)
+					return
+				}
+			}
+
+			// 普通静态方法调用
 			// 处理命名参数
 			args := c.resolveStaticCallNamedArguments(className, fn.Name, member)
 			
@@ -4491,6 +4750,31 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 	case *ast.SwitchExpr:
 		// switch 表达式：返回所有 case body 的公共类型
 		return c.inferSwitchExprType(e)
+
+	// 协程 OOP 表达式类型推断
+	case *ast.AwaitExpr:
+		// await 表达式：返回协程的结果类型
+		// 简化处理：返回 dynamic，实际应该从泛型参数推断
+		return "dynamic"
+	case *ast.CoroutineSpawnExpr:
+		// spawn 返回 Coroutine<T>
+		return "Coroutine"
+	case *ast.CoroutineAllExpr:
+		// all 返回 Coroutine<T[]>
+		return "Coroutine"
+	case *ast.CoroutineAnyExpr:
+		// any 返回 Coroutine<T>
+		return "Coroutine"
+	case *ast.CoroutineRaceExpr:
+		// race 返回 Coroutine<T>
+		return "Coroutine"
+	case *ast.CoroutineDelayExpr:
+		// delay 返回 Coroutine<void>
+		return "Coroutine"
+	case *ast.ChannelSelectExpr:
+		// select 返回 int（选中的 case 索引）
+		return "int"
+
 	case *ast.Identifier:
 		// 可能是类名、枚举等
 		return e.Name

@@ -148,11 +148,37 @@ const (
 	// 调试
 	OpDebugPrint // 调试打印
 
-	// 协程操作
-	OpGo    // 启动协程 [stack: closure -> goroutine_id]
+	// =========================================================================
+	// 协程操作 (OOP 风格)
+	// =========================================================================
+
+	// 协程创建和控制
+	OpGo    // 启动协程 [stack: closure -> goroutine_id] (语法糖, 不返回 Coroutine 对象)
 	OpYield // 让出执行权（协作式调度）
 
-	// 通道操作
+	OpCoroutineSpawn  // 创建协程 [stack: closure -> coroutine] (返回 Coroutine 对象)
+	OpCoroutineAwait  // 等待协程完成 (hasTimeout: u8) [stack: coroutine [, timeout] -> result]
+	OpCoroutineCancel // 取消协程 [stack: coroutine -> bool]
+
+	// 协程状态查询
+	OpCoroutineIsCompleted // 检查是否完成 [stack: coroutine -> bool]
+	OpCoroutineIsCancelled // 检查是否已取消 [stack: coroutine -> bool]
+	OpCoroutineGetResult   // 获取结果（非阻塞，未完成返回 null）[stack: coroutine -> value]
+	OpCoroutineGetException // 获取异常 [stack: coroutine -> exception|null]
+	OpCoroutineGetID       // 获取协程 ID [stack: coroutine -> int]
+
+	// 协程组合操作
+	OpCoroutineAll  // 等待所有协程 [stack: coroutine[] -> result[]]
+	OpCoroutineAny  // 等待任一成功 [stack: coroutine[] -> result]
+	OpCoroutineRace // 等待最快完成 [stack: coroutine[] -> result]
+
+	// 延迟
+	OpCoroutineDelay // 延迟执行 [stack: ms -> coroutine<void>]
+
+	// =========================================================================
+	// 通道操作 (OOP 风格)
+	// =========================================================================
+
 	OpChanMake    // 创建通道 (capacity: u16) [stack: -> channel]
 	OpChanSend    // 发送到通道 [stack: channel, value -> ]
 	OpChanRecv    // 从通道接收 [stack: channel -> value]
@@ -160,7 +186,12 @@ const (
 	OpChanTrySend // 非阻塞发送 [stack: channel, value -> bool]
 	OpChanTryRecv // 非阻塞接收 [stack: channel -> value, bool]
 
-	// select 操作
+	// 通道状态查询
+	OpChanLen      // 获取通道缓冲区长度 [stack: channel -> int]
+	OpChanCap      // 获取通道容量 [stack: channel -> int]
+	OpChanIsClosed // 检查通道是否已关闭 [stack: channel -> bool]
+
+	// select 操作 (OOP 风格: Channel::select())
 	OpSelectStart   // 开始 select (caseCount: u8)
 	OpSelectCase    // 添加 case (isRecv: u8, jumpOffset: i16)
 	OpSelectDefault // 添加 default (jumpOffset: i16)
@@ -264,19 +295,39 @@ var opNames = map[OpCode]string{
 	OpLeaveFinally: "LEAVE_FINALLY",
 	OpRethrow:      "RETHROW",
 	OpDebugPrint:    "DEBUG_PRINT",
-	OpGo:            "GO",
-	OpYield:         "YIELD",
+
+	// 协程操作
+	OpGo:                    "GO",
+	OpYield:                 "YIELD",
+	OpCoroutineSpawn:        "COROUTINE_SPAWN",
+	OpCoroutineAwait:        "COROUTINE_AWAIT",
+	OpCoroutineCancel:       "COROUTINE_CANCEL",
+	OpCoroutineIsCompleted:  "COROUTINE_IS_COMPLETED",
+	OpCoroutineIsCancelled:  "COROUTINE_IS_CANCELLED",
+	OpCoroutineGetResult:    "COROUTINE_GET_RESULT",
+	OpCoroutineGetException: "COROUTINE_GET_EXCEPTION",
+	OpCoroutineGetID:        "COROUTINE_GET_ID",
+	OpCoroutineAll:          "COROUTINE_ALL",
+	OpCoroutineAny:          "COROUTINE_ANY",
+	OpCoroutineRace:         "COROUTINE_RACE",
+	OpCoroutineDelay:        "COROUTINE_DELAY",
+
+	// 通道操作
 	OpChanMake:      "CHAN_MAKE",
 	OpChanSend:      "CHAN_SEND",
 	OpChanRecv:      "CHAN_RECV",
 	OpChanClose:     "CHAN_CLOSE",
 	OpChanTrySend:   "CHAN_TRY_SEND",
 	OpChanTryRecv:   "CHAN_TRY_RECV",
+	OpChanLen:       "CHAN_LEN",
+	OpChanCap:       "CHAN_CAP",
+	OpChanIsClosed:  "CHAN_IS_CLOSED",
 	OpSelectStart:   "SELECT_START",
 	OpSelectCase:    "SELECT_CASE",
 	OpSelectDefault: "SELECT_DEFAULT",
 	OpSelectWait:    "SELECT_WAIT",
-	OpHalt:          "HALT",
+
+	OpHalt: "HALT",
 }
 
 func (op OpCode) String() string {

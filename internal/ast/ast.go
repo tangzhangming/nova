@@ -1172,6 +1172,133 @@ func (s *SelectDefaultCase) End() token.Position {
 func (s *SelectDefaultCase) String() string { return "default:" }
 
 // ============================================================================
+// 协程 OOP 节点
+// ============================================================================
+
+// AwaitExpr await 表达式: $task->await() 或 $task->await(timeout)
+// 用于等待协程完成并获取结果
+type AwaitExpr struct {
+	Coroutine Expression  // 协程对象表达式
+	Arrow     token.Token // ->
+	AwaitTok  token.Token // await 方法名 token
+	LParen    token.Token
+	Timeout   Expression  // 可选超时参数（毫秒）
+	RParen    token.Token
+}
+
+func (e *AwaitExpr) Pos() token.Position { return e.Coroutine.Pos() }
+func (e *AwaitExpr) End() token.Position { return e.RParen.Pos }
+func (e *AwaitExpr) String() string {
+	if e.Timeout != nil {
+		return e.Coroutine.String() + "->await(" + e.Timeout.String() + ")"
+	}
+	return e.Coroutine.String() + "->await()"
+}
+func (e *AwaitExpr) exprNode() {}
+
+// CoroutineSpawnExpr 协程创建表达式: Coroutine::spawn(fn)
+type CoroutineSpawnExpr struct {
+	CoroutineTok token.Token // Coroutine token
+	DoubleColon  token.Token // ::
+	SpawnTok     token.Token // spawn token
+	LParen       token.Token
+	Closure      Expression  // 要执行的闭包/函数
+	RParen       token.Token
+}
+
+func (e *CoroutineSpawnExpr) Pos() token.Position { return e.CoroutineTok.Pos }
+func (e *CoroutineSpawnExpr) End() token.Position { return e.RParen.Pos }
+func (e *CoroutineSpawnExpr) String() string {
+	return "Coroutine::spawn(" + e.Closure.String() + ")"
+}
+func (e *CoroutineSpawnExpr) exprNode() {}
+
+// CoroutineAllExpr 等待所有协程: Coroutine::all(tasks)
+type CoroutineAllExpr struct {
+	CoroutineTok token.Token
+	DoubleColon  token.Token
+	AllTok       token.Token
+	LParen       token.Token
+	Tasks        Expression  // 协程数组
+	RParen       token.Token
+}
+
+func (e *CoroutineAllExpr) Pos() token.Position { return e.CoroutineTok.Pos }
+func (e *CoroutineAllExpr) End() token.Position { return e.RParen.Pos }
+func (e *CoroutineAllExpr) String() string {
+	return "Coroutine::all(" + e.Tasks.String() + ")"
+}
+func (e *CoroutineAllExpr) exprNode() {}
+
+// CoroutineAnyExpr 等待任一协程: Coroutine::any(tasks)
+type CoroutineAnyExpr struct {
+	CoroutineTok token.Token
+	DoubleColon  token.Token
+	AnyTok       token.Token
+	LParen       token.Token
+	Tasks        Expression
+	RParen       token.Token
+}
+
+func (e *CoroutineAnyExpr) Pos() token.Position { return e.CoroutineTok.Pos }
+func (e *CoroutineAnyExpr) End() token.Position { return e.RParen.Pos }
+func (e *CoroutineAnyExpr) String() string {
+	return "Coroutine::any(" + e.Tasks.String() + ")"
+}
+func (e *CoroutineAnyExpr) exprNode() {}
+
+// CoroutineRaceExpr 竞速协程: Coroutine::race(tasks)
+type CoroutineRaceExpr struct {
+	CoroutineTok token.Token
+	DoubleColon  token.Token
+	RaceTok      token.Token
+	LParen       token.Token
+	Tasks        Expression
+	RParen       token.Token
+}
+
+func (e *CoroutineRaceExpr) Pos() token.Position { return e.CoroutineTok.Pos }
+func (e *CoroutineRaceExpr) End() token.Position { return e.RParen.Pos }
+func (e *CoroutineRaceExpr) String() string {
+	return "Coroutine::race(" + e.Tasks.String() + ")"
+}
+func (e *CoroutineRaceExpr) exprNode() {}
+
+// CoroutineDelayExpr 延迟: Coroutine::delay(ms)
+type CoroutineDelayExpr struct {
+	CoroutineTok token.Token
+	DoubleColon  token.Token
+	DelayTok     token.Token
+	LParen       token.Token
+	Milliseconds Expression
+	RParen       token.Token
+}
+
+func (e *CoroutineDelayExpr) Pos() token.Position { return e.CoroutineTok.Pos }
+func (e *CoroutineDelayExpr) End() token.Position { return e.RParen.Pos }
+func (e *CoroutineDelayExpr) String() string {
+	return "Coroutine::delay(" + e.Milliseconds.String() + ")"
+}
+func (e *CoroutineDelayExpr) exprNode() {}
+
+// ChannelSelectExpr 通道选择: Channel::select(cases)
+type ChannelSelectExpr struct {
+	ChannelTok  token.Token
+	DoubleColon token.Token
+	SelectTok   token.Token
+	LParen      token.Token
+	Cases       Expression  // SelectCase 数组
+	RParen      token.Token
+}
+
+func (e *ChannelSelectExpr) Pos() token.Position { return e.ChannelTok.Pos }
+func (e *ChannelSelectExpr) End() token.Position { return e.RParen.Pos }
+func (e *ChannelSelectExpr) String() string {
+	return "Channel::select(" + e.Cases.String() + ")"
+}
+func (e *ChannelSelectExpr) exprNode() {}
+
+// ============================================================================
 // 声明节点
 // ============================================================================
 
@@ -1776,6 +1903,31 @@ func Walk(node Node, visitor Visitor) {
 				Walk(stmt, visitor)
 			}
 		}
+
+	// 协程 OOP 节点
+	case *AwaitExpr:
+		Walk(n.Coroutine, visitor)
+		if n.Timeout != nil {
+			Walk(n.Timeout, visitor)
+		}
+
+	case *CoroutineSpawnExpr:
+		Walk(n.Closure, visitor)
+
+	case *CoroutineAllExpr:
+		Walk(n.Tasks, visitor)
+
+	case *CoroutineAnyExpr:
+		Walk(n.Tasks, visitor)
+
+	case *CoroutineRaceExpr:
+		Walk(n.Tasks, visitor)
+
+	case *CoroutineDelayExpr:
+		Walk(n.Milliseconds, visitor)
+
+	case *ChannelSelectExpr:
+		Walk(n.Cases, visitor)
 
 	case *ThrowStmt:
 		Walk(n.Exception, visitor)

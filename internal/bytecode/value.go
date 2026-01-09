@@ -472,21 +472,147 @@ func (v Value) IsChannel() bool {
 	return v.Type == ValChannel
 }
 
-// NewGoroutineValue 创建协程引用值
+// ============================================================================
+// Coroutine 协程对象 (OOP 风格)
+// ============================================================================
+
+// CoroutineStatus 协程状态
+type CoroutineStatus int
+
+const (
+	CoroutinePending   CoroutineStatus = iota // 等待执行
+	CoroutineRunning                          // 运行中
+	CoroutineCompleted                        // 正常完成
+	CoroutineFailed                           // 异常终止
+	CoroutineCancelled                        // 已取消
+)
+
+// String 返回状态的字符串表示
+func (s CoroutineStatus) String() string {
+	switch s {
+	case CoroutinePending:
+		return "pending"
+	case CoroutineRunning:
+		return "running"
+	case CoroutineCompleted:
+		return "completed"
+	case CoroutineFailed:
+		return "failed"
+	case CoroutineCancelled:
+		return "cancelled"
+	default:
+		return "unknown"
+	}
+}
+
+// CoroutineObject 协程对象（OOP 风格）
+// 用于支持 Coroutine<T> API
+type CoroutineObject struct {
+	ID        int64           // 协程唯一标识符
+	Status    CoroutineStatus // 当前状态
+	Result    Value           // 完成时的返回值
+	Exception Value           // 失败时的异常
+	WaiterIDs []int64         // 等待此协程完成的协程 ID 列表
+}
+
+// NewCoroutineObject 创建协程对象
+func NewCoroutineObject(id int64) *CoroutineObject {
+	return &CoroutineObject{
+		ID:        id,
+		Status:    CoroutinePending,
+		Result:    NullValue,
+		Exception: NullValue,
+		WaiterIDs: make([]int64, 0),
+	}
+}
+
+// IsCompleted 检查协程是否已完成（成功、失败或取消）
+func (c *CoroutineObject) IsCompleted() bool {
+	return c.Status == CoroutineCompleted || c.Status == CoroutineFailed || c.Status == CoroutineCancelled
+}
+
+// IsSucceeded 检查协程是否成功完成
+func (c *CoroutineObject) IsSucceeded() bool {
+	return c.Status == CoroutineCompleted
+}
+
+// IsFailed 检查协程是否失败
+func (c *CoroutineObject) IsFailed() bool {
+	return c.Status == CoroutineFailed
+}
+
+// IsCancelled 检查协程是否已取消
+func (c *CoroutineObject) IsCancelled() bool {
+	return c.Status == CoroutineCancelled
+}
+
+// Complete 标记协程成功完成
+func (c *CoroutineObject) Complete(result Value) {
+	c.Status = CoroutineCompleted
+	c.Result = result
+}
+
+// Fail 标记协程失败
+func (c *CoroutineObject) Fail(exception Value) {
+	c.Status = CoroutineFailed
+	c.Exception = exception
+}
+
+// Cancel 标记协程取消
+func (c *CoroutineObject) Cancel() {
+	c.Status = CoroutineCancelled
+}
+
+// AddWaiter 添加等待者
+func (c *CoroutineObject) AddWaiter(waiterID int64) {
+	c.WaiterIDs = append(c.WaiterIDs, waiterID)
+}
+
+// NewCoroutineValue 创建协程值（OOP 风格）
+func NewCoroutineValue(co *CoroutineObject) Value {
+	return Value{Type: ValGoroutine, Data: co}
+}
+
+// NewGoroutineValue 创建协程引用值（兼容旧 API）
+// Deprecated: 请使用 NewCoroutineValue
 func NewGoroutineValue(id int64) Value {
-	return Value{Type: ValGoroutine, Data: id}
+	return Value{Type: ValGoroutine, Data: NewCoroutineObject(id)}
+}
+
+// AsCoroutine 获取协程对象
+func (v Value) AsCoroutine() *CoroutineObject {
+	if v.Type == ValGoroutine {
+		if co, ok := v.Data.(*CoroutineObject); ok {
+			return co
+		}
+		// 兼容旧格式（直接存储 ID）
+		if id, ok := v.Data.(int64); ok {
+			return NewCoroutineObject(id)
+		}
+	}
+	return nil
 }
 
 // AsGoroutineID 获取协程 ID
 func (v Value) AsGoroutineID() int64 {
 	if v.Type == ValGoroutine {
-		return v.Data.(int64)
+		if co, ok := v.Data.(*CoroutineObject); ok {
+			return co.ID
+		}
+		if id, ok := v.Data.(int64); ok {
+			return id
+		}
 	}
 	return -1
 }
 
 // IsGoroutine 检查是否为协程引用
 func (v Value) IsGoroutine() bool {
+	return v.Type == ValGoroutine
+}
+
+// IsCoroutine 检查是否为协程对象（别名）
+func (v Value) IsCoroutine() bool {
 	return v.Type == ValGoroutine
 }
 
@@ -761,6 +887,16 @@ func (v Value) String() string {
 			return ex.GetFullMessage()
 		}
 		return fmt.Sprintf("%s: %s", ex.Type, message)
+	case ValGoroutine:
+		if co, ok := v.Data.(*CoroutineObject); ok {
+			return fmt.Sprintf("<Coroutine#%d %s>", co.ID, co.Status)
+		}
+		if id, ok := v.Data.(int64); ok {
+			return fmt.Sprintf("<Coroutine#%d>", id)
+		}
+		return "<Coroutine>"
+	case ValChannel:
+		return "<Channel>"
 	default:
 		return "<unknown>"
 	}

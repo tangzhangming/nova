@@ -2686,6 +2686,290 @@ func (vm *VM) execute() InterpretResult {
 			vm.scheduler.Yield()
 
 		// =====================================================================
+		// 协程 OOP 操作
+		// =====================================================================
+
+		case bytecode.OpCoroutineSpawn:
+			// 创建协程（OOP 风格）
+			// 栈: [closure] -> [coroutine]
+			closureVal := vm.pop()
+			if closureVal.Type != bytecode.ValClosure {
+				return vm.runtimeError("Coroutine::spawn: expected closure, got %s", closureVal.Type)
+			}
+			closure := closureVal.Data.(*bytecode.Closure)
+
+			// 创建新协程
+			g := vm.scheduler.Spawn(closure)
+			if g == nil {
+				return vm.runtimeError("Coroutine::spawn: too many goroutines")
+			}
+
+			// 创建 Coroutine 对象并关联
+			coroObj := bytecode.NewCoroutineObject(g.ID)
+			g.CoroutineObj = coroObj // 在 Goroutine 中保存对应的 CoroutineObject
+
+			// 压入 Coroutine 对象
+			vm.push(bytecode.NewCoroutineValue(coroObj))
+
+		case bytecode.OpCoroutineAwait:
+			// 等待协程完成
+			// 参数: hasTimeout (u8)
+			// 栈: [coroutine] 或 [coroutine, timeout] -> [result]
+			hasTimeout := chunk.Code[frame.IP]
+			frame.IP++
+
+			var timeoutMs int64 = 0
+			if hasTimeout == 1 {
+				timeoutVal := vm.pop()
+				timeoutMs = timeoutVal.AsInt()
+			}
+
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				return vm.runtimeError("await: expected Coroutine, got %s", coroVal.Type)
+			}
+			coroObj := coroVal.AsCoroutine()
+
+			// 检查协程是否已完成
+			if coroObj.IsCompleted() {
+				if coroObj.IsFailed() {
+					// 重新抛出异常
+					return vm.runtimeError("await: coroutine failed: %s", coroObj.Exception.String())
+				}
+				// 返回结果
+				vm.push(coroObj.Result)
+			} else {
+				// 协程未完成，当前协程需要阻塞等待
+				currentG := vm.scheduler.Current()
+				if currentG == nil {
+					// 主协程等待 - 需要忙等待或特殊处理
+					// 简化实现：忙等待（在实际生产中应该用更好的方式）
+					targetG := vm.scheduler.GetGoroutine(coroObj.ID)
+					for targetG != nil && !targetG.IsDead() && !coroObj.IsCompleted() {
+						// 运行调度器
+						vm.runSchedulerOnce()
+					}
+					if coroObj.IsFailed() {
+						return vm.runtimeError("await: coroutine failed: %s", coroObj.Exception.String())
+					}
+					vm.push(coroObj.Result)
+				} else {
+					// 子协程等待 - 添加到等待者列表
+					coroObj.AddWaiter(currentG.ID)
+					currentG.SetStatus(GoroutineBlocked)
+					currentG.BlockType = BlockAwait
+					currentG.AwaitingCoro = coroObj
+					vm.scheduler.Yield()
+					// 被唤醒后，结果已经在栈上
+				}
+			}
+			_ = timeoutMs // TODO: 实现超时
+
+		case bytecode.OpCoroutineCancel:
+			// 取消协程
+			// 栈: [coroutine] -> [bool]
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				return vm.runtimeError("cancel: expected Coroutine, got %s", coroVal.Type)
+			}
+			coroObj := coroVal.AsCoroutine()
+
+			// 尝试取消
+			if coroObj.IsCompleted() {
+				vm.push(bytecode.FalseValue) // 已完成，无法取消
+			} else {
+				coroObj.Cancel()
+				// 标记对应的 Goroutine 为取消
+				g := vm.scheduler.GetGoroutine(coroObj.ID)
+				if g != nil {
+					g.SetStatus(GoroutineDead)
+				}
+				vm.push(bytecode.TrueValue)
+			}
+
+		case bytecode.OpCoroutineIsCompleted:
+			// 检查协程是否完成
+			// 栈: [coroutine] -> [bool]
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				vm.push(bytecode.FalseValue)
+			} else {
+				coroObj := coroVal.AsCoroutine()
+				vm.push(bytecode.NewBool(coroObj.IsCompleted()))
+			}
+
+		case bytecode.OpCoroutineIsCancelled:
+			// 检查协程是否已取消
+			// 栈: [coroutine] -> [bool]
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				vm.push(bytecode.FalseValue)
+			} else {
+				coroObj := coroVal.AsCoroutine()
+				vm.push(bytecode.NewBool(coroObj.IsCancelled()))
+			}
+
+		case bytecode.OpCoroutineGetResult:
+			// 获取协程结果（非阻塞）
+			// 栈: [coroutine] -> [value]
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				vm.push(bytecode.NullValue)
+			} else {
+				coroObj := coroVal.AsCoroutine()
+				if coroObj.IsSucceeded() {
+					vm.push(coroObj.Result)
+				} else {
+					vm.push(bytecode.NullValue)
+				}
+			}
+
+		case bytecode.OpCoroutineGetException:
+			// 获取协程异常
+			// 栈: [coroutine] -> [exception|null]
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				vm.push(bytecode.NullValue)
+			} else {
+				coroObj := coroVal.AsCoroutine()
+				if coroObj.IsFailed() {
+					vm.push(coroObj.Exception)
+				} else {
+					vm.push(bytecode.NullValue)
+				}
+			}
+
+		case bytecode.OpCoroutineGetID:
+			// 获取协程 ID
+			// 栈: [coroutine] -> [int]
+			coroVal := vm.pop()
+			if !coroVal.IsCoroutine() {
+				vm.push(bytecode.NewInt(-1))
+			} else {
+				coroObj := coroVal.AsCoroutine()
+				vm.push(bytecode.NewInt(coroObj.ID))
+			}
+
+		case bytecode.OpCoroutineAll:
+			// 等待所有协程完成
+			// 栈: [coroutine[]] -> [result[]]
+			tasksVal := vm.pop()
+			tasksArr := tasksVal.AsArray()
+			if tasksArr == nil {
+				return vm.runtimeError("Coroutine::all: expected array of Coroutines")
+			}
+
+			// 收集所有结果
+			results := make([]bytecode.Value, len(tasksArr))
+			for i, taskVal := range tasksArr {
+				if !taskVal.IsCoroutine() {
+					return vm.runtimeError("Coroutine::all: element %d is not a Coroutine", i)
+				}
+				coroObj := taskVal.AsCoroutine()
+
+				// 等待每个协程完成（简化实现：顺序等待）
+				for !coroObj.IsCompleted() {
+					vm.runSchedulerOnce()
+				}
+
+				if coroObj.IsFailed() {
+					return vm.runtimeError("Coroutine::all: coroutine %d failed: %s", i, coroObj.Exception.String())
+				}
+				results[i] = coroObj.Result
+			}
+
+			// 返回结果数组
+			vm.push(bytecode.NewArray(results))
+
+		case bytecode.OpCoroutineAny:
+			// 等待任一协程成功
+			// 栈: [coroutine[]] -> [result]
+			tasksVal := vm.pop()
+			tasksArr := tasksVal.AsArray()
+			if tasksArr == nil {
+				return vm.runtimeError("Coroutine::any: expected array of Coroutines")
+			}
+
+			// 等待任一成功
+			anyFound := false
+		anyLoop:
+			for !anyFound {
+				for _, taskVal := range tasksArr {
+					if !taskVal.IsCoroutine() {
+						continue
+					}
+					coroObj := taskVal.AsCoroutine()
+					if coroObj.IsSucceeded() {
+						vm.push(coroObj.Result)
+						anyFound = true
+						break anyLoop
+					}
+				}
+
+				// 检查是否全部失败
+				allFailed := true
+				for _, taskVal := range tasksArr {
+					if taskVal.IsCoroutine() {
+						coroObj := taskVal.AsCoroutine()
+						if !coroObj.IsFailed() && !coroObj.IsCancelled() {
+							allFailed = false
+							break
+						}
+					}
+				}
+				if allFailed {
+					return vm.runtimeError("Coroutine::any: all coroutines failed")
+				}
+
+				vm.runSchedulerOnce()
+			}
+
+		case bytecode.OpCoroutineRace:
+			// 等待最快完成的协程
+			// 栈: [coroutine[]] -> [result]
+			tasksVal := vm.pop()
+			tasksArr := tasksVal.AsArray()
+			if tasksArr == nil {
+				return vm.runtimeError("Coroutine::race: expected array of Coroutines")
+			}
+
+			// 等待任一完成（无论成功或失败）
+			raceFound := false
+		raceLoop:
+			for !raceFound {
+				for _, taskVal := range tasksArr {
+					if !taskVal.IsCoroutine() {
+						continue
+					}
+					coroObj := taskVal.AsCoroutine()
+					if coroObj.IsCompleted() {
+						if coroObj.IsFailed() {
+							return vm.runtimeError("Coroutine::race: fastest coroutine failed: %s", coroObj.Exception.String())
+						}
+						vm.push(coroObj.Result)
+						raceFound = true
+						break raceLoop
+					}
+				}
+				vm.runSchedulerOnce()
+			}
+
+		case bytecode.OpCoroutineDelay:
+			// 延迟指定时间
+			// 栈: [ms] -> [coroutine<void>]
+			msVal := vm.pop()
+			ms := msVal.AsInt()
+
+			// 创建一个延迟完成的协程
+			// 简化实现：创建一个立即完成的协程
+			// TODO: 实现真正的延迟
+			coroObj := bytecode.NewCoroutineObject(vm.scheduler.NextID())
+			coroObj.Complete(bytecode.NullValue)
+			_ = ms // TODO: 实现延迟
+
+			vm.push(bytecode.NewCoroutineValue(coroObj))
+
+		// =====================================================================
 		// 通道操作
 		// =====================================================================
 
@@ -4487,5 +4771,21 @@ func (vm *VM) castValue(v bytecode.Value, targetType string) (bytecode.Value, bo
 	}
 	
 	return bytecode.Value{}, false
+}
+
+// runSchedulerOnce 运行调度器一次（执行一个时间片）
+// 用于在主协程中等待其他协程完成
+func (vm *VM) runSchedulerOnce() {
+	// 获取下一个可运行的协程
+	g := vm.scheduler.Schedule()
+	if g == nil {
+		return
+	}
+
+	// 简化实现：让调度器处理协程切换
+	// 完整实现需要执行协程的字节码
+	if !g.IsDead() {
+		vm.scheduler.Yield()
+	}
 }
 

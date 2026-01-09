@@ -719,6 +719,94 @@ func (a *Arena) NewSelectDefaultCase(defaultTok token.Token, colon token.Token, 
 }
 
 // ============================================================================
+// 协程 OOP 节点工厂
+// ============================================================================
+
+// NewAwaitExpr 创建 await 表达式节点
+func (a *Arena) NewAwaitExpr(coroutine Expression, arrow token.Token, awaitTok token.Token, lparen token.Token, timeout Expression, rparen token.Token) *AwaitExpr {
+	node := AllocType[AwaitExpr](a)
+	node.Coroutine = coroutine
+	node.Arrow = arrow
+	node.AwaitTok = awaitTok
+	node.LParen = lparen
+	node.Timeout = timeout
+	node.RParen = rparen
+	return node
+}
+
+// NewCoroutineSpawnExpr 创建 Coroutine::spawn() 表达式节点
+func (a *Arena) NewCoroutineSpawnExpr(coroutineTok token.Token, doubleColon token.Token, spawnTok token.Token, lparen token.Token, closure Expression, rparen token.Token) *CoroutineSpawnExpr {
+	node := AllocType[CoroutineSpawnExpr](a)
+	node.CoroutineTok = coroutineTok
+	node.DoubleColon = doubleColon
+	node.SpawnTok = spawnTok
+	node.LParen = lparen
+	node.Closure = closure
+	node.RParen = rparen
+	return node
+}
+
+// NewCoroutineAllExpr 创建 Coroutine::all() 表达式节点
+func (a *Arena) NewCoroutineAllExpr(coroutineTok token.Token, doubleColon token.Token, allTok token.Token, lparen token.Token, tasks Expression, rparen token.Token) *CoroutineAllExpr {
+	node := AllocType[CoroutineAllExpr](a)
+	node.CoroutineTok = coroutineTok
+	node.DoubleColon = doubleColon
+	node.AllTok = allTok
+	node.LParen = lparen
+	node.Tasks = tasks
+	node.RParen = rparen
+	return node
+}
+
+// NewCoroutineAnyExpr 创建 Coroutine::any() 表达式节点
+func (a *Arena) NewCoroutineAnyExpr(coroutineTok token.Token, doubleColon token.Token, anyTok token.Token, lparen token.Token, tasks Expression, rparen token.Token) *CoroutineAnyExpr {
+	node := AllocType[CoroutineAnyExpr](a)
+	node.CoroutineTok = coroutineTok
+	node.DoubleColon = doubleColon
+	node.AnyTok = anyTok
+	node.LParen = lparen
+	node.Tasks = tasks
+	node.RParen = rparen
+	return node
+}
+
+// NewCoroutineRaceExpr 创建 Coroutine::race() 表达式节点
+func (a *Arena) NewCoroutineRaceExpr(coroutineTok token.Token, doubleColon token.Token, raceTok token.Token, lparen token.Token, tasks Expression, rparen token.Token) *CoroutineRaceExpr {
+	node := AllocType[CoroutineRaceExpr](a)
+	node.CoroutineTok = coroutineTok
+	node.DoubleColon = doubleColon
+	node.RaceTok = raceTok
+	node.LParen = lparen
+	node.Tasks = tasks
+	node.RParen = rparen
+	return node
+}
+
+// NewCoroutineDelayExpr 创建 Coroutine::delay() 表达式节点
+func (a *Arena) NewCoroutineDelayExpr(coroutineTok token.Token, doubleColon token.Token, delayTok token.Token, lparen token.Token, milliseconds Expression, rparen token.Token) *CoroutineDelayExpr {
+	node := AllocType[CoroutineDelayExpr](a)
+	node.CoroutineTok = coroutineTok
+	node.DoubleColon = doubleColon
+	node.DelayTok = delayTok
+	node.LParen = lparen
+	node.Milliseconds = milliseconds
+	node.RParen = rparen
+	return node
+}
+
+// NewChannelSelectExpr 创建 Channel::select() 表达式节点
+func (a *Arena) NewChannelSelectExpr(channelTok token.Token, doubleColon token.Token, selectTok token.Token, lparen token.Token, cases Expression, rparen token.Token) *ChannelSelectExpr {
+	node := AllocType[ChannelSelectExpr](a)
+	node.ChannelTok = channelTok
+	node.DoubleColon = doubleColon
+	node.SelectTok = selectTok
+	node.LParen = lparen
+	node.Cases = cases
+	node.RParen = rparen
+	return node
+}
+
+// ============================================================================
 // 声明节点工厂
 // ============================================================================
 

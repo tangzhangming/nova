@@ -75,6 +75,9 @@ const (
 
 	// BlockSelect 因 select 操作阻塞
 	BlockSelect
+
+	// BlockAwait 因 await 操作阻塞（等待另一个协程完成）
+	BlockAwait
 )
 
 // ============================================================================
@@ -175,6 +178,17 @@ type Goroutine struct {
 	// ParentID 父协程 ID
 	// 主协程的 ParentID 为 0
 	ParentID int64
+
+	// =========================================================================
+	// OOP 协程支持
+	// =========================================================================
+
+	// CoroutineObj 关联的 Coroutine 对象（用于 OOP 风格 API）
+	CoroutineObj *bytecode.CoroutineObject
+
+	// AwaitingCoro 当前正在等待的 Coroutine 对象
+	// 当 BlockType 为 BlockAwait 时有效
+	AwaitingCoro *bytecode.CoroutineObject
 }
 
 // SelectCaseInfo 存储 select case 的信息

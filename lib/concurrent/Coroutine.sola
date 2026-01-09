@@ -1,0 +1,466 @@
+// Sola 标准库 - 协程
+namespace sola.concurrent
+
+use sola.lang.Exception;
+use sola.net.TimeoutException;
+
+/**
+ * 协程状态枚举
+ */
+enum CoroutineStatus: int {
+    PENDING = 0,     // 等待执行
+    RUNNING = 1,     // 运行中
+    COMPLETED = 2,   // 正常完成
+    FAILED = 3,      // 异常终止
+    CANCELLED = 4    // 已取消
+}
+
+/**
+ * 协程 - 轻量级并发执行单元
+ * 
+ * Coroutine<T> 是 Sola 的核心并发原语，提供类型安全的异步编程支持。
+ * 
+ * 特性：
+ * - 类型安全：泛型返回值类型
+ * - 可等待：await() 获取执行结果
+ * - 可取消：cancel() 请求取消
+ * - 可组合：all/any/race 组合多个协程
+ * 
+ * @template T 返回值类型
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.concurrent.Coroutine;
+ * 
+ * // 创建并启动协程
+ * Coroutine<int> $task = Coroutine::spawn((): int => {
+ *     return heavyComputation();
+ * });
+ * 
+ * // 等待结果
+ * int $result = $task->await();
+ * 
+ * // 并行执行多个任务
+ * $tasks := Coroutine<int>[
+ *     Coroutine::spawn(task1),
+ *     Coroutine::spawn(task2),
+ *     Coroutine::spawn(task3),
+ * ];
+ * int[] $results = Coroutine::all($tasks)->await();
+ * 
+ * // 语法糖：go 关键字（fire-and-forget）
+ * go doSomethingAsync();  // 等价于 Coroutine::spawn(fn)，但不返回协程对象
+ * ```
+ */
+public class Coroutine<T> {
+    
+    // =========================================================================
+    // 内部字段（VM 层实现）
+    // =========================================================================
+    
+    /** 协程唯一标识符 */
+    private int $id;
+    
+    /** 当前状态 */
+    private CoroutineStatus $status;
+    
+    /** 返回值（完成时有效） */
+    private T $result;
+    
+    /** 异常（失败时有效） */
+    private ?Exception $exception;
+    
+    // =========================================================================
+    // 静态工厂方法
+    // =========================================================================
+    
+    /**
+     * 创建并启动协程
+     * 
+     * 这是创建协程的主要方式。协程会立即开始执行（不阻塞当前协程）。
+     * 
+     * @template T 返回值类型
+     * @param func(): T $fn 要执行的函数
+     * @return Coroutine<T> 协程对象
+     * 
+     * @example
+     * ```sola
+     * $task := Coroutine::spawn((): int => {
+     *     return 42;
+     * });
+     * int $result = $task->await();  // 42
+     * ```
+     */
+    public static function spawn<T>(func(): T $fn): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 创建已完成的协程
+     * 
+     * 用于将同步值包装为协程，便于统一处理。
+     * 
+     * @template T 值类型
+     * @param T $value 已知的结果值
+     * @return Coroutine<T> 已完成的协程
+     * 
+     * @example
+     * ```sola
+     * $completed := Coroutine::resolved(42);
+     * echo $completed->isCompleted;  // true
+     * ```
+     */
+    public static function resolved<T>(T $value): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 创建已失败的协程
+     * 
+     * @template T 返回值类型
+     * @param Exception $error 异常
+     * @return Coroutine<T> 已失败的协程
+     */
+    public static function rejected<T>(Exception $error): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 延迟指定时间
+     * 
+     * @param int $ms 毫秒数
+     * @return Coroutine<void> 延迟完成后返回的协程
+     * 
+     * @example
+     * ```sola
+     * Coroutine::delay(1000)->await();  // 等待 1 秒
+     * echo "1 second passed";
+     * ```
+     */
+    public static function delay(int $ms): Coroutine<void> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 让出执行权
+     * 
+     * 允许调度器切换到其他协程执行。
+     */
+    public static function yield(): void {
+        // VM 内置实现
+    }
+    
+    // =========================================================================
+    // 组合方法
+    // =========================================================================
+    
+    /**
+     * 等待所有协程完成
+     * 
+     * 返回一个新协程，当所有输入协程都完成时返回结果数组。
+     * 如果任一协程失败，整体失败。
+     * 
+     * @template T 元素类型
+     * @param Coroutine<T>[] $tasks 协程数组
+     * @return Coroutine<T[]> 包含所有结果的协程
+     * 
+     * @example
+     * ```sola
+     * $results := Coroutine::all([
+     *     Coroutine::spawn(fetchUser),
+     *     Coroutine::spawn(fetchOrders),
+     * ])->await();
+     * ```
+     */
+    public static function all<T>(Coroutine<T>[] $tasks): Coroutine<T[]> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 等待任一协程成功
+     * 
+     * 返回第一个成功完成的协程的结果。
+     * 其他协程会被取消。
+     * 如果所有协程都失败，则抛出 AggregateException。
+     * 
+     * @template T 元素类型
+     * @param Coroutine<T>[] $tasks 协程数组
+     * @return Coroutine<T> 第一个成功的结果
+     */
+    public static function any<T>(Coroutine<T>[] $tasks): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 等待最快完成的协程
+     * 
+     * 返回第一个完成的协程的结果（无论成功还是失败）。
+     * 其他协程会被取消。
+     * 
+     * @template T 元素类型
+     * @param Coroutine<T>[] $tasks 协程数组
+     * @return Coroutine<T> 最快完成的结果
+     * 
+     * @example
+     * ```sola
+     * // 从多个服务器获取数据，取最快的
+     * $fastest := Coroutine::race([
+     *     Coroutine::spawn(fetchFromServer1),
+     *     Coroutine::spawn(fetchFromServer2),
+     * ])->await();
+     * ```
+     */
+    public static function race<T>(Coroutine<T>[] $tasks): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    // =========================================================================
+    // 实例方法 - 等待与结果
+    // =========================================================================
+    
+    /**
+     * 等待协程完成并获取结果
+     * 
+     * 阻塞当前协程直到目标协程完成。
+     * 如果目标协程失败，会重新抛出异常。
+     * 
+     * @return T 协程的返回值
+     * @throws Exception 如果协程执行失败
+     * 
+     * @example
+     * ```sola
+     * $task := Coroutine::spawn(compute);
+     * $result := $task->await();
+     * ```
+     */
+    public function await(): T {
+        // VM 内置实现
+    }
+    
+    /**
+     * 带超时等待
+     * 
+     * @param int $timeoutMs 超时时间（毫秒）
+     * @return T 协程的返回值
+     * @throws TimeoutException 超时
+     * @throws Exception 如果协程执行失败
+     * 
+     * @example
+     * ```sola
+     * try {
+     *     $result := $task->await(5000);  // 5 秒超时
+     * } catch (TimeoutException $e) {
+     *     echo "操作超时";
+     *     $task->cancel();
+     * }
+     * ```
+     */
+    public function await(int $timeoutMs): T {
+        // VM 内置实现（方法重载）
+    }
+    
+    /**
+     * 尝试获取结果（非阻塞）
+     * 
+     * 如果协程已完成，返回结果；否则返回 null。
+     * 
+     * @return ?T 结果或 null
+     */
+    public function tryGetResult(): ?T {
+        if ($this->status == CoroutineStatus::COMPLETED) {
+            return $this->result;
+        }
+        return null;
+    }
+    
+    /**
+     * 等待协程完成，但不获取结果
+     * 
+     * 用于只关心完成状态而不关心返回值的场景。
+     */
+    public function join(): void {
+        $this->await();
+    }
+    
+    // =========================================================================
+    // 实例方法 - 控制
+    // =========================================================================
+    
+    /**
+     * 请求取消协程
+     * 
+     * 发送取消请求。协程需要定期检查取消状态并响应。
+     * 取消是协作式的，不会强制终止协程。
+     * 
+     * @return bool 是否成功发送取消请求
+     */
+    public function cancel(): bool {
+        // VM 内置实现
+        return false;
+    }
+    
+    // =========================================================================
+    // 实例方法 - 链式操作
+    // =========================================================================
+    
+    /**
+     * 完成后执行回调
+     * 
+     * @template R 新的返回类型
+     * @param func(T): R $callback 转换函数
+     * @return Coroutine<R> 新的协程
+     * 
+     * @example
+     * ```sola
+     * Coroutine::spawn(fetchUserId)
+     *     ->then((int $id): User => fetchUser($id))
+     *     ->then((User $user): string => $user->name)
+     *     ->await();
+     * ```
+     */
+    public function then<R>(func(T): R $callback): Coroutine<R> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 失败时执行回调
+     * 
+     * @param func(Exception): T $handler 错误处理函数
+     * @return Coroutine<T> 新的协程
+     */
+    public function catch(func(Exception): T $handler): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    /**
+     * 无论成功失败都执行
+     * 
+     * @param func(): void $callback 回调函数
+     * @return Coroutine<T> 新的协程
+     */
+    public function finally(func(): void $callback): Coroutine<T> {
+        // VM 内置实现
+    }
+    
+    // =========================================================================
+    // 状态属性
+    // =========================================================================
+    
+    /**
+     * 协程 ID
+     */
+    public int $id {
+        get => $this->id;
+    }
+    
+    /**
+     * 是否已完成（成功、失败或取消）
+     */
+    public bool $isCompleted {
+        get => $this->status == CoroutineStatus::COMPLETED 
+            || $this->status == CoroutineStatus::FAILED
+            || $this->status == CoroutineStatus::CANCELLED;
+    }
+    
+    /**
+     * 是否成功完成
+     */
+    public bool $isSucceeded {
+        get => $this->status == CoroutineStatus::COMPLETED;
+    }
+    
+    /**
+     * 是否失败
+     */
+    public bool $isFailed {
+        get => $this->status == CoroutineStatus::FAILED;
+    }
+    
+    /**
+     * 是否已取消
+     */
+    public bool $isCancelled {
+        get => $this->status == CoroutineStatus::CANCELLED;
+    }
+    
+    /**
+     * 是否正在运行
+     */
+    public bool $isRunning {
+        get => $this->status == CoroutineStatus::RUNNING;
+    }
+    
+    /**
+     * 获取异常（如果失败）
+     */
+    public ?Exception $exception {
+        get => $this->exception;
+    }
+}
+
+/**
+ * SelectCase - 用于 Channel::select() 的 case 定义
+ * 
+ * @example
+ * ```sola
+ * Channel::select([
+ *     SelectCase::recv($ch1, (int $v): void => handle($v)),
+ *     SelectCase::send($ch2, value, (): void => onSent()),
+ *     SelectCase::timeout(5000, (): void => onTimeout()),
+ * ]);
+ * ```
+ */
+public class SelectCase {
+    
+    private int $type;  // 0=recv, 1=send, 2=timeout, 3=default
+    private ?Channel<dynamic> $channel;
+    private dynamic $value;
+    private func(): void $callback;
+    private int $timeoutMs;
+    
+    /**
+     * 创建接收 case
+     * 
+     * @template T 通道元素类型
+     * @param Channel<T> $channel 通道
+     * @param func(T): void $callback 接收到值后的回调
+     * @return SelectCase
+     */
+    public static function recv<T>(Channel<T> $channel, func(T): void $callback): SelectCase {
+        // VM 内置实现
+    }
+    
+    /**
+     * 创建发送 case
+     * 
+     * @template T 通道元素类型
+     * @param Channel<T> $channel 通道
+     * @param T $value 要发送的值
+     * @param func(): void $callback 发送成功后的回调
+     * @return SelectCase
+     */
+    public static function send<T>(Channel<T> $channel, T $value, func(): void $callback): SelectCase {
+        // VM 内置实现
+    }
+    
+    /**
+     * 创建超时 case
+     * 
+     * @param int $ms 超时毫秒数
+     * @param func(): void $callback 超时后的回调
+     * @return SelectCase
+     */
+    public static function timeout(int $ms, func(): void $callback): SelectCase {
+        // VM 内置实现
+    }
+    
+    /**
+     * 创建默认 case（非阻塞）
+     * 
+     * @param func(): void $callback 回调
+     * @return SelectCase
+     */
+    public static function defaultCase(func(): void $callback): SelectCase {
+        // VM 内置实现
+    }
+}

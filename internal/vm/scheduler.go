@@ -397,6 +397,11 @@ func (s *Scheduler) GetGoroutine(id int64) *Goroutine {
 	return s.allGoroutines[id]
 }
 
+// NextID 获取下一个协程 ID（不创建协程）
+func (s *Scheduler) NextID() int64 {
+	return atomic.AddInt64(&s.nextID, 1) - 1
+}
+
 // ============================================================================
 // 调试支持
 // ============================================================================
