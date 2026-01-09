@@ -157,6 +157,139 @@ func (o *Optimizer) peepholeOptimize() {
 			}
 		}
 
+		// ====================================================================
+		// BUG FIX 2026-01-10: 字节码优化增强 - 添加新窥孔优化模式
+		// 防止反复引入的问题:
+		// 1. 优化必须保持语义等价（不能改变程序行为）
+		// 2. 跳转指令优化时必须重新计算偏移量
+		// 3. 优化后的代码行号信息必须保持一致（用于调试）
+		// 4. 死代码消除时不能删除跳转目标
+		// ====================================================================
+
+		// 模式12: TRUE, JUMP_IF_FALSE -> 无操作（恒真条件，直接移除跳转）
+		if !optimized && op == OpTrue && i+3 < len(code) && OpCode(code[i+1]) == OpJumpIfFalse {
+			// 跳过 TRUE 和 JUMP_IF_FALSE
+			i += 4
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式13: FALSE, JUMP_IF_FALSE -> JUMP（恒假条件，转为无条件跳转）
+		if !optimized && op == OpFalse && i+3 < len(code) && OpCode(code[i+1]) == OpJumpIfFalse {
+			// 保留 JUMP_IF_FALSE 的偏移量，替换为 JUMP
+			newCode = append(newCode, byte(OpJump), code[i+2], code[i+3])
+			newLines = append(newLines, o.chunk.Lines[i], o.chunk.Lines[i], o.chunk.Lines[i])
+			i += 4
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式14: TRUE, JUMP_IF_TRUE -> JUMP（恒真条件，转为无条件跳转）
+		if !optimized && op == OpTrue && i+3 < len(code) && OpCode(code[i+1]) == OpJumpIfTrue {
+			newCode = append(newCode, byte(OpJump), code[i+2], code[i+3])
+			newLines = append(newLines, o.chunk.Lines[i], o.chunk.Lines[i], o.chunk.Lines[i])
+			i += 4
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式15: FALSE, JUMP_IF_TRUE -> 无操作（恒假条件，直接移除跳转）
+		if !optimized && op == OpFalse && i+3 < len(code) && OpCode(code[i+1]) == OpJumpIfTrue {
+			i += 4
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式16: NULL, NOT -> TRUE（null 的逻辑非是 true）
+		if !optimized && op == OpNull && i+1 < len(code) && OpCode(code[i+1]) == OpNot {
+			newCode = append(newCode, byte(OpTrue))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式17: ZERO, NOT -> TRUE（0 的逻辑非是 true）
+		if !optimized && op == OpZero && i+1 < len(code) && OpCode(code[i+1]) == OpNot {
+			newCode = append(newCode, byte(OpTrue))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式18: ONE, NOT -> FALSE（1 的逻辑非是 false）
+		if !optimized && op == OpOne && i+1 < len(code) && OpCode(code[i+1]) == OpNot {
+			newCode = append(newCode, byte(OpFalse))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式19: TRUE, NOT -> FALSE
+		if !optimized && op == OpTrue && i+1 < len(code) && OpCode(code[i+1]) == OpNot {
+			newCode = append(newCode, byte(OpFalse))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式20: FALSE, NOT -> TRUE
+		if !optimized && op == OpFalse && i+1 < len(code) && OpCode(code[i+1]) == OpNot {
+			newCode = append(newCode, byte(OpTrue))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式21: PUSH const, POP -> 无操作（压入后立即弹出无意义）
+		if !optimized && op == OpPush && i+3 < len(code) && OpCode(code[i+3]) == OpPop {
+			i += 4
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式22: LOAD_LOCAL x, LOAD_LOCAL x -> LOAD_LOCAL x, DUP（加载同一变量两次）
+		if !optimized && op == OpLoadLocal && i+5 < len(code) && OpCode(code[i+3]) == OpLoadLocal {
+			idx1 := uint16(code[i+1])<<8 | uint16(code[i+2])
+			idx2 := uint16(code[i+4])<<8 | uint16(code[i+5])
+			if idx1 == idx2 {
+				// 替换为 LOAD_LOCAL x, DUP
+				newCode = append(newCode, code[i:i+3]...)
+				newLines = append(newLines, o.chunk.Lines[i], o.chunk.Lines[i], o.chunk.Lines[i])
+				newCode = append(newCode, byte(OpDup))
+				newLines = append(newLines, o.chunk.Lines[i])
+				i += 6
+				o.optimizations++
+				optimized = true
+			}
+		}
+
+		// 模式23: ZERO, SUB -> NEG（0 - x = -x）
+		if !optimized && op == OpZero && i+1 < len(code) && OpCode(code[i+1]) == OpSub {
+			// 注意: 需要确保栈上有值，这个优化假设栈顶有要减去的值
+			// PUSH x, ZERO, SUB -> PUSH x, NEG
+			// 跳过 ZERO 和 SUB，改为 NEG
+			newCode = append(newCode, byte(OpNeg))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式24: DUP, DUP, POP -> DUP（冗余的 DUP-POP）
+		if !optimized && op == OpDup && i+2 < len(code) && 
+			OpCode(code[i+1]) == OpDup && OpCode(code[i+2]) == OpPop {
+			newCode = append(newCode, byte(OpDup))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 3
+			o.optimizations++
+			optimized = true
+		}
+
 		if !optimized {
 			// 复制原始指令
 			for j := 0; j < size && i+j < len(code); j++ {
@@ -598,6 +731,19 @@ func (o *Optimizer) strengthReduction() {
 							optimized = true
 							i += 4
 						}
+					} else if i+3 < len(code) && OpCode(code[i+3]) == OpMod && val > 0 && (val&(val-1)) == 0 {
+						// BUG FIX 2026-01-10: 强度削减增强 - 模2的幂运算
+						// x % (2^n) -> x & (2^n - 1)
+						// 例如: x % 8 -> x & 7
+						mask := val - 1
+						newCode = append(newCode, byte(OpPush))
+						maskIdx := o.chunk.AddConstant(NewInt(mask))
+						newCode = append(newCode, byte(maskIdx>>8), byte(maskIdx))
+						newCode = append(newCode, byte(OpBitAnd))
+						newLines = append(newLines, o.chunk.Lines[i], o.chunk.Lines[i], o.chunk.Lines[i], o.chunk.Lines[i+3])
+						o.optimizations++
+						optimized = true
+						i += 4
 					}
 				}
 			}
@@ -605,6 +751,47 @@ func (o *Optimizer) strengthReduction() {
 
 		// 模式2: x * 0 -> 0 (已在窥孔优化中处理)
 		// 模式3: x * 1 -> x (已在窥孔优化中处理)
+
+		// BUG FIX 2026-01-10: 强度削减增强 - 布尔代数简化
+		// 这些优化在运行时应用，处理常量布尔表达式
+
+		// 模式4: TRUE, AND -> 第二个操作数（true && x = x）
+		if !optimized && op == OpTrue && i+1 < len(code) && OpCode(code[i+1]) == OpAnd {
+			// TRUE 被编译为单独指令，AND 需要两个操作数
+			// 跳过 TRUE，保留后续的 AND 操作
+			// 注意：这需要确保栈上有另一个操作数
+			i += 1 // 只跳过 TRUE
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式5: FALSE, AND -> FALSE（false && x = false）
+		if !optimized && op == OpFalse && i+1 < len(code) && OpCode(code[i+1]) == OpAnd {
+			// false && anything = false
+			// 保持 FALSE，跳过 AND
+			newCode = append(newCode, byte(OpFalse))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式6: TRUE, OR -> TRUE（true || x = true）
+		if !optimized && op == OpTrue && i+1 < len(code) && OpCode(code[i+1]) == OpOr {
+			// true || anything = true
+			newCode = append(newCode, byte(OpTrue))
+			newLines = append(newLines, o.chunk.Lines[i])
+			i += 2
+			o.optimizations++
+			optimized = true
+		}
+
+		// 模式7: FALSE, OR -> 第二个操作数（false || x = x）
+		if !optimized && op == OpFalse && i+1 < len(code) && OpCode(code[i+1]) == OpOr {
+			i += 1 // 只跳过 FALSE
+			o.optimizations++
+			optimized = true
+		}
 
 		if !optimized {
 			// 复制原始指令

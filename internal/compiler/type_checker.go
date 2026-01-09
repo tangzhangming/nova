@@ -538,6 +538,9 @@ func (tc *TypeChecker) checkExpression(expr ast.Expression) string {
 		return tc.checkSafeMethodCall(e)
 	case *ast.NullCoalesceExpr:
 		return tc.checkNullCoalesceExpr(e)
+	case *ast.NonNullAssertExpr:
+		// BUG FIX 2026-01-10: 空安全系统完善 - 添加非空断言类型检查
+		return tc.checkNonNullAssertExpr(e)
 	default:
 		return "dynamic"
 	}
@@ -971,17 +974,31 @@ func (tc *TypeChecker) checkSafeMethodCall(expr *ast.SafeMethodCall) string {
 func (tc *TypeChecker) checkNullCoalesceExpr(expr *ast.NullCoalesceExpr) string {
 	leftType := tc.checkExpression(expr.Left)
 	rightType := tc.checkExpression(expr.Right)
-	
+
 	// 结果类型是左侧的非空类型或右侧类型
 	leftNonNull := tc.removeNullFromType(leftType)
-	
+
 	// 如果左右类型相同（去除null后），返回非空类型
 	if leftNonNull == rightType || leftNonNull == tc.removeNullFromType(rightType) {
 		return leftNonNull
 	}
-	
+
 	// 否则返回联合类型
 	return fmt.Sprintf("%s|%s", leftNonNull, rightType)
+}
+
+// checkNonNullAssertExpr 检查非空断言表达式 (expr!!)
+// BUG FIX 2026-01-10: 空安全系统完善 - 添加非空断言类型检查
+func (tc *TypeChecker) checkNonNullAssertExpr(expr *ast.NonNullAssertExpr) string {
+	exprType := tc.checkExpression(expr.Expr)
+
+	// 非空断言会从类型中移除 null
+	// 如果原类型不是可空类型，发出警告
+	if !tc.isNullableType(exprType) {
+		tc.addWarning(expr.Pos(), "W001", fmt.Sprintf("non-null assertion on non-nullable type '%s'", exprType))
+	}
+
+	return tc.removeNullFromType(exprType)
 }
 
 // Helper methods

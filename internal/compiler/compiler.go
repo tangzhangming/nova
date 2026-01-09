@@ -2410,6 +2410,19 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	case *ast.ChannelSelectExpr:
 		c.compileChannelSelectExpr(e)
 
+	// BUG FIX 2026-01-10: 空安全系统完善 - 添加空安全表达式编译
+	case *ast.NullCoalesceExpr:
+		c.compileNullCoalesceExpr(e)
+
+	case *ast.SafePropertyAccess:
+		c.compileSafePropertyAccess(e)
+
+	case *ast.SafeMethodCall:
+		c.compileSafeMethodCall(e)
+
+	case *ast.NonNullAssertExpr:
+		c.compileNonNullAssertExpr(e)
+
 	default:
 		c.error(expr.Pos(), i18n.T(i18n.ErrUnsupportedExpr))
 	}
@@ -3163,6 +3176,138 @@ func (c *Compiler) compilePropertyAccess(e *ast.PropertyAccess) {
 
 	idx := c.makeConstant(bytecode.NewString(e.Property.Name))
 	c.emitU16(bytecode.OpGetField, idx)
+}
+
+// ============================================================================
+// BUG FIX 2026-01-10: 空安全系统完善 - 空安全表达式编译
+// ============================================================================
+// 防止反复引入的问题:
+// 1. 安全调用 (?.) 必须在 null 时短路并返回 null
+// 2. 非空断言 (!!) 必须在 null 时抛出异常
+// 3. 空合并 (??) 必须在左侧为 null 时计算右侧
+// 4. 所有跳转偏移量必须正确计算，考虑指令长度
+
+// compileSafePropertyAccess 编译安全属性访问 (obj?.property)
+// 如果 obj 为 null，返回 null；否则返回 obj.property
+func (c *Compiler) compileSafePropertyAccess(e *ast.SafePropertyAccess) {
+	// 编译对象表达式
+	c.compileExpr(e.Object)
+	
+	// 复制对象用于 null 检查
+	c.emit(bytecode.OpDup)
+	
+	// null 检查: if obj == null
+	c.emit(bytecode.OpNull)
+	c.emit(bytecode.OpEq)
+	
+	// 如果为 null，跳转到返回 null 的位置
+	jumpIfNull := c.emitJump(bytecode.OpJumpIfTrue)
+	
+	// 不为 null，执行属性访问
+	if e.Property.Name == "length" {
+		c.emit(bytecode.OpArrayLen)
+	} else {
+		idx := c.makeConstant(bytecode.NewString(e.Property.Name))
+		c.emitU16(bytecode.OpGetField, idx)
+	}
+	
+	// 跳过 null 返回
+	jumpEnd := c.emitJump(bytecode.OpJump)
+	
+	// null 分支: 弹出原对象，压入 null
+	c.patchJump(jumpIfNull)
+	c.emit(bytecode.OpPop) // 弹出复制的 null 对象
+	c.emit(bytecode.OpNull)
+	
+	c.patchJump(jumpEnd)
+}
+
+// compileSafeMethodCall 编译安全方法调用 (obj?.method())
+// 如果 obj 为 null，返回 null；否则返回 obj.method() 的结果
+func (c *Compiler) compileSafeMethodCall(e *ast.SafeMethodCall) {
+	// 编译对象表达式
+	c.compileExpr(e.Object)
+	
+	// 复制对象用于 null 检查
+	c.emit(bytecode.OpDup)
+	
+	// null 检查: if obj == null
+	c.emit(bytecode.OpNull)
+	c.emit(bytecode.OpEq)
+	
+	// 如果为 null，跳转到返回 null 的位置
+	jumpIfNull := c.emitJump(bytecode.OpJumpIfTrue)
+	
+	// 不为 null，编译参数并调用方法
+	for _, arg := range e.Arguments {
+		c.compileExpr(arg)
+	}
+	idx := c.makeConstant(bytecode.NewString(e.Method.Name))
+	c.emitU16(bytecode.OpCallMethod, idx)
+	c.currentChunk().WriteU8(byte(len(e.Arguments)), c.currentLine)
+	
+	// 跳过 null 返回
+	jumpEnd := c.emitJump(bytecode.OpJump)
+	
+	// null 分支: 弹出原对象，压入 null
+	c.patchJump(jumpIfNull)
+	c.emit(bytecode.OpPop) // 弹出复制的 null 对象
+	c.emit(bytecode.OpNull)
+	
+	c.patchJump(jumpEnd)
+}
+
+// compileNullCoalesceExpr 编译空合并表达式 (a ?? b)
+// 如果 a 为 null，返回 b；否则返回 a
+func (c *Compiler) compileNullCoalesceExpr(e *ast.NullCoalesceExpr) {
+	// 编译左侧表达式
+	c.compileExpr(e.Left)
+	
+	// 复制值用于 null 检查
+	c.emit(bytecode.OpDup)
+	
+	// null 检查: if left == null
+	c.emit(bytecode.OpNull)
+	c.emit(bytecode.OpEq)
+	
+	// 如果为 null，跳转到计算右侧
+	jumpIfNull := c.emitJump(bytecode.OpJumpIfTrue)
+	
+	// 左侧不为 null，跳过右侧计算
+	jumpEnd := c.emitJump(bytecode.OpJump)
+	
+	// null 分支: 弹出左侧值，计算右侧
+	c.patchJump(jumpIfNull)
+	c.emit(bytecode.OpPop) // 弹出 null
+	c.compileExpr(e.Right)
+	
+	c.patchJump(jumpEnd)
+}
+
+// compileNonNullAssertExpr 编译非空断言表达式 (expr!!)
+// 如果 expr 为 null，抛出 NullPointerException；否则返回 expr
+func (c *Compiler) compileNonNullAssertExpr(e *ast.NonNullAssertExpr) {
+	// 编译表达式
+	c.compileExpr(e.Expr)
+	
+	// 复制值用于 null 检查
+	c.emit(bytecode.OpDup)
+	
+	// null 检查: if expr != null
+	c.emit(bytecode.OpNull)
+	c.emit(bytecode.OpNe)
+	
+	// 如果不为 null，跳过异常抛出
+	jumpIfNotNull := c.emitJump(bytecode.OpJumpIfTrue)
+	
+	// 为 null，抛出 NullPointerException
+	c.emit(bytecode.OpPop) // 弹出 null 值
+	// 创建 NullPointerException 对象并抛出
+	errMsg := c.makeConstant(bytecode.NewString("non-null assertion failed: value is null"))
+	c.emitU16(bytecode.OpPush, errMsg)
+	c.emit(bytecode.OpThrow)
+	
+	c.patchJump(jumpIfNotNull)
 }
 
 func (c *Compiler) compileMethodCall(e *ast.MethodCall) {

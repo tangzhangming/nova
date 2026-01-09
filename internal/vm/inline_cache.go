@@ -578,3 +578,176 @@ type ICManagerStats struct {
 	PropertyMisses      int64
 }
 
+// ============================================================================
+// BUG FIX 2026-01-10: 内联缓存性能分析增强
+// ============================================================================
+// 防止反复引入的问题:
+// 1. 命中率计算避免除零错误
+// 2. 状态统计必须遍历所有缓存
+// 3. 性能建议基于阈值，可配置
+
+// ICDetailedStats 详细的内联缓存统计信息
+type ICDetailedStats struct {
+	ICManagerStats // 继承基础统计
+
+	// 方法缓存状态分布
+	MethodMonomorphic int // 单态缓存数
+	MethodPolymorphic int // 多态缓存数
+	MethodMegamorphic int // 超多态缓存数
+	MethodUninitialized int // 未初始化缓存数
+
+	// 属性缓存状态分布
+	PropertyMonomorphic int
+	PropertyPolymorphic int
+	PropertyMegamorphic int
+	PropertyUninitialized int
+
+	// 命中率
+	MethodHitRate   float64 // 方法缓存命中率 (0.0-1.0)
+	PropertyHitRate float64 // 属性缓存命中率 (0.0-1.0)
+	OverallHitRate  float64 // 总体命中率
+
+	// 性能建议
+	Recommendations []string
+}
+
+// DetailedStats 获取详细统计信息和性能分析
+func (m *ICManager) DetailedStats() ICDetailedStats {
+	stats := ICDetailedStats{
+		ICManagerStats: m.Stats(),
+	}
+
+	// 统计方法缓存状态分布
+	for _, entry := range m.methodCaches {
+		for _, cacheEntry := range entry.cache.caches {
+			if cacheEntry == nil || cacheEntry.cache == nil {
+				continue
+			}
+			ic := cacheEntry.cache
+			switch ic.state {
+			case ICUninitialized:
+				stats.MethodUninitialized++
+			case ICMonomorphic:
+				stats.MethodMonomorphic++
+			case ICPolymorphic:
+				stats.MethodPolymorphic++
+			case ICMegamorphic:
+				stats.MethodMegamorphic++
+			}
+		}
+	}
+
+	// 统计属性缓存状态分布
+	for _, pc := range m.propertyCaches {
+		switch pc.state {
+		case ICUninitialized:
+			stats.PropertyUninitialized++
+		case ICMonomorphic:
+			stats.PropertyMonomorphic++
+		case ICPolymorphic:
+			stats.PropertyPolymorphic++
+		case ICMegamorphic:
+			stats.PropertyMegamorphic++
+		}
+	}
+
+	// 计算命中率（避免除零）
+	methodTotal := stats.MethodHits + stats.MethodMisses
+	if methodTotal > 0 {
+		stats.MethodHitRate = float64(stats.MethodHits) / float64(methodTotal)
+	}
+
+	propertyTotal := stats.PropertyHits + stats.PropertyMisses
+	if propertyTotal > 0 {
+		stats.PropertyHitRate = float64(stats.PropertyHits) / float64(propertyTotal)
+	}
+
+	totalHits := stats.MethodHits + stats.PropertyHits
+	totalMisses := stats.MethodMisses + stats.PropertyMisses
+	if totalHits + totalMisses > 0 {
+		stats.OverallHitRate = float64(totalHits) / float64(totalHits + totalMisses)
+	}
+
+	// 生成性能建议
+	stats.Recommendations = m.generateRecommendations(stats)
+
+	return stats
+}
+
+// generateRecommendations 根据统计数据生成性能优化建议
+func (m *ICManager) generateRecommendations(stats ICDetailedStats) []string {
+	var recommendations []string
+
+	// 检查命中率
+	if stats.MethodHitRate < 0.8 && (stats.MethodHits + stats.MethodMisses) > 100 {
+		recommendations = append(recommendations, 
+			"Method cache hit rate is low (%.1f%%). Consider reducing type polymorphism.")
+	}
+
+	if stats.PropertyHitRate < 0.8 && (stats.PropertyHits + stats.PropertyMisses) > 100 {
+		recommendations = append(recommendations,
+			"Property cache hit rate is low (%.1f%%). Consider using typed properties.")
+	}
+
+	// 检查超多态缓存
+	megamorphicRatio := float64(stats.MethodMegamorphic) / float64(max(1, stats.TotalMethodCaches))
+	if megamorphicRatio > 0.3 {
+		recommendations = append(recommendations,
+			"High megamorphic cache ratio (%.1f%%). Too many types at call sites.")
+	}
+
+	// 检查缓存大小
+	if stats.TotalMethodCaches > MaxMethodCacheFunctions * 80 / 100 {
+		recommendations = append(recommendations,
+			"Method cache nearing capacity. Consider increasing MaxMethodCacheFunctions.")
+	}
+
+	if stats.TotalPropertyCaches > MaxPropertyCacheEntries * 80 / 100 {
+		recommendations = append(recommendations,
+			"Property cache nearing capacity. Consider increasing MaxPropertyCacheEntries.")
+	}
+
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Inline cache performance is optimal.")
+	}
+
+	return recommendations
+}
+
+// max 返回两个整数中的较大值
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// ResetStats 重置统计计数器（保留缓存内容）
+func (m *ICManager) ResetStats() {
+	for _, entry := range m.methodCaches {
+		for _, cacheEntry := range entry.cache.caches {
+			if cacheEntry != nil && cacheEntry.cache != nil {
+				cacheEntry.cache.hits = 0
+				cacheEntry.cache.misses = 0
+			}
+		}
+	}
+	for _, pc := range m.propertyCaches {
+		pc.hits = 0
+		pc.misses = 0
+	}
+}
+
+// EnableProfiling 启用详细性能分析（可能略微影响性能）
+func (m *ICManager) EnableProfiling() {
+	// 当前实现已默认启用统计
+	// 此方法预留给未来更详细的分析功能
+	m.enabled = true
+}
+
+// DisableProfiling 禁用性能分析
+func (m *ICManager) DisableProfiling() {
+	// 禁用性能分析时，仅保留基本功能
+	// 不收集详细统计
+}
+

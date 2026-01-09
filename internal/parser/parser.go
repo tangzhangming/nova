@@ -365,11 +365,23 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 			size = p.parseExpression()
 		}
 		rbracket := p.consume(token.RBRACKET, "expected ']'")
-		return &ast.ArrayType{
+		baseType = &ast.ArrayType{
 			ElementType: baseType,
 			LBracket:    lbracket,
 			Size:        size,
 			RBracket:    rbracket,
+		}
+	}
+
+	// BUG FIX 2026-01-10: 空安全系统完善 - 添加 Type? 后缀可空类型语法
+	// 支持 TypeScript/Kotlin 风格的可空类型声明: string?, int?, User?
+	// 注意: 此处检查必须在数组类型之后，支持 string[]? (可空数组)
+	// 防止反复引入的问题:
+	// 1. Type? 等价于 Type|null，不是 ?Type|null
+	// 2. 检查顺序：先数组类型，再可空标记
+	if p.match(token.QUESTION) {
+		return &ast.UnionType{
+			Types: []ast.TypeNode{baseType, &ast.NullType{}},
 		}
 	}
 

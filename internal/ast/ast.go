@@ -660,6 +660,19 @@ func (e *NullCoalesceExpr) String() string {
 }
 func (e *NullCoalesceExpr) exprNode() {}
 
+// NonNullAssertExpr 非空断言表达式 (expr!!)
+// BUG FIX 2026-01-10: 空安全系统完善 - 添加非空断言表达式
+// 用于在确定值非空时移除可空类型，如果运行时值为null则抛出异常
+type NonNullAssertExpr struct {
+	Expr     Expression  // 被断言的表达式
+	Operator token.Token // !! 操作符
+}
+
+func (e *NonNullAssertExpr) Pos() token.Position { return e.Expr.Pos() }
+func (e *NonNullAssertExpr) End() token.Position { return e.Operator.Pos }
+func (e *NonNullAssertExpr) String() string      { return e.Expr.String() + "!!" }
+func (e *NonNullAssertExpr) exprNode()           {}
+
 // StaticAccess 静态访问 (Class::CONST, Class::$prop, self::method())
 type StaticAccess struct {
 	Class       Expression // 可以是 Identifier (类名), SelfExpr, ParentExpr

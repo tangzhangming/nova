@@ -76,6 +76,22 @@ import (
 //
 // 这些常量定义了虚拟机的核心资源限制。
 // 修改这些值会影响内存占用和程序的最大复杂度。
+//
+// BUG FIX 2026-01-10: 栈大小配置 - 添加可配置栈大小支持
+// 默认值可通过 SetStackConfig() 在程序启动时修改
+// 防止反复引入的问题:
+// 1. 配置必须在创建VM实例之前设置
+// 2. 运行时不能动态改变栈大小
+// 3. 增大栈大小会线性增加内存占用
+
+// 可配置的栈大小限制
+var (
+	// stackMaxConfig 操作数栈的最大深度（默认 256）
+	stackMaxConfig = 256
+
+	// framesMaxConfig 调用栈的最大深度（默认 64）
+	framesMaxConfig = 64
+)
 
 const (
 	// StackMax 定义操作数栈的最大深度（256 个槽位）。
@@ -113,6 +129,36 @@ const (
 	// 注意：增大此值会增加每个 VM 实例的内存占用（每帧约 32 字节）。
 	FramesMax = 64
 )
+
+// StackConfig 栈配置选项
+type StackConfig struct {
+	// MaxStackDepth 操作数栈最大深度（默认 256）
+	// 范围：128 - 65536
+	MaxStackDepth int
+
+	// MaxCallDepth 调用栈最大深度（默认 64）
+	// 范围：32 - 4096
+	MaxCallDepth int
+}
+
+// SetStackConfig 设置栈配置
+// 必须在创建任何 VM 实例之前调用
+func SetStackConfig(config StackConfig) {
+	if config.MaxStackDepth >= 128 && config.MaxStackDepth <= 65536 {
+		stackMaxConfig = config.MaxStackDepth
+	}
+	if config.MaxCallDepth >= 32 && config.MaxCallDepth <= 4096 {
+		framesMaxConfig = config.MaxCallDepth
+	}
+}
+
+// GetStackConfig 获取当前栈配置
+func GetStackConfig() StackConfig {
+	return StackConfig{
+		MaxStackDepth: stackMaxConfig,
+		MaxCallDepth:  framesMaxConfig,
+	}
+}
 
 // ============================================================================
 // 执行结果类型
@@ -341,6 +387,50 @@ type TryContext struct {
 // ============================================================================
 // 虚拟机核心结构
 // ============================================================================
+
+// ============================================================================
+// BUG FIX 2026-01-10: VM多线程支持准备 - VMContext结构
+// ============================================================================
+// VMContext 封装了每个执行上下文的独立状态
+// 用于未来支持真正的多线程协程执行
+//
+// 防止反复引入的问题:
+// 1. VMContext 必须包含所有线程局部状态
+// 2. 共享状态（globals, classes）必须通过同步机制访问
+// 3. 每个协程应该有自己的 VMContext
+// 4. GC 需要能够访问所有 VMContext 的根对象
+
+// VMContext 执行上下文，封装单个执行线程的状态
+// 未来多线程实现时，每个工作线程拥有自己的 VMContext
+type VMContext struct {
+	// 调用栈
+	frames     [FramesMax]CallFrame
+	frameCount int
+
+	// 操作数栈
+	stack    [StackMax]bytecode.Value
+	stackTop int
+
+	// 异常处理
+	tryStack     []TryContext
+	tryDepth     int
+	exception    bytecode.Value
+	hasException bool
+
+	// 当前协程（如果在协程中执行）
+	currentGoroutine *Goroutine
+
+	// 所属的 VM 实例（用于访问共享状态）
+	vm *VM
+}
+
+// NewVMContext 创建新的执行上下文
+func NewVMContext(vm *VM) *VMContext {
+	return &VMContext{
+		vm:       vm,
+		tryStack: make([]TryContext, 0, 8),
+	}
+}
 
 // VM 是 Sola 语言的字节码虚拟机，负责执行编译后的字节码程序。
 //
@@ -3867,7 +3957,9 @@ func (vm *VM) call(closure *bytecode.Closure, argCount int) InterpretResult {
 	}
 
 	if vm.frameCount == FramesMax {
-		return vm.runtimeError(i18n.T(i18n.ErrStackOverflow))
+		// BUG FIX 2026-01-10: 栈溢出处理改进 - 增强错误报告
+		// 提供完整调用栈和递归检测
+		return vm.stackOverflowError(fn.Name)
 	}
 
 	// 处理默认参数：填充缺失的参数
@@ -4427,6 +4519,156 @@ func (vm *VM) runtimeError(format string, args ...interface{}) InterpretResult {
 	}
 
 	return InterpretRuntimeError
+}
+
+// ============================================================================
+// BUG FIX 2026-01-10: 栈溢出处理改进
+// ============================================================================
+// 防止反复引入的问题:
+// 1. 栈溢出检查必须在push之前（不能先push再检查）
+// 2. 错误信息生成不能触发新的栈分配（避免二次溢出）
+// 3. 调用栈捕获必须限制深度（避免捕获过程本身溢出）
+
+// stackOverflowError 报告栈溢出错误，包含完整调用栈和递归检测
+func (vm *VM) stackOverflowError(currentFuncName string) InterpretResult {
+	vm.hadError = true
+	
+	// 捕获调用栈（限制最大深度，避免二次溢出）
+	frames := vm.captureStackTrace()
+	
+	// 检测递归模式
+	recursionInfo := vm.detectRecursionPattern(frames, currentFuncName)
+	
+	// 构建错误消息
+	var sb strings.Builder
+	sb.WriteString(i18n.T(i18n.ErrStackOverflow))
+	sb.WriteString("\n")
+	
+	// 如果检测到递归，添加递归信息
+	if recursionInfo.detected {
+		sb.WriteString(fmt.Sprintf("\n  Possible infinite recursion detected in function '%s'\n", recursionInfo.funcName))
+		sb.WriteString(fmt.Sprintf("  Function appears %d times consecutively in call stack\n", recursionInfo.count))
+	}
+	
+	// 添加调用栈
+	sb.WriteString("\nCall stack:\n")
+	maxFramesToShow := 10
+	skippedFrames := 0
+	
+	if len(frames) > maxFramesToShow*2 {
+		// 显示前 maxFramesToShow 帧
+		for i := 0; i < maxFramesToShow && i < len(frames); i++ {
+			frame := frames[i]
+			if frame.FileName != "" {
+				sb.WriteString(fmt.Sprintf("    at %s (%s:%d)\n", frame.FunctionName, frame.FileName, frame.LineNumber))
+			} else {
+				sb.WriteString(fmt.Sprintf("    at %s (line %d)\n", frame.FunctionName, frame.LineNumber))
+			}
+		}
+		
+		skippedFrames = len(frames) - maxFramesToShow*2
+		if skippedFrames > 0 {
+			sb.WriteString(fmt.Sprintf("    ... (%d more frames)\n", skippedFrames))
+		}
+		
+		// 显示最后 maxFramesToShow 帧
+		startIdx := len(frames) - maxFramesToShow
+		if startIdx < maxFramesToShow {
+			startIdx = maxFramesToShow
+		}
+		for i := startIdx; i < len(frames); i++ {
+			frame := frames[i]
+			if frame.FileName != "" {
+				sb.WriteString(fmt.Sprintf("    at %s (%s:%d)\n", frame.FunctionName, frame.FileName, frame.LineNumber))
+			} else {
+				sb.WriteString(fmt.Sprintf("    at %s (line %d)\n", frame.FunctionName, frame.LineNumber))
+			}
+		}
+	} else {
+		// 帧数不多，全部显示
+		for _, frame := range frames {
+			if frame.FileName != "" {
+				sb.WriteString(fmt.Sprintf("    at %s (%s:%d)\n", frame.FunctionName, frame.FileName, frame.LineNumber))
+			} else {
+				sb.WriteString(fmt.Sprintf("    at %s (line %d)\n", frame.FunctionName, frame.LineNumber))
+			}
+		}
+	}
+	
+	// 添加修复建议
+	sb.WriteString("\nSuggestions:\n")
+	if recursionInfo.detected {
+		sb.WriteString(fmt.Sprintf("  - Check for infinite recursion in '%s'\n", recursionInfo.funcName))
+		sb.WriteString("  - Ensure recursive functions have proper base cases\n")
+		sb.WriteString("  - Consider using iteration instead of deep recursion\n")
+	} else {
+		sb.WriteString("  - Review call stack for unexpected deep nesting\n")
+		sb.WriteString("  - Consider increasing stack size if deeply nested calls are expected\n")
+	}
+	
+	vm.errorMessage = sb.String()
+	fmt.Print(vm.errorMessage)
+	
+	return InterpretRuntimeError
+}
+
+// recursionPattern 存储递归检测结果
+type recursionPattern struct {
+	detected bool
+	funcName string
+	count    int
+}
+
+// detectRecursionPattern 检测调用栈中的递归模式
+func (vm *VM) detectRecursionPattern(frames []bytecode.StackFrame, currentFuncName string) recursionPattern {
+	if len(frames) < 3 {
+		return recursionPattern{}
+	}
+	
+	// 检查当前函数是否连续出现多次
+	consecutiveCount := 1
+	for i := 0; i < len(frames) && i < 20; i++ { // 只检查前 20 帧
+		if frames[i].FunctionName == currentFuncName {
+			consecutiveCount++
+		} else {
+			break
+		}
+	}
+	
+	if consecutiveCount >= 3 {
+		return recursionPattern{
+			detected: true,
+			funcName: currentFuncName,
+			count:    consecutiveCount,
+		}
+	}
+	
+	// 检查其他函数是否有递归模式
+	funcCounts := make(map[string]int)
+	for _, frame := range frames {
+		funcCounts[frame.FunctionName]++
+	}
+	
+	// 找出出现次数最多的函数
+	maxCount := 0
+	maxFunc := ""
+	for name, count := range funcCounts {
+		if count > maxCount {
+			maxCount = count
+			maxFunc = name
+		}
+	}
+	
+	// 如果某个函数出现次数超过帧数的 50%，可能是递归
+	if maxCount > len(frames)/2 && maxCount >= 10 {
+		return recursionPattern{
+			detected: true,
+			funcName: maxFunc,
+			count:    maxCount,
+		}
+	}
+	
+	return recursionPattern{}
 }
 
 // reportEnhancedError 使用增强格式报告运行时错误（结构化错误 + 错误码）。
