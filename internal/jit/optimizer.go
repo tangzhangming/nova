@@ -5,14 +5,29 @@
 // 优化级别：
 //   O0: 不优化（用于调试）
 //   O1: 基本优化 - 常量传播、死代码消除
-//   O2: 标准优化 - 增加代数简化、强度削减
-//   O3: 激进优化 - 增加内联（未实现）
+//   O2: 标准优化 - 增加代数简化、强度削减、CSE、复制传播、窥孔优化
+//   O3: 激进优化 - 增加内联、边界检查消除、循环优化、GVN
 //
-// 优化 Pass：
+// 优化 Pass (按执行顺序)：
+//
+// O1 基本优化：
 // 1. ConstantPropagation - 常量传播和常量折叠
 // 2. DeadCodeElimination - 死代码消除
+//
+// O2 标准优化：
 // 3. AlgebraicSimplification - 代数简化
 // 4. StrengthReduction - 强度削减（用移位代替乘除）
+// 5. CommonSubexpressionElimination - 公共子表达式消除
+// 6. CopyPropagation - 复制传播
+// 7. ConditionalBranchOptimization - 条件分支优化
+// 8. PeepholeOptimization - 窥孔优化（双重否定消除、连续移位合并等）
+//
+// O3 激进优化：
+// 9. Inlining - 函数内联（由 inliner.go 实现）
+// 10. LoopInvariantCodeMotion - 循环不变量外提
+// 11. BoundsCheckElimination - 边界检查消除
+// 12. GlobalValueNumbering - 全局值编号
+// 13. LoopUnrolling - 循环展开
 //
 // 优化是迭代进行的，直到没有更多变化为止。
 
@@ -91,11 +106,25 @@ func (opt *Optimizer) Optimize(fn *IRFunc) {
 		if opt.level >= 2 {
 			changed = opt.algebraicSimplification(fn) || changed
 			changed = opt.strengthReduction(fn) || changed
+			// 新增：公共子表达式消除
+			changed = opt.CommonSubexpressionElimination(fn) || changed
+			// 新增：复制传播
+			changed = opt.CopyPropagation(fn) || changed
+			// 新增：条件分支优化
+			changed = opt.ConditionalBranchOptimization(fn) || changed
+			// 新增：窥孔优化
+			changed = opt.PeepholeOptimization(fn) || changed
 		}
 		
-		// O3: 循环优化（可选的附加优化）
+		// O3: 高级优化
 		if opt.level >= 3 {
 			changed = opt.loopInvariantCodeMotion(fn) || changed
+			// 新增：边界检查消除
+			changed = opt.BoundsCheckElimination(fn) || changed
+			// 新增：全局值编号
+			changed = opt.GlobalValueNumbering(fn) || changed
+			// 新增：循环展开
+			changed = opt.LoopUnrolling(fn) || changed
 		}
 		
 		if !changed {

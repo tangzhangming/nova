@@ -1508,11 +1508,12 @@ func (vm *VM) execute() InterpretResult {
 			// 如果有泛型类型参数定义，检查是否有类型参数传入
 			// 注意：由于类型擦除，运行时通常没有泛型类型参数信息
 			// 这里主要是为未来的扩展做准备，当前实现基本验证框架
-			var typeArgs []string = nil
+			var typeArgs []string
 			if len(class.TypeParams) > 0 {
 				// 如果有类型参数定义但运行时没有传入，这是正常的（类型擦除）
 				// 未来如果需要运行时类型验证，可以在这里扩展
 				// 目前仅验证编译时已有的类型信息
+				// typeArgs 保持为 nil，表示没有运行时类型参数
 			}
 			
 			var obj *bytecode.Object
@@ -1533,6 +1534,7 @@ func (vm *VM) execute() InterpretResult {
 			vm.push(vm.trackAllocation(bytecode.NewObject(obj)))
 
 		case bytecode.OpGetField:
+			fieldIP := frame.IP - 1 // 保存字段访问点 IP（用于属性缓存）
 			nameIdx := chunk.ReadU16(frame.IP)
 			frame.IP += 2
 			name := chunk.Constants[nameIdx].AsString()
@@ -1543,44 +1545,81 @@ func (vm *VM) execute() InterpretResult {
 			}
 			obj := objVal.AsObject()
 			
-			// 检查是否有 getter 方法（属性访问器）
-			getterName := "get_" + name
-			if getter := vm.lookupMethod(obj.Class, getterName); getter != nil {
-				// 调用 getter 方法
-				closure := &bytecode.Closure{
-					Function: &bytecode.Function{
-						Name:          getter.Name,
-						ClassName:     getter.ClassName,
-						SourceFile:    getter.SourceFile,
-						Arity:         getter.Arity,
-						MinArity:      getter.MinArity,
-						Chunk:         getter.Chunk,
-						LocalCount:    getter.LocalCount,
-						DefaultValues: getter.DefaultValues,
-					},
+			// 尝试使用属性缓存快速路径（仅用于直接字段访问，不包括 getter）
+			useCache := false
+			hasGetter := false
+			if vm.icManager.IsEnabled() {
+				pc := vm.icManager.GetPropertyCache(fieldIP)
+				if pc != nil {
+					if cached, cachedName := pc.Lookup(obj.Class, name); cached {
+						if cachedName == name {
+							// 缓存命中：直接字段访问
+							useCache = true
+							if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+								return vm.runtimeError("%v", err)
+							}
+							if value, ok := obj.GetField(name); ok {
+								vm.push(value)
+							} else {
+								vm.push(bytecode.NullValue)
+							}
+						}
+					} else {
+						// 缓存未命中，更新缓存（会在查找后更新）
+					}
 				}
-				vm.push(objVal) // 将对象压回栈作为 receiver
-				if result := vm.call(closure, 0); result != InterpretOK {
-					return result
-				}
-				frame = &vm.frames[vm.frameCount-1]
-				chunk = frame.Closure.Function.Chunk
-				continue
-			} else {
-				// 普通字段访问
-				// 检查访问权限
-				if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
-					return vm.runtimeError("%v", err)
-				}
-				
-				if value, ok := obj.GetField(name); ok {
-					vm.push(value)
+			}
+			
+			if !useCache {
+				// 检查是否有 getter 方法（属性访问器）
+				getterName := "get_" + name
+				if getter := vm.lookupMethod(obj.Class, getterName); getter != nil {
+					hasGetter = true
+					// 调用 getter 方法
+					closure := &bytecode.Closure{
+						Function: &bytecode.Function{
+							Name:          getter.Name,
+							ClassName:     getter.ClassName,
+							SourceFile:    getter.SourceFile,
+							Arity:         getter.Arity,
+							MinArity:      getter.MinArity,
+							Chunk:         getter.Chunk,
+							LocalCount:    getter.LocalCount,
+							DefaultValues: getter.DefaultValues,
+						},
+					}
+					vm.push(objVal) // 将对象压回栈作为 receiver
+					if result := vm.call(closure, 0); result != InterpretOK {
+						return result
+					}
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
 				} else {
-					vm.push(bytecode.NullValue)
+					// 普通字段访问
+					// 检查访问权限
+					if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+						return vm.runtimeError("%v", err)
+					}
+					
+					if value, ok := obj.GetField(name); ok {
+						vm.push(value)
+					} else {
+						vm.push(bytecode.NullValue)
+					}
+					
+					// 更新属性缓存（仅缓存直接字段访问，不缓存 getter）
+					if vm.icManager.IsEnabled() && !hasGetter {
+						pc := vm.icManager.GetPropertyCache(fieldIP)
+						if pc != nil {
+							pc.Update(obj.Class, name)
+						}
+					}
 				}
 			}
 
 		case bytecode.OpSetField:
+			fieldIP := frame.IP - 1 // 保存字段访问点 IP（用于属性缓存）
 			nameIdx := chunk.ReadU16(frame.IP)
 			frame.IP += 2
 			name := chunk.Constants[nameIdx].AsString()
@@ -1593,52 +1632,95 @@ func (vm *VM) execute() InterpretResult {
 			}
 			obj := objVal.AsObject()
 			
-			// 检查是否有 setter 方法（属性访问器）
-			setterName := "set_" + name
-			if setter := vm.lookupMethodByArity(obj.Class, setterName, 1); setter != nil {
-				// 调用 setter 方法
-				closure := &bytecode.Closure{
-					Function: &bytecode.Function{
-						Name:          setter.Name,
-						ClassName:     setter.ClassName,
-						SourceFile:    setter.SourceFile,
-						Arity:         setter.Arity,
-						MinArity:      setter.MinArity,
-						Chunk:         setter.Chunk,
-						LocalCount:    setter.LocalCount,
-						DefaultValues: setter.DefaultValues,
-					},
-				}
-				vm.push(objVal) // 将对象压回栈作为 receiver
-				vm.push(value)  // 将值压入栈作为参数
-				if result := vm.call(closure, 1); result != InterpretOK {
-					return result
-				}
-				frame = &vm.frames[vm.frameCount-1]
-				chunk = frame.Closure.Function.Chunk
-				// setter 可能返回 void，但我们需要返回设置的值
-				vm.push(value)
-			} else {
-				// 普通字段访问
-				// 检查访问权限
-				if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
-					return vm.runtimeError("%v", err)
-				}
-				
-				// 检查 final 属性 - 如果属性已有值且为 final，则不允许重新赋值
-				// （第一次赋值在构造函数中是允许的）
-				if obj.Class.PropFinal[name] {
-					if _, exists := obj.GetField(name); exists {
-						return vm.runtimeError(i18n.T(i18n.ErrCannotAssignFinalProperty, name))
+			// 尝试使用属性缓存快速路径（仅用于直接字段访问，不包括 setter）
+			useCache := false
+			hasSetter := false
+			if vm.icManager.IsEnabled() {
+				pc := vm.icManager.GetPropertyCache(fieldIP)
+				if pc != nil {
+					if cached, cachedName := pc.Lookup(obj.Class, name); cached {
+						if cachedName == name {
+							// 缓存命中：直接字段访问
+							useCache = true
+							// 检查访问权限
+							if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+								return vm.runtimeError("%v", err)
+							}
+							
+							// 检查 final 属性 - 如果属性已有值且为 final，则不允许重新赋值
+							// （第一次赋值在构造函数中是允许的）
+							if obj.Class.PropFinal[name] {
+								if _, exists := obj.GetField(name); exists {
+									return vm.runtimeError(i18n.T(i18n.ErrCannotAssignFinalProperty, name))
+								}
+							}
+							
+							obj.SetField(name, value)
+							
+							// 写屏障：当老年代对象引用年轻代对象时，需要记录到记忆集
+							vm.gc.WriteBarrierValue(objVal, value)
+							vm.push(value)
+						}
 					}
 				}
-				
-				obj.SetField(name, value)
-				
-				// 写屏障：当老年代对象引用年轻代对象时，需要记录到记忆集
-				vm.gc.WriteBarrierValue(objVal, value)
-				
-				vm.push(value)
+			}
+			
+			if !useCache {
+				// 检查是否有 setter 方法（属性访问器）
+				setterName := "set_" + name
+				if setter := vm.lookupMethodByArity(obj.Class, setterName, 1); setter != nil {
+					hasSetter = true
+					// 调用 setter 方法
+					closure := &bytecode.Closure{
+						Function: &bytecode.Function{
+							Name:          setter.Name,
+							ClassName:     setter.ClassName,
+							SourceFile:    setter.SourceFile,
+							Arity:         setter.Arity,
+							MinArity:      setter.MinArity,
+							Chunk:         setter.Chunk,
+							LocalCount:    setter.LocalCount,
+							DefaultValues: setter.DefaultValues,
+						},
+					}
+					vm.push(objVal) // 将对象压回栈作为 receiver
+					vm.push(value)  // 将值压入栈作为参数
+					if result := vm.call(closure, 1); result != InterpretOK {
+						return result
+					}
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					// setter 可能返回 void，但我们需要返回设置的值
+					vm.push(value)
+				} else {
+					// 普通字段访问
+					// 检查访问权限
+					if err := vm.checkPropertyAccess(obj.Class, name); err != nil {
+						return vm.runtimeError("%v", err)
+					}
+					
+					// 检查 final 属性 - 如果属性已有值且为 final，则不允许重新赋值
+					// （第一次赋值在构造函数中是允许的）
+					if obj.Class.PropFinal[name] {
+						if _, exists := obj.GetField(name); exists {
+							return vm.runtimeError(i18n.T(i18n.ErrCannotAssignFinalProperty, name))
+						}
+					}
+					
+					obj.SetField(name, value)
+					
+					// 写屏障：当老年代对象引用年轻代对象时，需要记录到记忆集
+					vm.gc.WriteBarrierValue(objVal, value)
+					vm.push(value)
+					
+					// 更新属性缓存（仅缓存直接字段访问，不缓存 setter）
+					if vm.icManager.IsEnabled() && !hasSetter {
+						pc := vm.icManager.GetPropertyCache(fieldIP)
+						if pc != nil {
+							pc.Update(obj.Class, name)
+						}
+					}
+				}
 			}
 
 		case bytecode.OpCallMethod:
@@ -1654,37 +1736,37 @@ func (vm *VM) execute() InterpretResult {
 			if receiver.Type == bytecode.ValObject {
 				obj := receiver.AsObject()
 				
-				// 尝试内联缓存快速路径
+				// 尝试内联缓存快速路径（验证参数数量匹配）
 				if vm.icManager.IsEnabled() {
 					ic := vm.icManager.GetMethodCache(frame.Closure.Function, callSiteIP)
 					if ic != nil {
 						if method, hit := ic.Lookup(obj.Class); hit {
-							// 缓存命中：直接调用
-							if result := vm.callMethodDirect(obj, method, argCount); result != InterpretOK {
-								return result
+							// 验证参数数量是否匹配（支持方法重载和默认参数）
+							if argCount >= method.MinArity && argCount <= method.Arity {
+								// 缓存命中且参数匹配：直接调用
+								if result := vm.callMethodDirect(obj, method, argCount); result != InterpretOK {
+									return result
+								}
+								frame = &vm.frames[vm.frameCount-1]
+								chunk = frame.Closure.Function.Chunk
+								continue
 							}
-							frame = &vm.frames[vm.frameCount-1]
-							chunk = frame.Closure.Function.Chunk
-							continue
+							// 参数不匹配，清除缓存并重新查找
+							ic.Reset()
 						}
 					}
 				}
 				
-				method := obj.Class.GetMethod(name)
-				if method == nil && name == "__construct" {
-					// 没有构造函数，跳过调用，只保留对象在栈上
-					continue
-				}
-				
-				// 更新内联缓存
-				if vm.icManager.IsEnabled() && method != nil {
-					ic := vm.icManager.GetMethodCache(frame.Closure.Function, callSiteIP)
-					if ic != nil {
-						ic.Update(obj.Class, method)
+				// 快速检查构造函数是否存在（避免不必要的完整方法查找）
+				if name == "__construct" {
+					if methods, ok := obj.Class.Methods[name]; !ok || len(methods) == 0 {
+						// 没有构造函数，跳过调用，只保留对象在栈上
+						continue
 					}
 				}
 			}
 			
+			// 使用 invokeMethod 进行完整的方法查找和调用（包含内联缓存更新）
 			if result := vm.invokeMethod(name, argCount, callSiteIP); result != InterpretOK {
 				return result
 			}

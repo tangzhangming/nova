@@ -151,9 +151,10 @@ const (
 	OpBoolToInt  // bool -> int
 
 	// 数组操作
-	OpArrayGet // 数组取元素
-	OpArraySet // 数组设元素
-	OpArrayLen // 数组长度
+	OpArrayGet         // 数组取元素
+	OpArraySet         // 数组设元素
+	OpArrayLen         // 数组长度
+	OpArrayBoundsCheck // 数组边界检查（可被优化消除）
 
 	// 标记指令
 	OpNop // 空操作（占位符，优化后可能产生）
@@ -203,10 +204,11 @@ var opcodeNames = map[Opcode]string{
 	OpIntToFloat:  "i2f",
 	OpFloatToInt:  "f2i",
 	OpBoolToInt:   "b2i",
-	OpArrayGet:    "aget",
-	OpArraySet:    "aset",
-	OpArrayLen:    "alen",
-	OpNop:         "nop",
+	OpArrayGet:         "aget",
+	OpArraySet:         "aset",
+	OpArrayLen:         "alen",
+	OpArrayBoundsCheck: "boundscheck",
+	OpNop:              "nop",
 }
 
 func (op Opcode) String() string {

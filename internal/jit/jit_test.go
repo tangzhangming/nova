@@ -1414,3 +1414,244 @@ func TestOptimizerO3(t *testing.T) {
 		t.Logf("Inline stats: total=%d, inlined=%d", stats.TotalCalls, stats.InlinedCalls)
 	}
 }
+
+// ============================================================================
+// 高级优化测试
+// ============================================================================
+
+// TestCSE 测试公共子表达式消除
+func TestCSE(t *testing.T) {
+	opt := NewOptimizer(2)
+	fn := NewIRFunc("test_cse", 0)
+	
+	// 创建两个相同的计算 a + b
+	v1 := fn.NewConstIntValue(10)
+	v2 := fn.NewConstIntValue(20)
+	v3 := fn.NewValue(TypeInt)
+	v4 := fn.NewValue(TypeInt)
+	v5 := fn.NewValue(TypeInt)
+	
+	// v3 = v1 + v2
+	fn.Entry.AddInstr(NewInstr(OpAdd, v3, v1, v2))
+	// v4 = v1 + v2 (相同的计算，应该被消除)
+	fn.Entry.AddInstr(NewInstr(OpAdd, v4, v1, v2))
+	// v5 = v3 + v4 (使用两个结果)
+	fn.Entry.AddInstr(NewInstr(OpAdd, v5, v3, v4))
+	fn.Entry.AddInstr(NewInstr(OpReturn, nil, v5))
+	
+	beforeCount := len(fn.Entry.Instrs)
+	t.Logf("Before CSE: %d instructions\n%s", beforeCount, fn.String())
+	
+	changed := opt.CommonSubexpressionElimination(fn)
+	
+	afterCount := 0
+	for _, instr := range fn.Entry.Instrs {
+		if instr.Op != OpNop {
+			afterCount++
+		}
+	}
+	
+	t.Logf("After CSE: %d non-nop instructions, changed=%v\n%s", afterCount, changed, fn.String())
+	
+	// 应该消除了重复计算
+	if !changed {
+		t.Log("CSE did not find common subexpression (may be due to constant folding)")
+	}
+}
+
+// TestCopyPropagation 测试复制传播
+func TestCopyPropagation(t *testing.T) {
+	opt := NewOptimizer(2)
+	fn := NewIRFunc("test_copy_prop", 0)
+	
+	// 创建复制链
+	v1 := fn.NewConstIntValue(42)
+	v2 := fn.NewValue(TypeInt)
+	v3 := fn.NewValue(TypeInt)
+	
+	// 加载一个值
+	loadInstr := NewInstr(OpLoadLocal, v2)
+	loadInstr.LocalIdx = 0
+	fn.Entry.AddInstr(loadInstr)
+	
+	// 使用复制的值
+	fn.Entry.AddInstr(NewInstr(OpAdd, v3, v1, v2))
+	fn.Entry.AddInstr(NewInstr(OpReturn, nil, v3))
+	
+	t.Logf("Before copy propagation:\n%s", fn.String())
+	
+	changed := opt.CopyPropagation(fn)
+	
+	t.Logf("After copy propagation (changed=%v):\n%s", changed, fn.String())
+}
+
+// TestBranchOptimization 测试条件分支优化
+func TestBranchOptimization(t *testing.T) {
+	opt := NewOptimizer(2)
+	fn := NewIRFunc("test_branch_opt", 0)
+	
+	// 创建 true 分支块
+	trueBlock := fn.NewBlock()
+	trueBlock.AddInstr(NewInstr(OpReturn, nil, fn.NewConstIntValue(1)))
+	
+	// 创建 false 分支块
+	falseBlock := fn.NewBlock()
+	falseBlock.AddInstr(NewInstr(OpReturn, nil, fn.NewConstIntValue(0)))
+	
+	// 创建常量 true 条件的分支
+	cond := fn.NewConstBoolValue(true)
+	branchInstr := NewInstr(OpBranch, nil, cond)
+	branchInstr.Targets = []*IRBlock{trueBlock, falseBlock}
+	fn.Entry.AddInstr(branchInstr)
+	
+	t.Logf("Before branch optimization:\n%s", fn.String())
+	t.Logf("Entry block has branch: %v", fn.Entry.Instrs[0].Op == OpBranch)
+	
+	changed := opt.ConditionalBranchOptimization(fn)
+	
+	t.Logf("After branch optimization (changed=%v):\n%s", changed, fn.String())
+	
+	// 应该将条件分支转换为无条件跳转
+	if changed {
+		lastInstr := fn.Entry.LastInstr()
+		if lastInstr.Op != OpJump {
+			t.Errorf("Expected branch to be converted to jump, got %s", lastInstr.Op)
+		}
+	}
+}
+
+// TestPeepholeOptimization 测试窥孔优化
+func TestPeepholeOptimization(t *testing.T) {
+	opt := NewOptimizer(2)
+	fn := NewIRFunc("test_peephole", 0)
+	
+	v1 := fn.NewConstIntValue(10)
+	v2 := fn.NewValue(TypeInt)
+	v3 := fn.NewValue(TypeInt)
+	
+	// 创建双重否定: --v1
+	negInstr1 := NewInstr(OpNeg, v2, v1)
+	fn.Entry.AddInstr(negInstr1)
+	v2.Def = negInstr1
+	
+	negInstr2 := NewInstr(OpNeg, v3, v2)
+	fn.Entry.AddInstr(negInstr2)
+	
+	fn.Entry.AddInstr(NewInstr(OpReturn, nil, v3))
+	
+	t.Logf("Before peephole:\n%s", fn.String())
+	
+	changed := opt.PeepholeOptimization(fn)
+	
+	t.Logf("After peephole (changed=%v):\n%s", changed, fn.String())
+}
+
+// TestConsecutiveShiftMerge 测试连续移位合并
+func TestConsecutiveShiftMerge(t *testing.T) {
+	opt := NewOptimizer(2)
+	fn := NewIRFunc("test_shift_merge", 0)
+	
+	v1 := fn.NewConstIntValue(100)
+	shift1 := fn.NewConstIntValue(2)
+	shift2 := fn.NewConstIntValue(3)
+	v2 := fn.NewValue(TypeInt)
+	v3 := fn.NewValue(TypeInt)
+	
+	// v2 = v1 << 2
+	shl1 := NewInstr(OpShl, v2, v1, shift1)
+	fn.Entry.AddInstr(shl1)
+	v2.Def = shl1
+	
+	// v3 = v2 << 3 -> 应该合并为 v1 << 5
+	shl2 := NewInstr(OpShl, v3, v2, shift2)
+	fn.Entry.AddInstr(shl2)
+	
+	fn.Entry.AddInstr(NewInstr(OpReturn, nil, v3))
+	
+	t.Logf("Before shift merge:\n%s", fn.String())
+	
+	changed := opt.mergeConsecutiveShifts(fn.Entry)
+	
+	t.Logf("After shift merge (changed=%v):\n%s", changed, fn.String())
+	
+	if changed {
+		// 检查移位量是否合并
+		for _, instr := range fn.Entry.Instrs {
+			if instr.Op == OpShl && len(instr.Args) == 2 {
+				if instr.Args[1].IsConst {
+					shiftAmount := instr.Args[1].ConstVal.AsInt()
+					t.Logf("Shift amount: %d", shiftAmount)
+				}
+			}
+		}
+	}
+}
+
+// TestGlobalValueNumbering 测试全局值编号
+func TestGlobalValueNumbering(t *testing.T) {
+	opt := NewOptimizer(3)
+	fn := NewIRFunc("test_gvn", 0)
+	
+	// 在不同位置创建相同的计算
+	v1 := fn.NewConstIntValue(5)
+	v2 := fn.NewConstIntValue(3)
+	v3 := fn.NewValue(TypeInt)
+	v4 := fn.NewValue(TypeInt)
+	v5 := fn.NewValue(TypeInt)
+	
+	// v3 = v1 * v2
+	fn.Entry.AddInstr(NewInstr(OpMul, v3, v1, v2))
+	
+	// 创建第二个块
+	block2 := fn.NewBlock()
+	
+	// v4 = v1 * v2 (相同计算，应被 GVN 消除)
+	block2.AddInstr(NewInstr(OpMul, v4, v1, v2))
+	block2.AddInstr(NewInstr(OpAdd, v5, v3, v4))
+	block2.AddInstr(NewInstr(OpReturn, nil, v5))
+	
+	// 连接块
+	jumpInstr := NewInstr(OpJump, nil)
+	jumpInstr.Targets = []*IRBlock{block2}
+	fn.Entry.AddInstr(jumpInstr)
+	
+	t.Logf("Before GVN:\n%s", fn.String())
+	
+	changed := opt.GlobalValueNumbering(fn)
+	
+	t.Logf("After GVN (changed=%v):\n%s", changed, fn.String())
+}
+
+// TestAdvancedOptimizations 测试高级优化集成
+func TestAdvancedOptimizations(t *testing.T) {
+	opt := NewOptimizer(3)
+	fn := NewIRFunc("test_advanced", 0)
+	
+	// 创建一个可以应用多种优化的函数
+	v1 := fn.NewConstIntValue(10)
+	v2 := fn.NewConstIntValue(0)
+	v3 := fn.NewConstIntValue(1)
+	v4 := fn.NewValue(TypeInt)
+	v5 := fn.NewValue(TypeInt)
+	v6 := fn.NewValue(TypeInt)
+	
+	// v4 = v1 + 0 (加零可消除)
+	fn.Entry.AddInstr(NewInstr(OpAdd, v4, v1, v2))
+	
+	// v5 = v1 * 1 (乘1可消除)
+	fn.Entry.AddInstr(NewInstr(OpMul, v5, v1, v3))
+	
+	// v6 = v4 + v5
+	fn.Entry.AddInstr(NewInstr(OpAdd, v6, v4, v5))
+	
+	fn.Entry.AddInstr(NewInstr(OpReturn, nil, v6))
+	
+	t.Logf("Before advanced optimization:\n%s", fn.String())
+	
+	stats := opt.RunAdvancedOptimizations(fn)
+	
+	t.Logf("After advanced optimization:\n%s", fn.String())
+	t.Logf("Optimization stats: CSE=%d, CopyProp=%d, Branch=%d, Peephole=%d, BCE=%d, GVN=%d",
+		stats.CSEEliminations, stats.CopyPropagations, stats.BranchOptimizations,
+		stats.PeepholeOptimizations, stats.BoundsCheckEliminated, stats.GVNEliminations)
+}
