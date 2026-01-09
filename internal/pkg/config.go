@@ -17,7 +17,8 @@ const (
 
 // PackageConfig 包配置
 type PackageConfig struct {
-	Package PackageInfo `toml:"package"`
+	Package      PackageInfo       `toml:"package"`
+	Dependencies map[string]string `toml:"dependencies"` // 包名 -> 版本号
 }
 
 // PackageInfo 包信息

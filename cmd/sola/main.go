@@ -60,6 +60,8 @@ func main() {
 		cmdInit(args[1:])
 	case "format", "fmt":
 		cmdFormat(args[1:])
+	case "env":
+		cmdEnv()
 	case "version", "-v", "--version":
 		cmdVersion()
 	case "help", "-h", "--help":
@@ -116,6 +118,7 @@ func printUsage() {
 	fmt.Printf("  jvm <file>      %s\n", m.CmdJvm)
 	fmt.Printf("  check <file>    %s\n", m.CmdCheck)
 	fmt.Printf("  format <file>   %s\n", m.CmdFormat)
+	fmt.Printf("  env             %s\n", m.CmdEnv)
 	fmt.Printf("  version         %s\n", m.CmdVersion)
 	fmt.Printf("  help            %s\n", m.CmdHelp)
 	fmt.Println()
@@ -509,6 +512,64 @@ func cmdFormat(args []string) {
 
 	// 默认：输出到标准输出
 	fmt.Print(formatted)
+}
+
+// cmdEnv 显示环境信息
+func cmdEnv() {
+	m := Msg()
+	fmt.Println(m.EnvTitle)
+	fmt.Println()
+
+	// 获取包仓库目录信息
+	pkgRepoDir, pkgSource := getPackageRepoDirInfo()
+	fmt.Printf("  %s:\n", m.EnvPkgRepoDir)
+	fmt.Printf("    %s\n", pkgRepoDir)
+	fmt.Printf("    (%s: %s)\n", m.EnvSource, pkgSource)
+	fmt.Println()
+
+	// 显示环境变量名称
+	fmt.Printf("  %s:\n", m.EnvPkgRepoEnv)
+	fmt.Printf("    %s\n", loader.PackageRepoDirEnv)
+	fmt.Println()
+
+	// 显示标准库目录
+	if libDir := getStdLibDir(); libDir != "" {
+		fmt.Printf("  %s:\n", m.EnvStdLibDir)
+		fmt.Printf("    %s\n", libDir)
+	}
+}
+
+// getPackageRepoDirInfo 获取包仓库目录及其来源
+func getPackageRepoDirInfo() (string, string) {
+	m := Msg()
+	// 检查是否使用了环境变量
+	if envPath := os.Getenv(loader.PackageRepoDirEnv); envPath != "" {
+		return envPath, m.EnvSourceEnv
+	}
+
+	// 使用默认目录
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".", loader.PackageRepoDirName), m.EnvSourceDefault
+	}
+	return filepath.Join(homeDir, loader.PackageRepoDirName), m.EnvSourceDefault
+}
+
+// getStdLibDir 获取标准库目录
+func getStdLibDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exePath, err = filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return ""
+	}
+	libPath := filepath.Join(filepath.Dir(exePath), "lib")
+	if _, err := os.Stat(libPath); err == nil {
+		return libPath
+	}
+	return ""
 }
 
 // cmdVersion 显示版本信息

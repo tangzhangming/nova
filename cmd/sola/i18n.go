@@ -33,8 +33,18 @@ type Messages struct {
 	CmdJvm     string
 	CmdCheck   string
 	CmdFormat  string
+	CmdEnv     string
 	CmdVersion string
 	CmdHelp    string
+
+	// env 命令相关
+	EnvTitle       string
+	EnvPkgRepoDir  string
+	EnvPkgRepoEnv  string
+	EnvStdLibDir   string
+	EnvSource      string
+	EnvSourceEnv   string
+	EnvSourceDefault string
 
 	// init 命令相关
 	InitDesc         string
@@ -114,8 +124,17 @@ var messagesEN = Messages{
 	CmdJvm:     "Compile to JVM bytecode (.class file)",
 	CmdCheck:   "Check syntax without running",
 	CmdFormat:  "Format source code",
+	CmdEnv:     "Show environment info (package directory, etc.)",
 	CmdVersion: "Show version information",
 	CmdHelp:    "Show this help message",
+
+	EnvTitle:       "Sola Environment:",
+	EnvPkgRepoDir:  "Package Repository",
+	EnvPkgRepoEnv:  "Env Variable",
+	EnvStdLibDir:   "Standard Library",
+	EnvSource:      "Source",
+	EnvSourceEnv:   "environment variable",
+	EnvSourceDefault: "default",
 
 	InitDesc:         "Initialize a new Sola project in the current directory",
 	InitOptName:      "Project name",
@@ -189,8 +208,17 @@ var messagesZH = Messages{
 	CmdJvm:     "编译为 JVM 字节码（.class 文件）",
 	CmdCheck:   "检查语法，不运行",
 	CmdFormat:  "格式化源代码",
+	CmdEnv:     "显示环境信息（包目录等）",
 	CmdVersion: "显示版本信息",
 	CmdHelp:    "显示帮助信息",
+
+	EnvTitle:       "Sola 环境信息:",
+	EnvPkgRepoDir:  "包仓库目录",
+	EnvPkgRepoEnv:  "环境变量",
+	EnvStdLibDir:   "标准库目录",
+	EnvSource:      "来源",
+	EnvSourceEnv:   "环境变量",
+	EnvSourceDefault: "默认值",
 
 	InitDesc:         "在当前目录初始化新的 Sola 项目",
 	InitOptName:      "项目名称",

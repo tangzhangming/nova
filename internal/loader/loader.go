@@ -10,23 +10,55 @@ import (
 
 // 常量定义
 const (
-	SourceFileExtension = ".sola"      // 源码文件后缀
-	ProjectConfigFile   = "sola.toml"  // 项目配置文件名
-	StdLibPrefix        = "sola"       // 标准库导入前缀
+	SourceFileExtension = ".sola"           // 源码文件后缀
+	ProjectConfigFile   = "sola.toml"       // 项目配置文件名
+	StdLibPrefix        = "sola"            // 标准库导入前缀
+	PackageRepoDirEnv   = "SOLA_REPO_PATH"  // 包仓库环境变量名
+	PackageRepoDirName  = ".sola/packages"  // 包仓库默认子目录名
 )
+
+// getPackageRepoDir 获取包仓库目录
+// 优先级：环境变量 > 默认目录
+// 默认目录：
+//   - Windows: C:\Users\{用户名}\.sola\packages
+//   - Linux/Mac: ~/.sola/packages
+func getPackageRepoDir() string {
+	// 1. 优先使用环境变量
+	if envPath := os.Getenv(PackageRepoDirEnv); envPath != "" {
+		return envPath
+	}
+
+	// 2. 使用默认目录
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// fallback: 当前目录
+		return filepath.Join(".", PackageRepoDirName)
+	}
+	return filepath.Join(homeDir, PackageRepoDirName)
+}
 
 // ProjectConfig 项目配置
 type ProjectConfig struct {
-	Name      string
-	Namespace string
+	Name         string
+	Namespace    string
+	Dependencies map[string]string // 包名 -> 版本号
+}
+
+// DependencyInfo 依赖包信息
+type DependencyInfo struct {
+	Name      string // 包名
+	Version   string // 版本号
+	Namespace string // 命名空间
+	Path      string // 包路径
 }
 
 // Loader 包加载器
 type Loader struct {
-	rootDir     string        // 项目根目录
-	libDir      string        // 标准库目录
-	config      *ProjectConfig
-	loadedFiles map[string]bool
+	rootDir      string                    // 项目根目录
+	libDir       string                    // 标准库目录
+	config       *ProjectConfig
+	loadedFiles  map[string]bool
+	dependencies map[string]*DependencyInfo // namespace -> 依赖信息
 }
 
 // New 创建加载器
@@ -47,9 +79,10 @@ func New(entryFile string) (*Loader, error) {
 	}
 
 	loader := &Loader{
-		rootDir:     rootDir,
-		libDir:      libDir,
-		loadedFiles: make(map[string]bool),
+		rootDir:      rootDir,
+		libDir:       libDir,
+		loadedFiles:  make(map[string]bool),
+		dependencies: make(map[string]*DependencyInfo),
 	}
 
 	// 尝试加载项目配置
@@ -60,9 +93,41 @@ func New(entryFile string) (*Loader, error) {
 			return nil, err
 		}
 		loader.config = config
+
+		// 加载依赖包信息
+		if config.Dependencies != nil {
+			loader.loadDependencies(config.Dependencies)
+		}
 	}
 
 	return loader, nil
+}
+
+// loadDependencies 加载依赖包信息
+func (l *Loader) loadDependencies(deps map[string]string) {
+	pkgRepoDir := getPackageRepoDir()
+	for pkgName, version := range deps {
+		// 依赖包路径：{包仓库目录}\{包名}\{版本}\
+		pkgPath := filepath.Join(pkgRepoDir, pkgName, version)
+		configPath := filepath.Join(pkgPath, ProjectConfigFile)
+
+		// 读取依赖包的 sola.toml 获取 namespace
+		if _, err := os.Stat(configPath); err == nil {
+			pkgConfig, err := loadProjectConfig(configPath)
+			if err != nil {
+				continue
+			}
+
+			if pkgConfig.Namespace != "" {
+				l.dependencies[pkgConfig.Namespace] = &DependencyInfo{
+					Name:      pkgName,
+					Version:   version,
+					Namespace: pkgConfig.Namespace,
+					Path:      pkgPath,
+				}
+			}
+		}
+	}
 }
 
 // getStdLibPath 获取标准库路径
@@ -117,13 +182,24 @@ func loadProjectConfig(path string) (*ProjectConfig, error) {
 	}
 	defer file.Close()
 
-	config := &ProjectConfig{}
+	config := &ProjectConfig{
+		Dependencies: make(map[string]string),
+	}
+	
+	currentSection := ""
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "[") {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		
+		// 解析 section 头
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			currentSection = strings.Trim(line, "[]")
+			continue
+		}
+		
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -131,11 +207,17 @@ func loadProjectConfig(path string) (*ProjectConfig, error) {
 		key := strings.TrimSpace(parts[0])
 		value := strings.Trim(strings.TrimSpace(parts[1]), "\"")
 		
-		switch key {
-		case "name":
-			config.Name = value
-		case "namespace":
-			config.Namespace = value
+		switch currentSection {
+		case "package":
+			switch key {
+			case "name":
+				config.Name = value
+			case "namespace":
+				config.Namespace = value
+			}
+		case "dependencies":
+			// 依赖格式：包名 = "版本号"
+			config.Dependencies[key] = value
 		}
 	}
 	
@@ -147,11 +229,12 @@ func loadProjectConfig(path string) (*ProjectConfig, error) {
 }
 
 // ResolveImport 解析导入路径，返回源文件路径
+// 查找顺序：1.标准库 2.项目内 3.依赖包仓库
 func (l *Loader) ResolveImport(importPath string) (string, error) {
 	// 将点分隔路径转换为文件路径
 	parts := strings.Split(importPath, ".")
 
-	// sola 开头的是标准库
+	// 1. sola 开头的是标准库
 	if parts[0] == StdLibPrefix {
 		if l.libDir == "" {
 			return "", fmt.Errorf("standard library not configured, cannot import: %s", importPath)
@@ -166,7 +249,7 @@ func (l *Loader) ResolveImport(importPath string) (string, error) {
 		return "", fmt.Errorf("standard library not found: %s (tried %s)", importPath, libPath)
 	}
 
-	// 检查是否是当前项目的命名空间
+	// 2. 检查是否是当前项目的命名空间
 	if l.config != nil && l.config.Namespace != "" && strings.HasPrefix(importPath, l.config.Namespace) {
 		relativePath := strings.TrimPrefix(importPath, l.config.Namespace+".")
 		pathParts := strings.Split(relativePath, ".")
@@ -183,6 +266,34 @@ func (l *Loader) ResolveImport(importPath string) (string, error) {
 		if _, err := os.Stat(rootPath); err == nil {
 			absPath, _ := filepath.Abs(rootPath)
 			return absPath, nil
+		}
+	}
+
+	// 3. 检查是否是依赖包的命名空间
+	for ns, dep := range l.dependencies {
+		if strings.HasPrefix(importPath, ns) {
+			// 计算相对路径
+			relativePath := strings.TrimPrefix(importPath, ns)
+			if relativePath != "" && relativePath[0] == '.' {
+				relativePath = relativePath[1:]
+			}
+			
+			var filePath string
+			if relativePath == "" {
+				// 直接导入命名空间根，查找 lib.sola 或 index.sola
+				filePath = filepath.Join(dep.Path, "src", "lib"+SourceFileExtension)
+				if _, err := os.Stat(filePath); err != nil {
+					filePath = filepath.Join(dep.Path, "src", "index"+SourceFileExtension)
+				}
+			} else {
+				pathParts := strings.Split(relativePath, ".")
+				filePath = filepath.Join(dep.Path, "src", filepath.Join(pathParts...)+SourceFileExtension)
+			}
+			
+			if _, err := os.Stat(filePath); err == nil {
+				absPath, _ := filepath.Abs(filePath)
+				return absPath, nil
+			}
 		}
 	}
 
