@@ -254,6 +254,14 @@ func (s *Server) getMemberCompletions(doc *Document, objectName string) []protoc
 		if len(items) > 0 {
 			return items
 		}
+
+		// 从导入的文件中查找类定义（通过工作区索引）
+		if s.workspace != nil && astFile != nil {
+			items = s.getMemberCompletionsFromImports(astFile, varType)
+			if len(items) > 0 {
+				return items
+			}
+		}
 	}
 
 	// 添加内置数组/字符串方法
@@ -279,6 +287,88 @@ func (s *Server) getMemberCompletions(doc *Document, objectName string) []protoc
 			Detail:     m.detail,
 			InsertText: m.name + "()",
 		})
+	}
+
+	return items
+}
+
+// getMemberCompletionsFromImports 从导入的文件中获取成员补全
+func (s *Server) getMemberCompletionsFromImports(currentFile *ast.File, className string) []protocol.CompletionItem {
+	var items []protocol.CompletionItem
+
+	if s.workspace == nil || currentFile == nil {
+		return items
+	}
+
+	// 遍历 use 声明，查找类定义
+	for _, use := range currentFile.Uses {
+		if use == nil {
+			continue
+		}
+		importedPath, err := s.workspace.ResolveImport(use.Path)
+		if err != nil || importedPath == "" {
+			continue
+		}
+		indexed := s.workspace.GetIndexedFile(importedPath)
+		if indexed == nil || indexed.AST == nil {
+			continue
+		}
+
+		// 在导入文件中查找类
+		for _, decl := range indexed.AST.Declarations {
+			if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == className {
+				// 添加属性
+				for _, prop := range classDecl.Properties {
+					if !prop.Static {
+						items = append(items, protocol.CompletionItem{
+							Label:  prop.Name.Name,
+							Kind:   protocol.CompletionItemKindProperty,
+							Detail: typeNodeToString(prop.Type),
+						})
+					}
+				}
+				// 添加方法
+				for _, method := range classDecl.Methods {
+					if !method.Static {
+						items = append(items, protocol.CompletionItem{
+							Label:      method.Name.Name,
+							Kind:       protocol.CompletionItemKindMethod,
+							Detail:     formatMethodSignatureShort(method),
+							InsertText: method.Name.Name + "()",
+						})
+					}
+				}
+				return items
+			}
+		}
+	}
+
+	// 在全局符号索引中查找
+	if indexed := s.workspace.FindSymbolFile(className); indexed != nil && indexed.AST != nil {
+		for _, decl := range indexed.AST.Declarations {
+			if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == className {
+				for _, prop := range classDecl.Properties {
+					if !prop.Static {
+						items = append(items, protocol.CompletionItem{
+							Label:  prop.Name.Name,
+							Kind:   protocol.CompletionItemKindProperty,
+							Detail: typeNodeToString(prop.Type),
+						})
+					}
+				}
+				for _, method := range classDecl.Methods {
+					if !method.Static {
+						items = append(items, protocol.CompletionItem{
+							Label:      method.Name.Name,
+							Kind:       protocol.CompletionItemKindMethod,
+							Detail:     formatMethodSignatureShort(method),
+							InsertText: method.Name.Name + "()",
+						})
+					}
+				}
+				return items
+			}
+		}
 	}
 
 	return items
@@ -552,6 +642,125 @@ func (s *Server) getStaticCompletions(doc *Document, className string) []protoco
 		}
 	}
 
+	// 如果没有找到，从导入的文件中查找
+	if len(items) == 0 && s.workspace != nil && astFile != nil {
+		items = s.getStaticCompletionsFromImports(astFile, className)
+	}
+
+	return items
+}
+
+// getStaticCompletionsFromImports 从导入的文件中获取静态成员补全
+func (s *Server) getStaticCompletionsFromImports(currentFile *ast.File, className string) []protocol.CompletionItem {
+	var items []protocol.CompletionItem
+
+	if s.workspace == nil || currentFile == nil {
+		return items
+	}
+
+	// 遍历 use 声明
+	for _, use := range currentFile.Uses {
+		if use == nil {
+			continue
+		}
+		importedPath, err := s.workspace.ResolveImport(use.Path)
+		if err != nil || importedPath == "" {
+			continue
+		}
+		indexed := s.workspace.GetIndexedFile(importedPath)
+		if indexed == nil || indexed.AST == nil {
+			continue
+		}
+
+		for _, decl := range indexed.AST.Declarations {
+			switch d := decl.(type) {
+			case *ast.ClassDecl:
+				if d.Name.Name == className {
+					for _, prop := range d.Properties {
+						if prop.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:  "$" + prop.Name.Name,
+								Kind:   protocol.CompletionItemKindProperty,
+								Detail: typeNodeToString(prop.Type),
+							})
+						}
+					}
+					for _, method := range d.Methods {
+						if method.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:      method.Name.Name,
+								Kind:       protocol.CompletionItemKindMethod,
+								Detail:     formatMethodSignatureShort(method),
+								InsertText: method.Name.Name + "()",
+							})
+						}
+					}
+					for _, c := range d.Constants {
+						items = append(items, protocol.CompletionItem{
+							Label:  c.Name.Name,
+							Kind:   protocol.CompletionItemKindConstant,
+							Detail: typeNodeToString(c.Type),
+						})
+					}
+					return items
+				}
+			case *ast.EnumDecl:
+				if d.Name.Name == className {
+					for _, c := range d.Cases {
+						items = append(items, protocol.CompletionItem{
+							Label:  c.Name.Name,
+							Kind:   protocol.CompletionItemKindEnumMember,
+							Detail: className + "::" + c.Name.Name,
+						})
+					}
+					return items
+				}
+			}
+		}
+	}
+
+	// 在全局符号索引中查找
+	if indexed := s.workspace.FindSymbolFile(className); indexed != nil && indexed.AST != nil {
+		for _, decl := range indexed.AST.Declarations {
+			switch d := decl.(type) {
+			case *ast.ClassDecl:
+				if d.Name.Name == className {
+					for _, prop := range d.Properties {
+						if prop.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:  "$" + prop.Name.Name,
+								Kind:   protocol.CompletionItemKindProperty,
+								Detail: typeNodeToString(prop.Type),
+							})
+						}
+					}
+					for _, method := range d.Methods {
+						if method.Static {
+							items = append(items, protocol.CompletionItem{
+								Label:      method.Name.Name,
+								Kind:       protocol.CompletionItemKindMethod,
+								Detail:     formatMethodSignatureShort(method),
+								InsertText: method.Name.Name + "()",
+							})
+						}
+					}
+					return items
+				}
+			case *ast.EnumDecl:
+				if d.Name.Name == className {
+					for _, c := range d.Cases {
+						items = append(items, protocol.CompletionItem{
+							Label:  c.Name.Name,
+							Kind:   protocol.CompletionItemKindEnumMember,
+							Detail: className + "::" + c.Name.Name,
+						})
+					}
+					return items
+				}
+			}
+		}
+	}
+
 	return items
 }
 
@@ -701,26 +910,31 @@ func (s *Server) getTypeCompletions(doc *Document) []protocol.CompletionItem {
 // getClassCompletions 获取类名补全
 func (s *Server) getClassCompletions(doc *Document) []protocol.CompletionItem {
 	var items []protocol.CompletionItem
+	seen := make(map[string]bool) // 避免重复
 
 	symbols := doc.GetSymbols()
-	if symbols == nil {
-		return items
-	}
+	if symbols != nil {
+		// 从符号表获取所有类
+		for className := range symbols.ClassMethods {
+			if !seen[className] {
+				seen[className] = true
+				items = append(items, protocol.CompletionItem{
+					Label: className,
+					Kind:  protocol.CompletionItemKindClass,
+				})
+			}
+		}
 
-	// 从符号表获取所有类
-	for className := range symbols.ClassMethods {
-		items = append(items, protocol.CompletionItem{
-			Label: className,
-			Kind:  protocol.CompletionItemKindClass,
-		})
-	}
-
-	// 从符号表获取所有接口
-	for interfaceName := range symbols.InterfaceSigs {
-		items = append(items, protocol.CompletionItem{
-			Label: interfaceName,
-			Kind:  protocol.CompletionItemKindInterface,
-		})
+		// 从符号表获取所有接口
+		for interfaceName := range symbols.InterfaceSigs {
+			if !seen[interfaceName] {
+				seen[interfaceName] = true
+				items = append(items, protocol.CompletionItem{
+					Label: interfaceName,
+					Kind:  protocol.CompletionItemKindInterface,
+				})
+			}
+		}
 	}
 
 	// 从当前文件的 AST 获取类和接口
@@ -729,20 +943,77 @@ func (s *Server) getClassCompletions(doc *Document) []protocol.CompletionItem {
 		for _, decl := range astFile.Declarations {
 			switch d := decl.(type) {
 			case *ast.ClassDecl:
-				items = append(items, protocol.CompletionItem{
-					Label: d.Name.Name,
-					Kind:  protocol.CompletionItemKindClass,
-				})
+				if !seen[d.Name.Name] {
+					seen[d.Name.Name] = true
+					items = append(items, protocol.CompletionItem{
+						Label: d.Name.Name,
+						Kind:  protocol.CompletionItemKindClass,
+					})
+				}
 			case *ast.InterfaceDecl:
-				items = append(items, protocol.CompletionItem{
-					Label: d.Name.Name,
-					Kind:  protocol.CompletionItemKindInterface,
-				})
+				if !seen[d.Name.Name] {
+					seen[d.Name.Name] = true
+					items = append(items, protocol.CompletionItem{
+						Label: d.Name.Name,
+						Kind:  protocol.CompletionItemKindInterface,
+					})
+				}
 			case *ast.EnumDecl:
-				items = append(items, protocol.CompletionItem{
-					Label: d.Name.Name,
-					Kind:  protocol.CompletionItemKindEnum,
-				})
+				if !seen[d.Name.Name] {
+					seen[d.Name.Name] = true
+					items = append(items, protocol.CompletionItem{
+						Label: d.Name.Name,
+						Kind:  protocol.CompletionItemKindEnum,
+					})
+				}
+			}
+		}
+
+		// 从导入的文件中获取类/接口（通过 use 声明）
+		if s.workspace != nil && astFile != nil {
+			for _, use := range astFile.Uses {
+				if use == nil {
+					continue
+				}
+				importedPath, err := s.workspace.ResolveImport(use.Path)
+				if err != nil || importedPath == "" {
+					continue
+				}
+				indexed := s.workspace.GetIndexedFile(importedPath)
+				if indexed == nil || indexed.AST == nil {
+					continue
+				}
+				for _, decl := range indexed.AST.Declarations {
+					switch d := decl.(type) {
+					case *ast.ClassDecl:
+						if !seen[d.Name.Name] {
+							seen[d.Name.Name] = true
+							items = append(items, protocol.CompletionItem{
+								Label:  d.Name.Name,
+								Kind:   protocol.CompletionItemKindClass,
+								Detail: use.Path,
+							})
+						}
+					case *ast.InterfaceDecl:
+						if !seen[d.Name.Name] {
+							seen[d.Name.Name] = true
+							items = append(items, protocol.CompletionItem{
+								Label:  d.Name.Name,
+								Kind:   protocol.CompletionItemKindInterface,
+								Detail: use.Path,
+							})
+						}
+					case *ast.EnumDecl:
+						if !seen[d.Name.Name] {
+							seen[d.Name.Name] = true
+							items = append(items, protocol.CompletionItem{
+								Label:  d.Name.Name,
+								Kind:   protocol.CompletionItemKindEnum,
+								Detail: use.Path,
+							})
+						}
+					}
+				}
 			}
 		}
 	}

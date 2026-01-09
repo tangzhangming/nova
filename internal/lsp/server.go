@@ -20,6 +20,9 @@ type Server struct {
 	// 文档管理
 	documents *DocumentManager
 
+	// 工作区索引
+	workspace *WorkspaceIndex
+
 	// 工作区根目录
 	workspaceRoot string
 
@@ -288,6 +291,16 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 func (s *Server) handleInitialized() {
 	s.initialized = true
 	s.log("Server initialized")
+
+	// 创建工作区索引
+	s.workspace = NewWorkspaceIndex(s.workspaceRoot, s.log)
+
+	// 异步索引标准库和工作区
+	go func() {
+		s.workspace.IndexStandardLibrary()
+		s.workspace.IndexWorkspace()
+		s.log("Workspace indexing complete")
+	}()
 }
 
 // handleShutdown 处理关闭请求

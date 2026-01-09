@@ -93,6 +93,21 @@ func (s *Server) findDefinition(doc *Document, line, character int) *protocol.Lo
 		}
 	}
 
+	// 使用工作区索引查找（包括标准库和其他文件）
+	if !isVariable && s.workspace != nil {
+		// 首先在导入的文件中查找
+		if _, loc := s.workspace.FindDefinitionInImports(astFile, word); loc != nil {
+			return loc
+		}
+
+		// 在全局符号索引中查找
+		if indexed := s.workspace.FindSymbolFile(word); indexed != nil {
+			if loc := s.workspace.findSymbolInFile(indexed, word); loc != nil {
+				return loc
+			}
+		}
+	}
+
 	return nil
 }
 

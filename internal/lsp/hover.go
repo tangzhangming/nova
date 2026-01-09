@@ -113,6 +113,10 @@ func (s *Server) getHoverInfo(doc *Document, line, character int) *protocol.Hove
 			// 尝试在 AST 中查找声明
 			content = s.findDeclarationInfo(astFile, word)
 		}
+		if content == "" && s.workspace != nil {
+			// 使用工作区索引查找（包括标准库和导入的文件）
+			content = s.workspace.GetHoverInfoForSymbol(astFile, word)
+		}
 	}
 
 	if content == "" {
