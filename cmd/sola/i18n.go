@@ -27,6 +27,7 @@ type Messages struct {
 	HelpExamples string
 
 	// 命令描述
+	CmdInit    string
 	CmdRun     string
 	CmdBuild   string
 	CmdJvm     string
@@ -34,6 +35,19 @@ type Messages struct {
 	CmdFormat  string
 	CmdVersion string
 	CmdHelp    string
+
+	// init 命令相关
+	InitDesc         string
+	InitOptName      string
+	InitOptNamespace string
+	InitCreating     string
+	InitSuccess      string
+	InitNextSteps    string
+	ErrGetWorkDir    string
+	ErrConfigExists  string
+	ErrCreateConfig  string
+	ErrCreateDir     string
+	ErrCreateFile    string
 
 	// 运行选项
 	OptTokens   string
@@ -94,6 +108,7 @@ var messagesEN = Messages{
 	HelpOptions:  "Run Options:",
 	HelpExamples: "Examples:",
 
+	CmdInit:    "Initialize a new Sola project",
 	CmdRun:     "Run a Sola source file or compiled bytecode",
 	CmdBuild:   "Compile to bytecode",
 	CmdJvm:     "Compile to JVM bytecode (.class file)",
@@ -101,6 +116,18 @@ var messagesEN = Messages{
 	CmdFormat:  "Format source code",
 	CmdVersion: "Show version information",
 	CmdHelp:    "Show this help message",
+
+	InitDesc:         "Initialize a new Sola project in the current directory",
+	InitOptName:      "Project name",
+	InitOptNamespace: "Project namespace (for use statements)",
+	InitCreating:     "Creating %s...",
+	InitSuccess:      "✓ Project '%s' initialized successfully!",
+	InitNextSteps:    "Next steps:",
+	ErrGetWorkDir:    "Error: failed to get working directory: %v",
+	ErrConfigExists:  "Error: %s already exists in this directory",
+	ErrCreateConfig:  "Error: failed to create config file: %v",
+	ErrCreateDir:     "Error: failed to create directory: %v",
+	ErrCreateFile:    "Error: failed to create file: %v",
 
 	OptTokens:   "Show lexer tokens",
 	OptAST:      "Show AST structure",
@@ -156,6 +183,7 @@ var messagesZH = Messages{
 	HelpOptions:  "运行选项:",
 	HelpExamples: "示例:",
 
+	CmdInit:    "初始化新的 Sola 项目",
 	CmdRun:     "运行 Sola 源文件或编译后的字节码",
 	CmdBuild:   "编译为字节码",
 	CmdJvm:     "编译为 JVM 字节码（.class 文件）",
@@ -163,6 +191,18 @@ var messagesZH = Messages{
 	CmdFormat:  "格式化源代码",
 	CmdVersion: "显示版本信息",
 	CmdHelp:    "显示帮助信息",
+
+	InitDesc:         "在当前目录初始化新的 Sola 项目",
+	InitOptName:      "项目名称",
+	InitOptNamespace: "项目命名空间（用于 use 语句）",
+	InitCreating:     "正在创建 %s...",
+	InitSuccess:      "✓ 项目 '%s' 初始化成功！",
+	InitNextSteps:    "下一步:",
+	ErrGetWorkDir:    "错误: 获取工作目录失败: %v",
+	ErrConfigExists:  "错误: %s 已存在于当前目录",
+	ErrCreateConfig:  "错误: 创建配置文件失败: %v",
+	ErrCreateDir:     "错误: 创建目录失败: %v",
+	ErrCreateFile:    "错误: 创建文件失败: %v",
 
 	OptTokens:   "显示词法分析结果",
 	OptAST:      "显示抽象语法树",

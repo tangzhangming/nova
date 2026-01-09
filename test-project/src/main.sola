@@ -1,0 +1,6 @@
+namespace test.project
+
+use test.project.utils.Helper;
+
+// 应用程序入口
+echo Helper::greet();

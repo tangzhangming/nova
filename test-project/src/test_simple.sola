@@ -1,0 +1,5 @@
+namespace test.project
+
+// 测试简单代码
+echo "Hello, World!";
+echo 1 + 2;

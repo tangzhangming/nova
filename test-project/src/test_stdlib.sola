@@ -1,0 +1,8 @@
+namespace test.project
+
+use sola.lang.Str;
+
+// 测试标准库导入
+$text := "Hello, World!";
+
+echo Str::length($text);

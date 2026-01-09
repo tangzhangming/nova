@@ -1,0 +1,7 @@
+namespace test.project.utils
+
+public class Helper {
+    public static function greet(): string {
+        return "Hello from Helper!";
+    }
+}

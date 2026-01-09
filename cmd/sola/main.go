@@ -56,6 +56,8 @@ func main() {
 		cmdJvm(args[1:])
 	case "check":
 		cmdCheck(args[1:])
+	case "init":
+		cmdInit(args[1:])
 	case "format", "fmt":
 		cmdFormat(args[1:])
 	case "version", "-v", "--version":
@@ -108,6 +110,7 @@ func printUsage() {
 	fmt.Println("  sola [--lang en|zh] <command> [options] [arguments]")
 	fmt.Println()
 	fmt.Println(m.HelpCommands)
+	fmt.Printf("  init            %s\n", m.CmdInit)
 	fmt.Printf("  run <file>      %s\n", m.CmdRun)
 	fmt.Printf("  build <file>    %s\n", m.CmdBuild)
 	fmt.Printf("  jvm <file>      %s\n", m.CmdJvm)
