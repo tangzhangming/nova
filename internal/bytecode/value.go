@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -822,7 +823,11 @@ func (v Value) String() string {
 	case ValInt:
 		return fmt.Sprintf("%d", v.Data.(int64))
 	case ValFloat:
-		return fmt.Sprintf("%g", v.Data.(float64))
+		// 与 Go 保持一致：直接显示浮点数，包括精度误差
+		// Go 中 float64 变量运算也会显示精度误差，如：
+		//   var d float64 = 3.14; fmt.Println(d + 1.0) // 输出 4.140000000000001
+		// 字面量运算的精度问题由编译器常量折叠解决，不在这里处理
+		return strconv.FormatFloat(v.Data.(float64), 'g', -1, 64)
 	case ValString:
 		return v.Data.(string)
 	case ValArray:

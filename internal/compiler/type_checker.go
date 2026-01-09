@@ -571,31 +571,45 @@ func (tc *TypeChecker) checkBinaryExpr(expr *ast.BinaryExpr) string {
 	leftType := tc.checkExpression(expr.Left)
 	rightType := tc.checkExpression(expr.Right)
 	
+	// ========================================================================
+	// 与 Go 保持一致：字面量可以与同类别的任何类型运算
+	// Go 中字面量是"无类型"的，根据上下文推断类型：
+	//   var a int64 = 10; a + 5   // 5 被推断为 int64
+	//   var b float32 = 3.14; b + 1.0  // 1.0 被推断为 float32
+	// 
+	// 在 Sola 中：
+	//   - int 是整数字面量类型，可以与任何整数类型运算
+	//   - float 是浮点字面量类型，可以与任何浮点类型运算
+	// ========================================================================
+	
+	// 检查是否是字面量表达式
+	leftIsLiteral := tc.isLiteralExpr(expr.Left)
+	rightIsLiteral := tc.isLiteralExpr(expr.Right)
+	
 	switch expr.Operator.Type {
 	// 重要：PLUS 必须单独处理，因为它支持字符串拼接！
 	// 不要把 PLUS 和其他算术运算符合并到一个 case 里，否则会破坏字符串拼接功能。
 	// 此逻辑必须与 compiler.go 中的 checkBinaryOpTypes 保持一致。
 	case token.PLUS:
-		// + 运算符：严格类型检查，两边必须是相同类型
-		// 只允许: string + string, 或相同数字类型相加（int + int, float + float）
-		// 不允许: int + float, string + int 等混合类型
+		// + 运算符：字符串拼接或数值相加
 		if leftType == "string" && rightType == "string" {
 			return "string"
 		}
-		if leftType == rightType && tc.isNumericType(leftType) {
-			return leftType
+		// 检查数值类型兼容性（考虑字面量）
+		if resultType := tc.checkNumericBinaryOp(leftType, rightType, leftIsLiteral, rightIsLiteral); resultType != "" {
+			return resultType
 		}
-		// 其他组合都是错误的（包括 int + float, string + int 等）
 		tc.addError(expr.Operator.Pos, i18n.ErrOperandsMustBeNumbers,
 			i18n.T(i18n.ErrOperandsMustBeNumbers))
 		return leftType
 
 	case token.MINUS, token.STAR, token.SLASH, token.PERCENT:
-		// 算术运算：严格类型检查，两边必须是相同的数字类型
-		if leftType != rightType || !tc.isNumericType(leftType) {
-			tc.addError(expr.Operator.Pos, i18n.ErrOperandsMustBeNumbers,
-				i18n.T(i18n.ErrOperandsMustBeNumbers))
+		// 算术运算：检查数值类型兼容性（考虑字面量）
+		if resultType := tc.checkNumericBinaryOp(leftType, rightType, leftIsLiteral, rightIsLiteral); resultType != "" {
+			return resultType
 		}
+		tc.addError(expr.Operator.Pos, i18n.ErrOperandsMustBeNumbers,
+			i18n.T(i18n.ErrOperandsMustBeNumbers))
 		return leftType
 		
 	case token.EQ, token.NE, token.LT, token.LE, token.GT, token.GE:
@@ -613,6 +627,57 @@ func (tc *TypeChecker) checkBinaryExpr(expr *ast.BinaryExpr) string {
 	default:
 		return "dynamic"
 	}
+}
+
+// isLiteralExpr 检查表达式是否是字面量
+func (tc *TypeChecker) isLiteralExpr(expr ast.Expression) bool {
+	switch expr.(type) {
+	case *ast.IntegerLiteral, *ast.FloatLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
+// checkNumericBinaryOp 检查数值二元运算的类型兼容性
+// 与 Go 保持一致：字面量可以与同类别的任何类型运算
+// 返回结果类型，如果不兼容返回空字符串
+func (tc *TypeChecker) checkNumericBinaryOp(leftType, rightType string, leftIsLiteral, rightIsLiteral bool) string {
+	// 相同类型直接返回
+	if leftType == rightType && tc.isNumericType(leftType) {
+		return leftType
+	}
+	
+	// 整数类型集合
+	intTypes := map[string]bool{"int": true, "i8": true, "i16": true, "i32": true, "i64": true, "byte": true}
+	uintTypes := map[string]bool{"uint": true, "u8": true, "u16": true, "u32": true, "u64": true}
+	floatTypes := map[string]bool{"float": true, "f32": true, "f64": true}
+	
+	// 字面量与具体类型运算：
+	// int（整数字面量）可以与任何整数类型运算，结果为具体整数类型
+	// float（浮点字面量）可以与任何浮点类型运算，结果为具体浮点类型
+	
+	// 左边是字面量
+	if leftIsLiteral {
+		if leftType == "int" && (intTypes[rightType] || uintTypes[rightType]) {
+			return rightType
+		}
+		if leftType == "float" && floatTypes[rightType] {
+			return rightType
+		}
+	}
+	
+	// 右边是字面量
+	if rightIsLiteral {
+		if rightType == "int" && (intTypes[leftType] || uintTypes[leftType]) {
+			return leftType
+		}
+		if rightType == "float" && floatTypes[leftType] {
+			return leftType
+		}
+	}
+	
+	return "" // 不兼容
 }
 
 // checkUnaryExpr 检查一元表达式

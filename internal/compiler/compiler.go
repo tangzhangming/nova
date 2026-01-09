@@ -5532,6 +5532,16 @@ func (c *Compiler) isInterfaceType(typeName string) bool {
 }
 
 // checkBinaryOpTypes 检查二元运算符的操作数类型是否兼容
+// ========================================================================
+// 与 Go 保持一致：字面量可以与同类别的任何类型运算
+// Go 中字面量是"无类型"的，根据上下文推断类型：
+//   var a int64 = 10; a + 5   // 5 被推断为 int64
+//   var b float32 = 3.14; b + 1.0  // 1.0 被推断为 float32
+//
+// 在 Sola 中：
+//   - int 是整数字面量的默认类型，可以与任何整数类型运算
+//   - float 是浮点字面量的默认类型，可以与任何浮点类型运算
+// ========================================================================
 func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string) {
 	// 判断是否是数字类型
 	isNumeric := func(t string) bool {
@@ -5542,7 +5552,7 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 		return false
 	}
 
-	// 判断是否是整数类型
+	// 判断是否是整数类型（包括 int 字面量类型）
 	isInteger := func(t string) bool {
 		switch t {
 		case "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "byte":
@@ -5550,39 +5560,66 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 		}
 		return false
 	}
+	
+	// 判断是否是浮点类型（包括 float 字面量类型）
+	isFloat := func(t string) bool {
+		switch t {
+		case "float", "f32", "f64":
+			return true
+		}
+		return false
+	}
+	
+	// 检查数值运算的类型兼容性（考虑字面量）
+	// int（整数字面量）可以与任何整数类型运算
+	// float（浮点字面量）可以与任何浮点类型运算
+	isNumericCompatible := func(t1, t2 string) bool {
+		if t1 == t2 {
+			return true
+		}
+		// int 字面量与任何整数类型兼容
+		if t1 == "int" && isInteger(t2) {
+			return true
+		}
+		if t2 == "int" && isInteger(t1) {
+			return true
+		}
+		// float 字面量与任何浮点类型兼容
+		if t1 == "float" && isFloat(t2) {
+			return true
+		}
+		if t2 == "float" && isFloat(t1) {
+			return true
+		}
+		return false
+	}
 
 	switch op.Type {
 	case token.PLUS:
-		// + 运算符：严格类型检查，不允许隐式类型转换
-		// 只允许: string + string, int + int, float + float
+		// + 运算符：字符串拼接或数值相加
 		if leftType == "string" && rightType == "string" {
 			return // 字符串拼接
 		}
-		if leftType == rightType && isNumeric(leftType) {
-			return // 相同数字类型相加
+		if isNumericCompatible(leftType, rightType) && isNumeric(leftType) && isNumeric(rightType) {
+			return // 数字类型相加（包括字面量）
 		}
-		// 其他组合都是错误的（包括 int + float, string + int 等）
 		c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, "+", leftType, rightType))
 
 	case token.MINUS, token.STAR, token.SLASH, token.PERCENT:
-		// 算术运算符：严格类型检查，两边必须是相同的数字类型
-		if leftType != rightType {
-			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
-			return
-		}
-		if !isNumeric(leftType) {
+		// 算术运算符：检查数值类型兼容性（包括字面量）
+		if !isNumericCompatible(leftType, rightType) || !isNumeric(leftType) || !isNumeric(rightType) {
 			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
 		}
 
 	case token.BIT_AND, token.BIT_OR, token.BIT_XOR, token.LEFT_SHIFT, token.RIGHT_SHIFT:
-		// 位运算符：两边必须都是整数
+		// 位运算符：两边必须都是整数（字面量 int 也算）
 		if !isInteger(leftType) || !isInteger(rightType) {
 			c.error(op.Pos, i18n.T(i18n.ErrInvalidBinaryOp, op.Literal, leftType, rightType))
 		}
 
 	case token.LT, token.LE, token.GT, token.GE:
-		// 比较运算符：两边必须是可比较的类型（都是数字或都是字符串）
-		if isNumeric(leftType) && isNumeric(rightType) {
+		// 比较运算符：两边必须是可比较的类型
+		if isNumeric(leftType) && isNumeric(rightType) && isNumericCompatible(leftType, rightType) {
 			return
 		}
 		if leftType == "string" && rightType == "string" {
@@ -5592,12 +5629,11 @@ func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string
 
 	case token.EQ, token.NE:
 		// == 和 != 需要两边类型兼容
-		// 允许: 数字与数字比较, 字符串与字符串比较, bool与bool比较, null与任何类型比较
 		if leftType == "null" || rightType == "null" {
 			return // null 可以与任何类型比较
 		}
-		if isNumeric(leftType) && isNumeric(rightType) {
-			return // 数字类型之间可以比较
+		if isNumeric(leftType) && isNumeric(rightType) && isNumericCompatible(leftType, rightType) {
+			return // 兼容的数字类型可以比较
 		}
 		if leftType == rightType {
 			return // 相同类型可以比较
