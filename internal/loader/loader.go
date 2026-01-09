@@ -162,11 +162,17 @@ type Loader struct {
 //
 // 如果找不到 sola.toml，则使用入口文件所在目录作为项目根目录。
 func New(entryFile string) (*Loader, error) {
+	// 将入口文件路径转换为绝对路径，确保路径解析正确
+	absEntryFile, err := filepath.Abs(entryFile)
+	if err != nil {
+		absEntryFile = entryFile
+	}
+
 	// 查找项目根目录（包含 sola.toml 的目录）
-	rootDir, err := findProjectRoot(entryFile)
+	rootDir, err := findProjectRoot(absEntryFile)
 	if err != nil {
 		// 没有 sola.toml 时，使用入口文件所在目录
-		rootDir = filepath.Dir(entryFile)
+		rootDir = filepath.Dir(absEntryFile)
 	}
 
 	// 获取标准库路径（在可执行文件上一级的 src/ 目录）
