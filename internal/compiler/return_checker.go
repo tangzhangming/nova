@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tangzhangming/nova/internal/ast"
+	"github.com/tangzhangming/nova/internal/i18n"
 	"github.com/tangzhangming/nova/internal/token"
 )
 
@@ -135,16 +136,32 @@ func (uc *UninitializedChecker) computeDataFlow() {
 			if block.VarsLiveIn == nil {
 				block.VarsLiveIn = make(map[string]bool)
 			}
+			// 入口块的 VarsLiveOut = VarsLiveIn ∪ VarsDefined
+			block.VarsLiveOut = make(map[string]bool)
+			for v := range block.VarsLiveIn {
+				block.VarsLiveOut[v] = true
+			}
+			for v := range block.VarsDefined {
+				block.VarsLiveOut[v] = true
+			}
 		} else {
 			block.VarsLiveIn = nil // 标记为未计算
+			block.VarsLiveOut = make(map[string]bool)
 		}
-		block.VarsLiveOut = make(map[string]bool)
 	}
 	
 	// 迭代直到不动点
 	changed := true
 	maxIterations := 100
 	iteration := 0
+	
+	// 保存入口块的函数参数（在迭代前）
+	var entryParams map[string]bool
+	if uc.cfg.Entry != nil && uc.cfg.Entry.VarsLiveIn != nil {
+		entryParams = copySet(uc.cfg.Entry.VarsLiveIn)
+	} else {
+		entryParams = make(map[string]bool)
+	}
 	
 	for changed && iteration < maxIterations {
 		changed = false
@@ -153,11 +170,19 @@ func (uc *UninitializedChecker) computeDataFlow() {
 		for _, block := range uc.cfg.Blocks {
 			// 计算 In
 			var newIn map[string]bool
-			if len(block.Predecessors) > 0 {
-				newIn = uc.intersectOuts(block.Predecessors)
-			} else if block == uc.cfg.Entry {
-				// 入口块保持原有的 VarsLiveIn（包含函数参数）
-				newIn = copySet(block.VarsLiveIn)
+			if block == uc.cfg.Entry {
+				// 入口块：函数参数始终可用
+				// 如果有前驱（循环回边），与前驱的 Out 合并
+				if len(block.Predecessors) > 0 {
+					predOuts := uc.unionOuts(block.Predecessors)
+					newIn = uc.union(entryParams, predOuts)
+				} else {
+					newIn = copySet(entryParams)
+				}
+			} else if len(block.Predecessors) > 0 {
+				// 对于普通块，使用前驱 Out 的并集
+				// 这是保守分析：只要变量在任一路径上被定义，就认为它已定义
+				newIn = uc.unionOuts(block.Predecessors)
 			} else {
 				// 无前驱的非入口块（不可达代码），假设没有已初始化变量
 				newIn = make(map[string]bool)
@@ -375,29 +400,17 @@ func (uc *UninitializedChecker) collectExprDefinedVars(expr ast.Expression, resu
 	}
 }
 
-// intersectOuts 计算所有前驱的 Out 的交集
-func (uc *UninitializedChecker) intersectOuts(predecessors []*BasicBlock) map[string]bool {
-	if len(predecessors) == 0 {
-		return make(map[string]bool)
-	}
+// unionOuts 计算所有前驱的 Out 的并集
+// 对于变量初始化检查，使用并集是正确的：只要变量在任一路径上被定义，
+// 就应该认为它在合并点是已定义的（保守分析）
+func (uc *UninitializedChecker) unionOuts(predecessors []*BasicBlock) map[string]bool {
+	result := make(map[string]bool)
 	
-	// 找到第一个有效的前驱（VarsLiveOut 已计算）
-	var result map[string]bool
 	for _, pred := range predecessors {
 		if pred.VarsLiveOut != nil {
-			result = copySet(pred.VarsLiveOut)
-			break
-		}
-	}
-	
-	if result == nil {
-		return make(map[string]bool)
-	}
-	
-	// 与其他有效前驱求交集
-	for _, pred := range predecessors {
-		if pred.VarsLiveOut != nil {
-			result = intersect(result, pred.VarsLiveOut)
+			for v := range pred.VarsLiveOut {
+				result[v] = true
+			}
 		}
 	}
 	
@@ -427,8 +440,8 @@ func (uc *UninitializedChecker) reportError(varName string, pos token.Position) 
 	
 	uc.errors = append(uc.errors, TypeError{
 		Pos:     pos,
-		Code:    "compiler.uninitialized_variable",
-		Message: fmt.Sprintf("variable '%s' may not have been initialized", varName),
+		Code:    i18n.WarnUninitializedVariable,
+		Message: i18n.T(i18n.WarnUninitializedVariable, varName),
 	})
 }
 

@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"github.com/tangzhangming/nova/internal/ast"
+	"github.com/tangzhangming/nova/internal/token"
 )
 
 // BasicBlock 基本块
@@ -87,6 +88,12 @@ func (bb *BasicBlock) collectUsedVars(expr ast.Expression) {
 		
 	case *ast.UnaryExpr:
 		bb.collectUsedVars(e.Operand)
+		// ++/-- 操作符会修改变量，也算定义
+		if e.Operator.Type == token.INCREMENT || e.Operator.Type == token.DECREMENT {
+			if v, ok := e.Operand.(*ast.Variable); ok {
+				bb.VarsDefined[v.Name] = true
+			}
+		}
 		
 	case *ast.AssignExpr:
 		bb.collectUsedVars(e.Left)
@@ -175,6 +182,17 @@ func (cfg *CFG) NewBlock() *BasicBlock {
 	cfg.blockID++
 	cfg.Blocks = append(cfg.Blocks, block)
 	return block
+}
+
+// isUnreachableBlock 检查块是否是不可达块
+// 不可达块是 return/break/continue 后创建的空块，没有前驱，没有语句
+func isUnreachableBlock(block *BasicBlock) bool {
+	if block == nil {
+		return true
+	}
+	// 不可达块的特征：没有前驱，没有语句（或只有一个语句但块被终止）
+	// return 后创建的块没有连接到前一个块，所以没有前驱
+	return len(block.Predecessors) == 0 && len(block.Statements) == 0
 }
 
 // CFGBuilder CFG 构建器
@@ -328,11 +346,16 @@ func (cb *CFGBuilder) buildIfStmt(stmt *ast.IfStmt) {
 	
 	// 合并点
 	mergeBlock := cb.cfg.NewBlock()
-	if thenExit != nil {
+	// 只有当分支没有以 return/break/continue 终止时，才连接到合并点
+	// 终止的判断：该块是不可达块（没有前驱、没有语句，且前一个块有 return）
+	if thenExit != nil && !isUnreachableBlock(thenExit) {
 		thenExit.AddSuccessor(mergeBlock)
 	}
 	if elseExit != nil && elseExit != condBlock {
-		elseExit.AddSuccessor(mergeBlock)
+		// 同样检查 else 分支
+		if !isUnreachableBlock(elseExit) {
+			elseExit.AddSuccessor(mergeBlock)
+		}
 	} else if elseExit == condBlock {
 		condBlock.AddSuccessor(mergeBlock)
 	}

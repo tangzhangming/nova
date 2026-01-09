@@ -182,9 +182,13 @@ func (tc *TypeChecker) checkMethodDecl(method *ast.MethodDecl, className string)
 		tc.currentFunc.CFG = tc.cfgBuilder.Build(method.Body)
 		
 		// 将函数参数标记为已初始化（在入口块）
+		// 需要同时设置 VarsLiveIn 和 VarsDefined，因为：
+		// - VarsLiveIn 用于数据流分析的入口已定义变量
+		// - VarsDefined 用于块内变量定义追踪
 		if tc.currentFunc.CFG.Entry != nil {
 			for _, param := range method.Parameters {
 				tc.currentFunc.CFG.Entry.VarsDefined[param.Name.Name] = true
+				tc.currentFunc.CFG.Entry.VarsLiveIn[param.Name.Name] = true
 			}
 		}
 		
@@ -550,8 +554,8 @@ func (tc *TypeChecker) checkVariable(expr *ast.Variable) string {
 	
 	// 检查是否已初始化
 	if !varInfo.IsInitialized {
-		tc.addError(expr.Pos(), "compiler.uninitialized_variable",
-			fmt.Sprintf("variable '%s' may not have been initialized", expr.Name))
+		tc.addError(expr.Pos(), i18n.WarnUninitializedVariable,
+			i18n.T(i18n.WarnUninitializedVariable, expr.Name))
 	}
 	
 	// 检查类型收窄

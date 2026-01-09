@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
@@ -162,8 +161,8 @@ func (r *Runtime) loadDependency(importPath string) error {
 		return fmt.Errorf(i18n.T(i18n.ErrReadFailed, filePath, err))
 	}
 
-	// 解析
-	p := parser.New(source, filepath.Base(filePath))
+	// 解析（使用完整路径以便错误信息显示准确位置）
+	p := parser.New(source, filePath)
 	file := p.Parse()
 	if p.HasErrors() {
 		for _, e := range p.Errors() {
