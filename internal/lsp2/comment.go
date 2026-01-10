@@ -1,7 +1,6 @@
 package lsp2
 
 import (
-	"os"
 	"strings"
 )
 
@@ -109,15 +108,4 @@ func extractDocComment(lines []string, targetLine int) string {
 
 	// 返回格式化的注释
 	return comment
-}
-
-// readFileLines 读取文件内容并按行分割
-// 用于获取导入文件的源代码以提取注释
-func readFileLines(path string) []string {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-
-	return SplitLines(string(content))
 }

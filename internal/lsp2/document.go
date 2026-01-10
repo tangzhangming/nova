@@ -2,7 +2,9 @@ package lsp2
 
 import (
 	"runtime"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/parser"
@@ -45,10 +47,150 @@ func (d *Document) parse() {
 		return
 	}
 
-	// 解析文档
-	p := parser.New(d.Content, uriToPath(d.URI))
-	d.ast = p.Parse()
+	// 快速检查：如果文档包含明显不完整的语法，跳过解析
+	if hasIncompleteMethodSignature(d.Content) {
+		d.ast = nil
+		d.parsed = true
+		return
+	}
+
+	// 使用 goroutine 和超时机制解析文档，防止 parser 卡住
+	done := make(chan *ast.File, 1)
+	go func() {
+		defer func() {
+			// 捕获 panic，防止 parser 崩溃导致 goroutine 泄漏
+			if r := recover(); r != nil {
+				done <- nil
+			}
+		}()
+		p := parser.New(d.Content, uriToPath(d.URI))
+		done <- p.Parse()
+	}()
+
+	// 设置 1 秒超时（降低超时时间）
+	select {
+	case result := <-done:
+		d.ast = result
+	case <-time.After(1 * time.Second):
+		// 解析超时，返回 nil
+		d.ast = nil
+	}
 	d.parsed = true
+}
+
+// hasIncompleteMethodSignature 检查是否有不完整的方法签名
+// 这些情况会导致 parser 卡住或变慢
+func hasIncompleteMethodSignature(content string) bool {
+	lines := SplitLines(content)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// 检查方法定义行
+		if strings.Contains(trimmed, "function ") && strings.Contains(trimmed, "(") {
+			// 检查是否有未闭合的括号
+			openCount := strings.Count(trimmed, "(")
+			closeCount := strings.Count(trimmed, ")")
+			if openCount > closeCount {
+				// 括号未闭合，可能导致问题
+				return true
+			}
+
+			// 检查返回类型位置是否有 $ 符号
+			// 匹配模式: ) 后面跟着 : 和 $（可能有空格）
+			rparen := strings.LastIndex(trimmed, ")")
+			if rparen != -1 && rparen < len(trimmed)-1 {
+				afterParen := trimmed[rparen+1:]
+				// 移除空格后检查是否以 : 开头
+				afterParen = strings.TrimSpace(afterParen)
+				if strings.HasPrefix(afterParen, ":") {
+					afterColon := strings.TrimSpace(afterParen[1:])
+					if strings.HasPrefix(afterColon, "$") {
+						// 返回类型位置出现变量，这是语法错误
+						return true
+					}
+				}
+			}
+
+			// 检查括号内的参数是否完整
+			// 提取括号内的内容
+			lparen := strings.Index(trimmed, "(")
+			if lparen != -1 && rparen != -1 && rparen > lparen {
+				params := trimmed[lparen+1 : rparen]
+				params = strings.TrimSpace(params)
+
+				// 空参数列表是正常的
+				if params == "" {
+					continue
+				}
+
+				// 检查参数是否完整
+				// 正确的参数格式: type $name 或 type $name = default
+				// 不完整的情况: 只有类型没有变量名, 或只有部分输入
+				if isIncompleteParams(params) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// isIncompleteParams 检查参数列表是否不完整
+func isIncompleteParams(params string) bool {
+	// 检查是否以逗号结尾（表示还在输入下一个参数）
+	if strings.HasSuffix(strings.TrimSpace(params), ",") {
+		return true
+	}
+
+	// 按逗号分割参数
+	paramList := strings.Split(params, ",")
+
+	for _, param := range paramList {
+		param = strings.TrimSpace(param)
+		if param == "" {
+			// 空参数（如 "a, , b" 中间的空）表示不完整
+			return true
+		}
+
+		// 检查参数是否包含变量名（以$开头的部分）
+		// 正确的参数: string $name, int $age = 10, ...$args
+		// 不完整: string, str, s, string $
+
+		// 如果参数以 ... 开头（可变参数）
+		if strings.HasPrefix(param, "...") {
+			param = param[3:]
+		}
+
+		// 检查是否有 $ 符号（表示变量名）
+		dollarIdx := strings.Index(param, "$")
+		if dollarIdx == -1 {
+			// 没有 $ 符号，可能是不完整的参数
+			// 但需要排除一些特殊情况
+
+			// 如果整个参数是空白或特殊字符，跳过
+			if len(strings.TrimSpace(param)) == 0 {
+				continue
+			}
+
+			// 没有变量名，这是不完整的参数
+			return true
+		}
+
+		// 检查 $ 后面是否有变量名
+		afterDollar := param[dollarIdx+1:]
+		// 移除可能的默认值部分
+		if eqIdx := strings.Index(afterDollar, "="); eqIdx != -1 {
+			afterDollar = afterDollar[:eqIdx]
+		}
+		afterDollar = strings.TrimSpace(afterDollar)
+
+		if len(afterDollar) == 0 {
+			// $ 后面没有变量名，不完整
+			return true
+		}
+	}
+
+	return false
 }
 
 // Invalidate 标记文档需要重新解析

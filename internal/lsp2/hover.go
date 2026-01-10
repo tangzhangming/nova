@@ -128,9 +128,8 @@ func (s *Server) getStaticMemberHover(doc *Document, className, memberName strin
 	imports := s.importResolver.ResolveImports(doc)
 	for _, imported := range imports {
 		if imported.AST != nil {
-			// 读取导入文件的源代码以获取注释
-			lines := readFileLines(imported.Path)
-			if content := findStaticMemberInAST(imported.AST, className, memberName, lines); content != "" {
+			// 使用缓存的源代码行获取注释
+			if content := findStaticMemberInAST(imported.AST, className, memberName, imported.Lines); content != "" {
 				return content
 			}
 		}
@@ -199,9 +198,8 @@ func (s *Server) getInstanceMemberHover(doc *Document, varName, memberName strin
 	imports := s.importResolver.ResolveImports(doc)
 	for _, imported := range imports {
 		if imported.AST != nil {
-			// 读取导入文件的源代码以获取注释
-			lines := readFileLines(imported.Path)
-			if content := findInstanceMemberInAST(imported.AST, className, memberName, lines); content != "" {
+			// 使用缓存的源代码行获取注释
+			if content := findInstanceMemberInAST(imported.AST, className, memberName, imported.Lines); content != "" {
 				return content
 			}
 		}
@@ -352,9 +350,8 @@ func (s *Server) getSymbolHover(doc *Document, name string) string {
 	imports := s.importResolver.ResolveImports(doc)
 	for _, imported := range imports {
 		if imported.AST != nil {
-			// 读取导入文件的源代码以获取注释
-			lines := readFileLines(imported.Path)
-			if content := findSymbolInAST(imported.AST, name, lines); content != "" {
+			// 使用缓存的源代码行获取注释
+			if content := findSymbolInAST(imported.AST, name, imported.Lines); content != "" {
 				return content
 			}
 		}

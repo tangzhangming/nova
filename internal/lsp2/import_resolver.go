@@ -16,26 +16,77 @@ type ImportedFile struct {
 	Path    string
 	URI     string
 	AST     *ast.File
-	ModTime int64 // 文件修改时间，用于缓存失效
+	Lines   []string // 源代码行，用于提取注释
+	ModTime int64    // 文件修改时间，用于缓存失效
 }
 
 // ImportResolver 导入解析器
 type ImportResolver struct {
-	cache      map[string]*ImportedFile // 路径 -> 导入文件
-	cacheOrder []string                 // LRU 顺序
-	maxCache   int                      // 最多缓存的文件数量
-	mu         sync.Mutex
-	logger     *Logger
+	cache       map[string]*ImportedFile // 路径 -> 导入文件
+	cacheOrder  []string                 // LRU 顺序
+	maxCache    int                      // 最多缓存的文件数量
+	loaderCache map[string]*loader.Loader // 项目路径 -> Loader（缓存避免重复创建）
+	mu          sync.Mutex
+	logger      *Logger
 }
 
 // NewImportResolver 创建导入解析器
 func NewImportResolver(logger *Logger) *ImportResolver {
 	return &ImportResolver{
-		cache:      make(map[string]*ImportedFile),
-		cacheOrder: make([]string, 0, 20),
-		maxCache:   20, // 最多缓存20个导入文件
-		logger:     logger,
+		cache:       make(map[string]*ImportedFile),
+		cacheOrder:  make([]string, 0, 20),
+		maxCache:    20, // 最多缓存20个导入文件
+		loaderCache: make(map[string]*loader.Loader),
+		logger:      logger,
 	}
+}
+
+// getOrCreateLoader 获取或创建 Loader（使用项目根目录作为缓存键）
+func (ir *ImportResolver) getOrCreateLoader(docPath string) *loader.Loader {
+	// 使用文档所在目录作为缓存键
+	dir := filepath.Dir(docPath)
+
+	ir.mu.Lock()
+	// 检查缓存
+	if l, exists := ir.loaderCache[dir]; exists {
+		ir.mu.Unlock()
+		return l
+	}
+	ir.mu.Unlock()
+
+	ir.logger.Debug("Creating loader for: %s", docPath)
+
+	// 创建新的 loader（在锁外进行，避免长时间持有锁）
+	l, err := loader.New(docPath)
+	if err != nil {
+		ir.logger.Debug("Failed to create loader for %s: %v", docPath, err)
+		return nil
+	}
+
+	ir.logger.Debug("Loader created successfully for: %s", docPath)
+
+	ir.mu.Lock()
+	defer ir.mu.Unlock()
+
+	// 再次检查缓存（可能其他 goroutine 已经创建了）
+	if existing, exists := ir.loaderCache[dir]; exists {
+		return existing
+	}
+
+	// 限制 loader 缓存大小（最多5个）
+	if len(ir.loaderCache) >= 5 {
+		// 删除一个旧的
+		for key := range ir.loaderCache {
+			delete(ir.loaderCache, key)
+			break
+		}
+	}
+
+	// 添加到缓存
+	ir.loaderCache[dir] = l
+	ir.logger.Debug("Cached loader for: %s", dir)
+
+	return l
 }
 
 // ResolveImports 解析文档的所有导入
@@ -46,11 +97,10 @@ func (ir *ImportResolver) ResolveImports(doc *Document) map[string]*ImportedFile
 		return nil
 	}
 
-	// 创建 loader
+	// 获取或创建 loader（使用缓存避免重复创建）
 	docPath := uriToPath(doc.URI)
-	l, err := loader.New(docPath)
-	if err != nil {
-		ir.logger.Debug("Failed to create loader for %s: %v", docPath, err)
+	l := ir.getOrCreateLoader(docPath)
+	if l == nil {
 		return nil
 	}
 
@@ -168,8 +218,10 @@ func (ir *ImportResolver) loadFile(path string) *ImportedFile {
 		return nil
 	}
 
+	contentStr := string(content)
+
 	// 解析文件
-	p := parser.New(string(content), absPath)
+	p := parser.New(contentStr, absPath)
 	astFile := p.Parse()
 
 	// 创建导入文件对象
@@ -177,6 +229,7 @@ func (ir *ImportResolver) loadFile(path string) *ImportedFile {
 		Path:    absPath,
 		URI:     pathToURI(absPath),
 		AST:     astFile,
+		Lines:   SplitLines(contentStr), // 缓存源代码行用于注释提取
 		ModTime: info.ModTime().Unix(),
 	}
 
@@ -216,9 +269,10 @@ func (ir *ImportResolver) evictOldest() {
 	delete(ir.cache, oldestPath)
 	ir.cacheOrder = ir.cacheOrder[1:]
 
-	// 清理 AST
+	// 清理 AST 和 Lines
 	if imported != nil {
 		imported.AST = nil
+		imported.Lines = nil
 	}
 
 	ir.logger.Debug("Evicted oldest import cache: %s", oldestPath)
@@ -229,15 +283,19 @@ func (ir *ImportResolver) ClearCache() {
 	ir.mu.Lock()
 	defer ir.mu.Unlock()
 
-	// 清理所有 AST
+	// 清理所有 AST 和 Lines
 	for _, imported := range ir.cache {
 		if imported != nil {
 			imported.AST = nil
+			imported.Lines = nil
 		}
 	}
 
 	ir.cache = make(map[string]*ImportedFile)
 	ir.cacheOrder = make([]string, 0, 20)
+
+	// 清理 loader 缓存
+	ir.loaderCache = make(map[string]*loader.Loader)
 
 	ir.logger.Info("Import cache cleared")
 }
