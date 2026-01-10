@@ -274,6 +274,16 @@ func inferVarTypeFromStatement(stmt ast.Statement, varName string, currentLine i
 			}
 		}
 
+	case *ast.ExprStmt:
+		// 处理赋值表达式语句: $var = expr
+		if assignExpr, ok := s.Expr.(*ast.AssignExpr); ok {
+			if varExpr, ok := assignExpr.Left.(*ast.Variable); ok {
+				if varExpr.Name == varName {
+					return inferTypeFromExpr(assignExpr.Right)
+				}
+			}
+		}
+
 	case *ast.BlockStmt:
 		for _, inner := range s.Statements {
 			if className := inferVarTypeFromStatement(inner, varName, currentLine); className != "" {

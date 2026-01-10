@@ -147,11 +147,9 @@ func (s *Server) sendMessage(msg interface{}) error {
 
 	s.logger.Debug("Sending message: %d bytes", len(content))
 
-	_, err = s.writer.Write([]byte(header))
-	if err != nil {
-		return err
-	}
-	_, err = s.writer.Write(content)
+	// 合并header和content为一次写入，避免被分块
+	fullMsg := append([]byte(header), content...)
+	_, err = s.writer.Write(fullMsg)
 	return err
 }
 
@@ -192,6 +190,12 @@ func (s *Server) handleMessage(msg []byte) {
 		s.handleDidSave(baseMsg.Params)
 	case "textDocument/definition":
 		s.handleDefinition(baseMsg.ID, baseMsg.Params)
+	case "textDocument/hover":
+		s.handleHover(baseMsg.ID, baseMsg.Params)
+	case "textDocument/completion":
+		s.handleCompletion(baseMsg.ID, baseMsg.Params)
+	case "textDocument/signatureHelp":
+		s.handleSignatureHelp(baseMsg.ID, baseMsg.Params)
 	default:
 		s.logger.Debug("Unhandled method: %s", baseMsg.Method)
 		// 如果有 ID，返回方法未找到错误
@@ -229,10 +233,21 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 			},
 			// 跳转定义
 			"definitionProvider": true,
+			// 悬停提示
+			"hoverProvider": true,
+			// 代码补全
+			"completionProvider": map[string]interface{}{
+				"triggerCharacters": []string{">", ":", "$"},
+				"resolveProvider":   false, // 不支持resolve，避免额外状态
+			},
+			// 签名帮助
+			"signatureHelpProvider": map[string]interface{}{
+				"triggerCharacters": []string{"(", ","},
+			},
 		},
 		"serverInfo": map[string]interface{}{
 			"name":    "solals2",
-			"version": "0.2.0",
+			"version": "0.2.1",
 		},
 	}
 

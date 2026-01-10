@@ -6,22 +6,32 @@
 
 ### ✅ 已实现功能
 
-1. **类跳转** - 点击类名跳转到定义
-   - 当前文件中的类
-   - 导入文件中的类
-   - `use` 语句中的类
-   - `new ClassName()` 中的类
-
-2. **静态方法跳转** - `Class::method` 跳转到方法定义
-   - 当前文件中的静态方法
-   - 导入类的静态方法
-   - 标准库的静态方法（如 `Str::trim`）
-
-3. **实例方法跳转** - `$obj->method` 跳转到方法定义
+1. **定义跳转** (textDocument/definition)
+   - 类跳转 - 点击类名跳转到定义
+   - 静态方法跳转 - `Class::method` 跳转到方法定义
+   - 实例方法跳转 - `$obj->method` 跳转到方法定义
    - 自动推断变量类型
-   - 支持当前文件和导入类的方法
 
-4. **内存优化**
+2. **悬停提示** (textDocument/hover)
+   - 类名悬停 - 显示类签名和成员数量
+   - 方法名悬停 - 显示方法签名和来源
+   - 属性悬停 - 显示属性类型和来源
+   - 静态/实例访问支持
+
+3. **代码补全** (textDocument/completion)
+   - 实例成员补全 - `$obj->` 触发方法/属性补全
+   - 静态成员补全 - `Class::` 触发静态方法/常量补全
+   - 变量补全 - `$` 触发变量名补全
+   - 枚举成员补全 - `Enum::` 触发枚举值补全
+   - `new` 补全 - 类名补全
+   - 关键字补全
+
+4. **签名帮助** (textDocument/signatureHelp)
+   - 静态方法签名 - `Class::method(` 显示参数提示
+   - 实例方法签名 - `$obj->method(` 显示参数提示
+   - 当前参数高亮
+
+5. **内存优化**
    - LRU缓存（最多10个文档）
    - 按需加载导入文件（缓存20个）
    - 文档关闭时立即释放内存
@@ -37,9 +47,12 @@
 
 ```
 internal/lsp2/
-├── server.go          # LSP协议处理
+├── server.go          # LSP协议处理 + 请求分发
 ├── document.go        # 文档管理（LRU缓存）
 ├── definition.go      # 定义跳转核心逻辑
+├── hover.go           # 悬停提示
+├── completion.go      # 代码补全
+├── signature_help.go  # 签名帮助
 ├── import_resolver.go # 导入解析（按需加载）
 ├── logger.go          # 可关闭的日志系统
 ├── memory.go          # 内存监控和清理
@@ -101,10 +114,17 @@ cd d:\workspace\go\src\nova
 # 启用调试日志
 set SOLA_LSP_DEBUG=1
 
-# 运行单个测试
+# 定义跳转测试
 node tests\lsp2\test_class_jump.js
 node tests\lsp2\test_static_method.js
 node tests\lsp2\test_instance_method.js
+
+# 新功能测试
+node tests\lsp2\test_hover.js
+node tests\lsp2\test_completion.js
+node tests\lsp2\test_signature.js
+
+# 内存测试
 node tests\lsp2\test_memory.js
 
 # 运行所有测试
@@ -121,6 +141,9 @@ node tests\lsp2\run_all.js
 | 静态方法测试 | ✓ PASS | 3/3 场景通过 |
 | 实例方法测试 | ✓ PASS | 核心功能正常 |
 | 内存测试 | ✓ PASS | 增长 < 2MB |
+| **Hover测试** | ✓ PASS | **6/6 场景通过** |
+| **Completion测试** | ✓ PASS | **6/6 场景通过** |
+| **SignatureHelp测试** | ✓ PASS | **5/5 场景通过** |
 
 ## 内存管理策略
 
@@ -194,8 +217,9 @@ $test->xx();  // 推断$test类型为Test，跳转到xx方法
 
 ## 未来计划
 
-- [ ] Hover提示
-- [ ] 代码补全
+- [x] Hover提示 ✅
+- [x] 代码补全 ✅
+- [x] 签名帮助 ✅
 - [ ] 查找引用
 - [ ] 重命名
 - [ ] 文档符号
