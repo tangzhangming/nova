@@ -379,20 +379,16 @@ func (s *Server) handleInitialized() {
 	// 创建工作区索引
 	s.workspace = NewWorkspaceIndex(s.workspaceRoot, s.log)
 
-	// 异步索引标准库和工作区
+	// 异步索引工作区（禁用标准库全量索引，避免内存暴涨）
 	go func() {
 		if s.progress != nil {
 			s.progress.WithProgress("索引工作区", func(report func(string, uint32)) {
-				report("正在索引标准库...", 10)
-				s.workspace.IndexStandardLibrary()
-				
+				// 不再索引标准库，改为按需加载
 				report("正在索引工作区...", 50)
 				s.workspace.IndexWorkspace()
-				
 				report("索引完成", 100)
 			})
 		} else {
-			s.workspace.IndexStandardLibrary()
 			s.workspace.IndexWorkspace()
 		}
 		s.log("Workspace indexing complete")

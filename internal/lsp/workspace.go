@@ -57,7 +57,7 @@ func NewWorkspaceIndex(workspaceRoot string, logFunc func(format string, args ..
 		files:           make(map[string]*IndexedFile),
 		symbolLocations: make(map[string]string),
 		log:             logFunc,
-		maxIndexedFiles: 500, // 默认最多索引500个文件
+		maxIndexedFiles: 50, // 降低到50个文件，避免内存暴涨
 		indexingEnabled: true,
 	}
 
@@ -154,26 +154,12 @@ func (wi *WorkspaceIndex) getStdLibPath() string {
 
 // IndexStandardLibrary 索引标准库
 func (wi *WorkspaceIndex) IndexStandardLibrary() {
+	// 禁用标准库全量索引，改为按需加载，避免内存暴涨
 	if wi.stdLibDir == "" {
 		wi.log("No standard library directory configured")
 		return
 	}
-
-	wi.log("Indexing standard library: %s", wi.stdLibDir)
-
-	count := 0
-	filepath.Walk(wi.stdLibDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() && strings.HasSuffix(path, ".sola") {
-			wi.indexFile(path)
-			count++
-		}
-		return nil
-	})
-
-	wi.log("Indexed %d standard library files", count)
+	wi.log("Standard library lazy loading enabled: %s", wi.stdLibDir)
 }
 
 // IndexWorkspace 索引工作区

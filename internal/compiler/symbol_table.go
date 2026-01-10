@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/tangzhangming/nova/internal/ast"
 )
@@ -89,9 +90,35 @@ type SymbolTable struct {
 	ClassInterfaces map[string][]string                      // 类实现的接口: 类名 -> 接口列表
 }
 
-// NewSymbolTable 创建符号表
+// 全局共享的内置符号表（只初始化一次，避免内存暴涨）
+var globalBuiltinSymbols *SymbolTable
+var globalBuiltinOnce sync.Once
+
+// getGlobalBuiltinSymbols 获取全局共享的内置符号表
+func getGlobalBuiltinSymbols() *SymbolTable {
+	globalBuiltinOnce.Do(func() {
+		globalBuiltinSymbols = &SymbolTable{
+			Functions:       make(map[string]*FunctionSignature),
+			ClassMethods:    make(map[string]map[string][]*MethodSignature),
+			ClassProperties: make(map[string]map[string]*PropertySignature),
+			GlobalVars:      make(map[string]string),
+			ClassParents:    make(map[string]string),
+			ClassSignatures: make(map[string]*ClassSignature),
+			InterfaceSigs:   make(map[string]*InterfaceSignature),
+			TypeAliases:     make(map[string]string),
+			NewTypes:        make(map[string]*NewTypeInfo),
+			EnumValues:      make(map[string][]string),
+			ClassInterfaces: make(map[string][]string),
+		}
+		globalBuiltinSymbols.registerBuiltinFunctions()
+		globalBuiltinSymbols.registerBuiltinTypeMethods()
+	})
+	return globalBuiltinSymbols
+}
+
+// NewSymbolTable 创建符号表（不再重复注册231个内置符号）
 func NewSymbolTable() *SymbolTable {
-	st := &SymbolTable{
+	return &SymbolTable{
 		Functions:       make(map[string]*FunctionSignature),
 		ClassMethods:    make(map[string]map[string][]*MethodSignature),
 		ClassProperties: make(map[string]map[string]*PropertySignature),
@@ -104,11 +131,6 @@ func NewSymbolTable() *SymbolTable {
 		EnumValues:      make(map[string][]string),
 		ClassInterfaces: make(map[string][]string),
 	}
-	// 注册内置函数签名
-	st.registerBuiltinFunctions()
-	// 注册内置类型方法
-	st.registerBuiltinTypeMethods()
-	return st
 }
 
 // registerBuiltinFunctions 注册内置函数签名
@@ -436,7 +458,15 @@ func (st *SymbolTable) RegisterClassParent(className, parentName string) {
 
 // GetFunction 获取函数签名
 func (st *SymbolTable) GetFunction(name string) *FunctionSignature {
-	return st.Functions[name]
+	if sig, ok := st.Functions[name]; ok {
+		return sig
+	}
+	// 回退到全局内置符号表
+	global := getGlobalBuiltinSymbols()
+	if global != nil && global != st {
+		return global.Functions[name]
+	}
+	return nil
 }
 
 // GetMethod 获取方法签名（按参数数量匹配）
@@ -469,6 +499,12 @@ func (st *SymbolTable) GetMethod(className, methodName string, arity int) *Metho
 				}
 			}
 		}
+	}
+	
+	// 回退到全局内置符号表
+	global := getGlobalBuiltinSymbols()
+	if global != nil && global != st {
+		return global.GetMethod(className, methodName, arity)
 	}
 	
 	return nil
@@ -537,7 +573,13 @@ func (st *SymbolTable) GetProperty(className, propName string) *PropertySignatur
 			}
 		}
 	}
-	
+
+	// 回退到全局内置符号表
+	global := getGlobalBuiltinSymbols()
+	if global != nil && global != st {
+		return global.GetProperty(className, propName)
+	}
+
 	return nil
 }
 
