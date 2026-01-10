@@ -244,10 +244,21 @@ func findClassMembers(astFile *ast.File, className string, staticOnly bool) []pr
 					detail += ": " + typeNodeToString(method.ReturnType)
 				}
 
+				// 设置插入文本：方法名+括号
+				// 使用Snippet格式，$0表示光标最终位置
+				var insertText string
+				if len(method.Parameters) == 0 {
+					insertText = label + "()$0"
+				} else {
+					insertText = label + "($0)"
+				}
+
 				items = append(items, protocol.CompletionItem{
-					Label:  label,
-					Kind:   kind,
-					Detail: detail,
+					Label:            label,
+					Kind:             kind,
+					Detail:           detail,
+					InsertText:       insertText,
+					InsertTextFormat: protocol.InsertTextFormatSnippet,
 				})
 			}
 
