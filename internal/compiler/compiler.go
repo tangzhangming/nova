@@ -2842,11 +2842,19 @@ func (c *Compiler) compileCallExpr(e *ast.CallExpr) {
 // 1. 函数调用（Identifier 或 Variable）
 // 2. 不是方法调用（PropertyAccess）
 // 3. 不是闭包调用（ClosureExpr）
+// 4. 不是原生函数调用（native_ 开头）
 func (c *Compiler) isTailCallable(e *ast.CallExpr) bool {
 	// 必须是函数调用，不能是方法调用
-	switch e.Function.(type) {
-	case *ast.Identifier, *ast.Variable:
+	switch fn := e.Function.(type) {
+	case *ast.Identifier:
+		// 排除原生函数调用 - 原生函数不支持尾调用优化
+		if strings.HasPrefix(fn.Name, "native_") {
+			return false
+		}
 		// 普通函数调用，可以尾调用
+		return true
+	case *ast.Variable:
+		// 变量函数调用，可以尾调用
 		return true
 	case *ast.PropertyAccess:
 		// 方法调用，不支持尾调用（需要 this 上下文）
@@ -4856,8 +4864,12 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 				return objType[idx+1:]
 			}
 		}
+		// 对 dynamic 类型允许索引操作，返回 dynamic
+		if objType == "dynamic" {
+			return "dynamic"
+		}
 		// 静态类型系统：索引目标类型必须明确
-		if objType == "" || objType == "dynamic" {
+		if objType == "" {
 			c.error(e.Pos(), i18n.T(i18n.ErrIndexTargetUnknown))
 			return "error"
 		}
