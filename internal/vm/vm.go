@@ -161,6 +161,49 @@ func GetStackConfig() StackConfig {
 }
 
 // ============================================================================
+// 线程模型
+// ============================================================================
+
+// ThreadModel 定义 VM 的线程执行模型
+type ThreadModel int
+
+const (
+	// ThreadModelSingle 单线程模型（默认）
+	// - 所有协程在同一个 OS 线程中执行
+	// - 协作式调度，不需要锁
+	// - 最简单，适合大多数场景
+	ThreadModelSingle ThreadModel = iota
+	
+	// ThreadModelMulti 多线程模型
+	// - 协程可以在多个 OS 线程中执行
+	// - 需要同步原语保护共享状态
+	// - 更高并发性能，更复杂
+	ThreadModelMulti
+)
+
+// ThreadModelConfig 线程模型配置
+type ThreadModelConfig struct {
+	// Model 线程模型
+	Model ThreadModel
+	
+	// NumWorkers 工作线程数量（仅多线程模式）
+	// 0 表示使用 CPU 核心数
+	NumWorkers int
+	
+	// EnableWorkStealing 是否启用工作窃取调度（仅多线程模式）
+	EnableWorkStealing bool
+}
+
+// DefaultThreadModelConfig 返回默认线程模型配置
+func DefaultThreadModelConfig() ThreadModelConfig {
+	return ThreadModelConfig{
+		Model:              ThreadModelSingle,
+		NumWorkers:         0,
+		EnableWorkStealing: false,
+	}
+}
+
+// ============================================================================
 // 执行结果类型
 // ============================================================================
 
@@ -613,6 +656,18 @@ type VM struct {
 	// scheduler 协程调度器
 	// 管理所有协程的创建、调度和销毁
 	scheduler *Scheduler
+	
+	// =========================================================================
+	// 线程模型配置
+	// =========================================================================
+	
+	// threadModel 当前线程模型
+	// 支持单线程（默认）和多线程模式
+	threadModel ThreadModel
+	
+	// threadID 当前 VM 实例所属的线程 ID
+	// 用于多线程模式下的线程亲和性检查
+	threadID int64
 
 	// =========================================================================
 	// 错误状态
@@ -721,8 +776,52 @@ func NewWithConfig(jitConfig *jit.Config) *VM {
 			profiler.OnFunctionHot(vm.onJITFunctionHot)
 		}
 	}
+	
+	// 默认使用单线程模型
+	vm.threadModel = ThreadModelSingle
 
 	return vm
+}
+
+// ============================================================================
+// 线程模型方法
+// ============================================================================
+
+// SetThreadModel 设置线程模型
+// 注意：必须在 VM 开始执行之前调用
+func (vm *VM) SetThreadModel(model ThreadModel) {
+	vm.threadModel = model
+}
+
+// GetThreadModel 获取当前线程模型
+func (vm *VM) GetThreadModel() ThreadModel {
+	return vm.threadModel
+}
+
+// IsMultiThreaded 检查是否为多线程模式
+func (vm *VM) IsMultiThreaded() bool {
+	return vm.threadModel == ThreadModelMulti
+}
+
+// GetThreadID 获取当前 VM 实例的线程 ID
+func (vm *VM) GetThreadID() int64 {
+	return vm.threadID
+}
+
+// SetThreadID 设置线程 ID（通常由工作池管理）
+func (vm *VM) SetThreadID(id int64) {
+	vm.threadID = id
+}
+
+// ThreadSafetyCheck 线程安全检查
+// 在多线程模式下检查是否从正确的线程访问 VM
+func (vm *VM) ThreadSafetyCheck() bool {
+	if vm.threadModel == ThreadModelSingle {
+		return true // 单线程模式总是安全的
+	}
+	// 多线程模式下，需要额外的检查
+	// 这里暂时返回 true，完整实现需要比较当前 goroutine ID
+	return true
 }
 
 // ============================================================================

@@ -106,6 +106,79 @@ func NewChannel(elementType string, capacity int) *Channel {
 	return ch
 }
 
+// checkValueType 检查值是否与通道的元素类型匹配
+// 返回 true 表示类型匹配，false 表示不匹配
+func (ch *Channel) checkValueType(value bytecode.Value) bool {
+	// 如果没有指定类型或是 any 类型，接受任何值
+	if ch.ElementType == "" || ch.ElementType == "any" {
+		return true
+	}
+	
+	// 根据值类型检查
+	switch value.Type {
+	case bytecode.ValNull:
+		// null 可以赋值给任何引用类型
+		return ch.ElementType == "null" || 
+			ch.ElementType == "object" || 
+			ch.ElementType == "string" ||
+			ch.ElementType == "array"
+	case bytecode.ValBool:
+		return ch.ElementType == "bool" || ch.ElementType == "boolean"
+	case bytecode.ValInt:
+		return ch.ElementType == "int" || ch.ElementType == "integer" || ch.ElementType == "number"
+	case bytecode.ValFloat:
+		return ch.ElementType == "float" || ch.ElementType == "double" || ch.ElementType == "number"
+	case bytecode.ValString:
+		return ch.ElementType == "string"
+	case bytecode.ValArray:
+		return ch.ElementType == "array"
+	case bytecode.ValObject:
+		// 对于对象类型，需要检查具体的类名
+		if ch.ElementType == "object" {
+			return true // 接受任何对象
+		}
+		// 检查具体类型
+		if obj := value.AsObject(); obj != nil && obj.Class != nil {
+			return ch.isTypeCompatible(obj.Class.Name, ch.ElementType)
+		}
+		return false
+	case bytecode.ValFunc, bytecode.ValClosure:
+		return ch.ElementType == "function" || ch.ElementType == "callable"
+	case bytecode.ValChannel:
+		return ch.ElementType == "channel"
+	default:
+		return false
+	}
+}
+
+// isTypeCompatible 检查类型兼容性（包括继承关系）
+func (ch *Channel) isTypeCompatible(actualType, expectedType string) bool {
+	// 直接匹配
+	if actualType == expectedType {
+		return true
+	}
+	
+	// TODO: 如果需要支持继承关系检查，可以在这里添加
+	// 需要访问类层次结构信息
+	
+	return false
+}
+
+// GetElementType 获取通道的元素类型
+func (ch *Channel) GetElementType() string {
+	return ch.ElementType
+}
+
+// TypeMismatchError 类型不匹配错误
+type TypeMismatchError struct {
+	Expected string
+	Actual   string
+}
+
+func (e *TypeMismatchError) Error() string {
+	return "channel type mismatch: expected " + e.Expected + ", got " + e.Actual
+}
+
 // ============================================================================
 // 发送操作
 // ============================================================================
@@ -124,6 +197,13 @@ func (ch *Channel) Send(value bytecode.Value, g *Goroutine, sched *Scheduler) (o
 	// 通道已关闭，不能发送
 	if ch.Closed {
 		return false, false
+	}
+	
+	// 运行时类型检查（如果通道指定了元素类型）
+	if ch.ElementType != "" && ch.ElementType != "any" {
+		if !ch.checkValueType(value) {
+			return false, false // 类型不匹配
+		}
 	}
 
 	// 检查是否有等待接收的协程
@@ -162,6 +242,13 @@ func (ch *Channel) TrySend(value bytecode.Value, sched *Scheduler) bool {
 
 	if ch.Closed {
 		return false
+	}
+	
+	// 运行时类型检查（如果通道指定了元素类型）
+	if ch.ElementType != "" && ch.ElementType != "any" {
+		if !ch.checkValueType(value) {
+			return false // 类型不匹配
+		}
 	}
 
 	// 检查是否有等待接收的协程

@@ -428,3 +428,236 @@ func (s *Scheduler) DumpState() map[string]interface{} {
 		"totalGoroutines": len(s.allGoroutines),
 	}
 }
+
+// ============================================================================
+// 死锁检测
+// ============================================================================
+
+// DeadlockInfo 死锁检测结果
+type DeadlockInfo struct {
+	IsDeadlock      bool              // 是否检测到死锁
+	BlockedCount    int               // 阻塞的协程数量
+	RunningCount    int               // 运行中的协程数量
+	DeadCount       int               // 已死亡的协程数量
+	BlockedDetails  []BlockedGoroutine // 阻塞协程的详细信息
+	CycleDetected   bool              // 是否检测到等待循环
+	WaitCycle       []int64           // 等待循环中的协程 ID
+}
+
+// BlockedGoroutine 阻塞协程的信息
+type BlockedGoroutine struct {
+	ID         int64  // 协程 ID
+	WaitReason string // 阻塞原因
+	WaitingOn  int64  // 等待的协程 ID（如果适用）
+}
+
+// CheckDeadlock 检测死锁
+// 返回死锁检测结果
+func (s *Scheduler) CheckDeadlock() *DeadlockInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	info := &DeadlockInfo{
+		BlockedDetails: make([]BlockedGoroutine, 0),
+	}
+	
+	// 统计各状态的协程数量
+	for _, g := range s.allGoroutines {
+		switch g.GetStatus() {
+		case GoroutineRunning, GoroutineRunnable:
+			info.RunningCount++
+		case GoroutineBlocked, GoroutineWaiting:
+			info.BlockedCount++
+			// 收集阻塞详情
+			detail := BlockedGoroutine{
+				ID:         g.ID,
+				WaitReason: s.getBlockReason(g),
+			}
+			info.BlockedDetails = append(info.BlockedDetails, detail)
+		case GoroutineDead:
+			info.DeadCount++
+		}
+	}
+	
+	// 加上运行队列中的协程
+	info.RunningCount += len(s.runQueue)
+	
+	// 判断是否死锁
+	// 死锁条件：存在活跃协程（非 Dead），但没有可运行的协程
+	aliveCount := info.RunningCount + info.BlockedCount
+	if aliveCount > 0 && info.RunningCount == 0 && len(s.runQueue) == 0 {
+		info.IsDeadlock = true
+		
+		// 尝试检测等待循环
+		info.CycleDetected, info.WaitCycle = s.detectWaitCycle()
+	}
+	
+	return info
+}
+
+// getBlockReason 获取协程阻塞原因
+func (s *Scheduler) getBlockReason(g *Goroutine) string {
+	if g.BlockedOn != nil {
+		return "waiting on channel"
+	}
+	if g.SelectCases != nil && len(g.SelectCases) > 0 {
+		return "waiting on select"
+	}
+	return "unknown block reason"
+}
+
+// detectWaitCycle 检测等待循环
+// 使用 Floyd 循环检测算法的思想
+func (s *Scheduler) detectWaitCycle() (bool, []int64) {
+	// 构建等待图：协程 -> 它在等待的通道 -> 等待该通道的其他协程
+	waitGraph := make(map[int64][]int64) // 协程 ID -> 它可能在等待的协程 ID 列表
+	
+	// 收集所有阻塞在通道上的协程
+	channelWaiters := make(map[*Channel][]*Goroutine)
+	for _, g := range s.allGoroutines {
+		if g.GetStatus() == GoroutineBlocked && g.BlockedOn != nil {
+			ch := g.BlockedOn
+			channelWaiters[ch] = append(channelWaiters[ch], g)
+		}
+	}
+	
+	// 构建等待图
+	// 如果协程 A 在通道上等待发送，而协程 B 也在同一通道上等待接收，
+	// 它们可能形成等待关系
+	for ch, waiters := range channelWaiters {
+		// 获取通道的发送等待队列和接收等待队列
+		ch.mu.Lock()
+		sendWaiters := make([]*Goroutine, len(ch.SendQueue))
+		copy(sendWaiters, ch.SendQueue)
+		recvWaiters := make([]*Goroutine, len(ch.RecvQueue))
+		copy(recvWaiters, ch.RecvQueue)
+		ch.mu.Unlock()
+		
+		// 发送者等待接收者
+		for _, sender := range sendWaiters {
+			for _, receiver := range recvWaiters {
+				waitGraph[sender.ID] = append(waitGraph[sender.ID], receiver.ID)
+			}
+		}
+		
+		// 如果是无缓冲通道，接收者也在等待发送者
+		if ch.Capacity == 0 {
+			for _, receiver := range recvWaiters {
+				for _, sender := range sendWaiters {
+					waitGraph[receiver.ID] = append(waitGraph[receiver.ID], sender.ID)
+				}
+			}
+		}
+		
+		_ = waiters // 使用 waiters 避免警告
+	}
+	
+	// DFS 检测循环
+	visited := make(map[int64]bool)
+	inStack := make(map[int64]bool)
+	var cycle []int64
+	
+	var dfs func(id int64, path []int64) bool
+	dfs = func(id int64, path []int64) bool {
+		if inStack[id] {
+			// 找到循环，提取循环路径
+			for i, pid := range path {
+				if pid == id {
+					cycle = path[i:]
+					return true
+				}
+			}
+			return false
+		}
+		if visited[id] {
+			return false
+		}
+		
+		visited[id] = true
+		inStack[id] = true
+		path = append(path, id)
+		
+		for _, nextID := range waitGraph[id] {
+			if dfs(nextID, path) {
+				return true
+			}
+		}
+		
+		inStack[id] = false
+		return false
+	}
+	
+	// 从每个节点开始 DFS
+	for id := range waitGraph {
+		if dfs(id, nil) {
+			return true, cycle
+		}
+	}
+	
+	return false, nil
+}
+
+// IsDeadlocked 简单检查是否处于死锁状态
+func (s *Scheduler) IsDeadlocked() bool {
+	info := s.CheckDeadlock()
+	return info.IsDeadlock
+}
+
+// ReportDeadlock 生成死锁报告
+func (s *Scheduler) ReportDeadlock() string {
+	info := s.CheckDeadlock()
+	if !info.IsDeadlock {
+		return "No deadlock detected"
+	}
+	
+	var report string
+	report = "DEADLOCK DETECTED!\n"
+	report += "==================\n"
+	report += "Statistics:\n"
+	report += "  - Running goroutines: " + itoa(info.RunningCount) + "\n"
+	report += "  - Blocked goroutines: " + itoa(info.BlockedCount) + "\n"
+	report += "  - Dead goroutines: " + itoa(info.DeadCount) + "\n"
+	report += "\nBlocked goroutines:\n"
+	
+	for _, detail := range info.BlockedDetails {
+		report += "  - Goroutine " + itoa64(detail.ID) + ": " + detail.WaitReason + "\n"
+	}
+	
+	if info.CycleDetected {
+		report += "\nWait cycle detected:\n  "
+		for i, id := range info.WaitCycle {
+			if i > 0 {
+				report += " -> "
+			}
+			report += "G" + itoa64(id)
+		}
+		report += " -> G" + itoa64(info.WaitCycle[0]) + " (cycle)\n"
+	}
+	
+	return report
+}
+
+// itoa 简单的 int 转字符串
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var result []byte
+	negative := n < 0
+	if negative {
+		n = -n
+	}
+	for n > 0 {
+		result = append([]byte{byte('0' + n%10)}, result...)
+		n /= 10
+	}
+	if negative {
+		result = append([]byte{'-'}, result...)
+	}
+	return string(result)
+}
+
+// itoa64 简单的 int64 转字符串
+func itoa64(n int64) string {
+	return itoa(int(n))
+}

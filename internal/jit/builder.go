@@ -294,7 +294,7 @@ func (b *IRBuilder) convertInstruction(op bytecode.OpCode, ip int, line int) err
 		idx := int(b.chunk.ReadU16(ip + 1))
 		val := b.pop()
 		b.writeLocal(idx, val)
-		
+
 	// 栈操作
 	case bytecode.OpPop:
 		b.pop()
@@ -540,6 +540,13 @@ func (b *IRBuilder) convertInstruction(op bytecode.OpCode, ip int, line int) err
 	case bytecode.OpStoreGlobal:
 		idx := b.chunk.ReadU16(ip + 1)
 		b.emitStoreGlobal(idx, line)
+	
+	// 异常处理操作（触发回退到解释器）
+	case bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry,
+		bytecode.OpEnterCatch, bytecode.OpEnterFinally, bytecode.OpLeaveFinally, bytecode.OpRethrow:
+		// 生成一个特殊的回退指令
+		// 当 JIT 代码执行到这里时，会通过返回特殊值来通知 VM 需要回退
+		b.emitExceptionFallback(op, ip, line)
 		
 	// 不支持的指令暂时跳过
 	default:
@@ -613,6 +620,51 @@ func (b *IRBuilder) createConstValue(val bytecode.Value) *IRValue {
 		// 其他类型暂时返回 0
 		return b.fn.NewConstIntValue(0)
 	}
+}
+
+// emitExceptionFallback 生成异常处理回退指令
+// 当 JIT 代码执行到这里时，会触发回退到解释器
+func (b *IRBuilder) emitExceptionFallback(bcOp bytecode.OpCode, ip int, line int) {
+	// 生成一个特殊的返回指令，返回值标记需要回退
+	// 使用特殊的魔数来标识需要回退到解释器处理异常
+	// VM 会检查这个返回值并切换到解释器继续执行
+	fallbackCode := b.fn.NewConstIntValue(int64(ExceptionFallbackMarker))
+	fallbackCode.IsFallback = true
+	
+	// 记录异常处理的 IP 位置，以便 VM 可以从正确的位置继续
+	ipValue := b.fn.NewConstIntValue(int64(ip))
+	
+	// 生成回退指令
+	instr := NewInstr(OpExceptionFallback, nil, fallbackCode, ipValue)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 生成返回指令，返回特殊标记值
+	retInstr := NewInstr(OpReturn, nil, fallbackCode)
+	retInstr.Line = line
+	b.current.AddInstr(retInstr)
+}
+
+// ExceptionFallbackMarker 异常回退标记
+// 当 JIT 函数返回此值时，VM 应该回退到解释器
+const ExceptionFallbackMarker = int64(-0x7FFFFFFFFFFF0001)
+
+// emitLoadUpvalue 生成加载 upvalue 指令
+func (b *IRBuilder) emitLoadUpvalue(idx int, line int) {
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpLoadUpvalue, dest)
+	instr.LocalIdx = idx // 使用 LocalIdx 存储 upvalue 索引
+	instr.Line = line
+	b.current.AddInstr(instr)
+	b.push(dest)
+}
+
+// emitStoreUpvalue 生成存储 upvalue 指令
+func (b *IRBuilder) emitStoreUpvalue(idx int, val *IRValue, line int) {
+	instr := NewInstr(OpStoreUpvalue, nil, val)
+	instr.LocalIdx = idx
+	instr.Line = line
+	b.current.AddInstr(instr)
 }
 
 // emitBinary 生成二元运算指令

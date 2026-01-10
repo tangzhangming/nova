@@ -42,6 +42,8 @@ const (
 	JITWithCalls
 	// JITWithObjects 支持对象操作的JIT
 	JITWithObjects
+	// JITWithExceptions 支持异常处理（遇到异常时回退到解释器）
+	JITWithExceptions
 	// JITFull 完全JIT支持
 	JITFull
 )
@@ -63,9 +65,10 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 		return JITDisabled
 	}
 	
-	// 不支持闭包（暂时）
-	if fn.UpvalueCount > 0 {
-		return JITDisabled
+	// 支持简单闭包（upvalue 数量限制）
+	// 复杂闭包会降级到 JITWithCalls 级别，需要运行时支持
+	if fn.UpvalueCount > 4 {
+		return JITDisabled // 超过 4 个 upvalue 暂不支持
 	}
 	
 	level := JITFull
@@ -80,13 +83,23 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 		// 完全不支持的操作
 		case bytecode.OpNewArray, // 创建数组需要复杂的内存分配
 			bytecode.OpNewMap, bytecode.OpMapGet, bytecode.OpMapSet, bytecode.OpMapHas, bytecode.OpMapLen,
-			bytecode.OpClosure, // 闭包需要复杂的环境捕获
-			bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry, // 异常处理
-			bytecode.OpEnterCatch, bytecode.OpEnterFinally, bytecode.OpLeaveFinally, bytecode.OpRethrow,
 			bytecode.OpConcat, bytecode.OpStringBuilderNew, bytecode.OpStringBuilderAdd, bytecode.OpStringBuilderBuild,
 			bytecode.OpIterInit, bytecode.OpIterNext, bytecode.OpIterKey, bytecode.OpIterValue,
 			bytecode.OpSuperArrayNew, bytecode.OpSuperArrayGet, bytecode.OpSuperArraySet:
 			return JITDisabled
+		
+		// 闭包创建（需要降级到较低级别）
+		case bytecode.OpClosure:
+			if level > JITWithCalls {
+				level = JITWithCalls // 闭包需要运行时支持
+			}
+		
+		// 异常处理操作（支持，但遇到时会回退到解释器）
+		case bytecode.OpThrow, bytecode.OpEnterTry, bytecode.OpLeaveTry,
+			bytecode.OpEnterCatch, bytecode.OpEnterFinally, bytecode.OpLeaveFinally, bytecode.OpRethrow:
+			if level > JITWithExceptions {
+				level = JITWithExceptions
+			}
 		
 		// 函数调用（需要 JITWithCalls 级别）
 		case bytecode.OpCall, bytecode.OpTailCall, bytecode.OpCallMethod, bytecode.OpCallStatic:

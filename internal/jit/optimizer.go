@@ -155,40 +155,134 @@ func (opt *Optimizer) inlining(fn *IRFunc) bool {
 // loopInvariantCodeMotion 循环不变量外提
 // 将循环内的不变计算移动到循环外
 func (opt *Optimizer) loopInvariantCodeMotion(fn *IRFunc) bool {
-	// 简化实现：检测循环并标记循环深度
-	// 完整实现需要：
-	// 1. 计算支配树
-	// 2. 检测自然循环
-	// 3. 识别循环不变量
-	// 4. 检查移动的安全性
-	// 5. 将不变量移到循环前导块
-	
-	// 目前只做简单的标记，不实际移动代码
 	changed := false
 	
-	// 识别回边（back edges）来检测循环
-	for _, block := range fn.Blocks {
-		lastInstr := block.LastInstr()
-		if lastInstr != nil && lastInstr.Op == OpJump {
-			// 检查是否跳回到之前的块（简单的循环检测）
-			if len(lastInstr.Targets) > 0 {
-				target := lastInstr.Targets[0]
-				// 如果目标块的 ID 小于当前块，可能是回边
-				if target.ID < block.ID {
-					// 标记从 target 到 block 的所有块在循环中
-					for _, b := range fn.Blocks {
-						if b.ID >= target.ID && b.ID <= block.ID {
-							if b.LoopDepth == 0 {
-								b.LoopDepth = 1
-							}
+	// 使用 detectLoops 检测循环（来自 optimizations.go）
+	loops := opt.detectLoops(fn)
+	if len(loops) == 0 {
+		return false
+	}
+	
+	// 对每个循环，识别并外提不变量
+	for _, loop := range loops {
+		// 找到循环的前导块（preheader）
+		preheader := opt.findPreheader(loop)
+		if preheader == nil {
+			continue
+		}
+		
+		// 收集循环内定义的所有值
+		loopDefs := make(map[*IRValue]bool)
+		for _, block := range loop.Body {
+			for _, instr := range block.Instrs {
+				if instr.Dest != nil {
+					loopDefs[instr.Dest] = true
+				}
+			}
+		}
+		
+		// 迭代查找并外提不变量
+		for {
+			moved := false
+			for _, block := range loop.Body {
+				newInstrs := make([]*IRInstr, 0, len(block.Instrs))
+				for _, instr := range block.Instrs {
+					// 检查是否为循环不变量
+					if opt.isLoopInvariantInstr(instr, loopDefs) && opt.isSafeToHoist(instr) {
+						// 移动到前导块（插入到最后一条指令之前）
+						if len(preheader.Instrs) > 0 {
+							lastIdx := len(preheader.Instrs) - 1
+							preheader.Instrs = append(preheader.Instrs[:lastIdx], 
+								instr, preheader.Instrs[lastIdx])
+						} else {
+							preheader.Instrs = append(preheader.Instrs, instr)
 						}
+						// 从循环定义中移除
+						if instr.Dest != nil {
+							delete(loopDefs, instr.Dest)
+						}
+						moved = true
+						changed = true
+					} else {
+						newInstrs = append(newInstrs, instr)
 					}
 				}
+				block.Instrs = newInstrs
+			}
+			if !moved {
+				break
 			}
 		}
 	}
 	
 	return changed
+}
+
+// findPreheader 查找循环的前导块
+func (opt *Optimizer) findPreheader(loop *LoopInfo) *IRBlock {
+	header := loop.Header
+	
+	// 检查是否已有唯一的非循环前驱
+	var nonLoopPreds []*IRBlock
+	loopBlockSet := make(map[int]bool)
+	for _, b := range loop.Body {
+		loopBlockSet[b.ID] = true
+	}
+	
+	for _, pred := range header.Preds {
+		if !loopBlockSet[pred.ID] {
+			nonLoopPreds = append(nonLoopPreds, pred)
+		}
+	}
+	
+	// 如果只有一个非循环前驱，直接使用它
+	if len(nonLoopPreds) == 1 {
+		return nonLoopPreds[0]
+	}
+	
+	return nil
+}
+
+// isLoopInvariantInstr 检查指令是否为循环不变量
+func (opt *Optimizer) isLoopInvariantInstr(instr *IRInstr, loopDefs map[*IRValue]bool) bool {
+	// 跳过控制流指令和副作用指令
+	switch instr.Op {
+	case OpJump, OpBranch, OpReturn, OpCall, OpCallDirect, OpCallIndirect,
+		OpCallBuiltin, OpCallMethod, OpCallVirtual, OpTailCall,
+		OpStoreLocal, OpSetField, OpArraySet, OpPhi, OpNop:
+		return false
+	}
+	
+	// 检查所有操作数是否都是循环不变的
+	for _, arg := range instr.Args {
+		if arg == nil {
+			continue
+		}
+		// 常量是不变的
+		if arg.IsConst {
+			continue
+		}
+		// 如果操作数在循环内定义，则不是不变量
+		if loopDefs[arg] {
+			return false
+		}
+	}
+	
+	return true
+}
+
+// isSafeToHoist 检查是否可以安全地外提指令
+func (opt *Optimizer) isSafeToHoist(instr *IRInstr) bool {
+	// 纯计算指令可以安全外提
+	switch instr.Op {
+	case OpConst, OpAdd, OpSub, OpMul, OpDiv, OpMod, OpNeg,
+		OpEq, OpNe, OpLt, OpLe, OpGt, OpGe,
+		OpNot, OpAnd, OpOr,
+		OpBitAnd, OpBitOr, OpBitXor, OpBitNot, OpShl, OpShr,
+		OpIntToFloat, OpFloatToInt:
+		return true
+	}
+	return false
 }
 
 // ============================================================================

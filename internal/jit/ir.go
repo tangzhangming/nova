@@ -93,6 +93,10 @@ const (
 	// 局部变量操作
 	OpLoadLocal  // 加载局部变量
 	OpStoreLocal // 存储局部变量
+	
+	// Upvalue 操作（闭包）
+	OpLoadUpvalue  // 加载 upvalue（闭包捕获的变量）
+	OpStoreUpvalue // 存储 upvalue
 
 	// 算术运算
 	OpAdd // 加法
@@ -158,12 +162,17 @@ const (
 
 	// 标记指令
 	OpNop // 空操作（占位符，优化后可能产生）
+	
+	// 异常处理
+	OpExceptionFallback // 触发异常回退到解释器
 )
 
 var opcodeNames = map[Opcode]string{
-	OpConst:       "const",
-	OpLoadLocal:   "load",
-	OpStoreLocal:  "store",
+	OpConst:        "const",
+	OpLoadLocal:    "load",
+	OpStoreLocal:   "store",
+	OpLoadUpvalue:  "loadup",
+	OpStoreUpvalue: "storeup",
 	OpAdd:         "add",
 	OpSub:         "sub",
 	OpMul:         "mul",
@@ -208,7 +217,8 @@ var opcodeNames = map[Opcode]string{
 	OpArraySet:         "aset",
 	OpArrayLen:         "alen",
 	OpArrayBoundsCheck: "boundscheck",
-	OpNop:              "nop",
+	OpNop:               "nop",
+	OpExceptionFallback: "exception.fallback",
 }
 
 func (op Opcode) String() string {
@@ -227,14 +237,17 @@ func (op Opcode) String() string {
 type IRValue struct {
 	ID   int       // 唯一标识符（SSA 中每个值都有唯一 ID）
 	Type ValueType // 值的类型
-	
+
 	// 如果是常量，这里存储常量值
 	IsConst   bool
 	ConstVal  bytecode.Value
 	
+	// 是否是异常回退标记值
+	IsFallback bool
+
 	// 定义此值的指令（如果不是常量）
 	Def       *IRInstr
-	
+
 	// 使用此值的所有指令（use-def 链）
 	Uses      []*IRInstr
 }
@@ -474,7 +487,7 @@ func (instr *IRInstr) String() string {
 
 // IsBranch 检查是否是分支指令
 func (instr *IRInstr) IsBranch() bool {
-	return instr.Op == OpJump || instr.Op == OpBranch || instr.Op == OpReturn
+	return instr.Op == OpJump || instr.Op == OpBranch || instr.Op == OpReturn || instr.Op == OpExceptionFallback
 }
 
 // IsTerminator 检查是否是终止指令

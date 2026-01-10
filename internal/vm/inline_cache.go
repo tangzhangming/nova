@@ -751,3 +751,140 @@ func (m *ICManager) DisableProfiling() {
 	// 不收集详细统计
 }
 
+// ============================================================================
+// IC 失效机制
+// ============================================================================
+
+// InvalidateClass 使与指定类相关的所有缓存失效
+// 当类被重定义（如方法添加/删除/修改）时调用
+func (m *ICManager) InvalidateClass(class *bytecode.Class) {
+	if class == nil {
+		return
+	}
+	
+	classPtr := classToPtr(class)
+	
+	// 失效所有方法缓存中与该类相关的条目
+	for _, entry := range m.methodCaches {
+		for _, cacheEntry := range entry.cache.caches {
+			if cacheEntry != nil && cacheEntry.cache != nil {
+				m.invalidateCacheForClass(cacheEntry.cache, classPtr)
+			}
+		}
+	}
+	
+	// 失效所有属性缓存中与该类相关的条目
+	for _, pc := range m.propertyCaches {
+		if pc.classPtr == classPtr {
+			pc.state = ICUninitialized
+			pc.classPtr = 0
+			pc.name = ""
+		}
+	}
+}
+
+// invalidateCacheForClass 使 InlineCache 中与指定类相关的条目失效
+func (m *ICManager) invalidateCacheForClass(ic *InlineCache, classPtr uintptr) {
+	if ic == nil {
+		return
+	}
+	
+	// 检查并移除与该类相关的条目
+	newEntries := make([]ICEntry, 0, len(ic.entries))
+	for _, entry := range ic.entries {
+		if entry.ClassPtr != classPtr {
+			newEntries = append(newEntries, entry)
+		}
+	}
+	
+	// 更新条目列表
+	ic.entries = newEntries
+	
+	// 更新状态
+	switch len(ic.entries) {
+	case 0:
+		ic.state = ICUninitialized
+	case 1:
+		ic.state = ICMonomorphic
+	default:
+		ic.state = ICPolymorphic
+	}
+}
+
+// InvalidateAll 使所有缓存失效
+// 用于全局重置或重大运行时变更
+func (m *ICManager) InvalidateAll() {
+	// 清空方法缓存
+	for _, entry := range m.methodCaches {
+		entry.cache.Reset()
+	}
+	
+	// 清空属性缓存
+	for _, pc := range m.propertyCaches {
+		pc.state = ICUninitialized
+		pc.classPtr = 0
+		pc.name = ""
+	}
+}
+
+// InvalidateMethod 使与指定方法相关的缓存失效
+// 当单个方法被修改时调用（比完整的类失效更精细）
+func (m *ICManager) InvalidateMethod(class *bytecode.Class, methodName string) {
+	if class == nil || methodName == "" {
+		return
+	}
+	
+	classPtr := classToPtr(class)
+	
+	// 遍历所有方法缓存
+	for _, entry := range m.methodCaches {
+		for _, cacheEntry := range entry.cache.caches {
+			if cacheEntry != nil && cacheEntry.cache != nil {
+				m.invalidateCacheForMethod(cacheEntry.cache, classPtr, methodName)
+			}
+		}
+	}
+}
+
+// invalidateCacheForMethod 使 InlineCache 中与指定方法相关的条目失效
+func (m *ICManager) invalidateCacheForMethod(ic *InlineCache, classPtr uintptr, methodName string) {
+	if ic == nil {
+		return
+	}
+	
+	// 检查并移除与该方法相关的条目
+	newEntries := make([]ICEntry, 0, len(ic.entries))
+	for _, entry := range ic.entries {
+		// 只移除完全匹配的条目（类指针和方法名都匹配）
+		if entry.ClassPtr == classPtr && entry.Method != nil && entry.Method.Name == methodName {
+			continue // 跳过该条目
+		}
+		newEntries = append(newEntries, entry)
+	}
+	
+	// 更新条目列表
+	ic.entries = newEntries
+	
+	// 更新状态
+	switch len(ic.entries) {
+	case 0:
+		ic.state = ICUninitialized
+	case 1:
+		ic.state = ICMonomorphic
+	default:
+		ic.state = ICPolymorphic
+	}
+}
+
+// InvalidateHierarchy 使类及其所有子类的缓存失效
+// 当类层次结构发生变化时调用
+func (m *ICManager) InvalidateHierarchy(class *bytecode.Class, subclasses []*bytecode.Class) {
+	// 首先失效当前类
+	m.InvalidateClass(class)
+	
+	// 然后失效所有子类
+	for _, subclass := range subclasses {
+		m.InvalidateClass(subclass)
+	}
+}
+
