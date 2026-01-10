@@ -53,3 +53,15 @@ func DefaultOptions() *Options {
 	}
 }
 
+// IndentString 返回单个缩进级别的字符串
+func (o *Options) IndentString() string {
+	if o.IndentStyle == "tabs" {
+		return "\t"
+	}
+	result := ""
+	for i := 0; i < o.IndentSize; i++ {
+		result += " "
+	}
+	return result
+}
+

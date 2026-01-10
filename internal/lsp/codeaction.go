@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tangzhangming/nova/internal/ast"
 	"go.lsp.dev/protocol"
 )
 
@@ -265,8 +266,589 @@ func (s *Server) getSourceActions(doc *Document, rang protocol.Range) []protocol
 		actions = append(actions, *removeUnused)
 	}
 
+	// 提取方法
+	if extractMethod := s.getExtractMethodAction(doc, rang); extractMethod != nil {
+		actions = append(actions, *extractMethod)
+	}
+
+	// 提取变量
+	if extractVar := s.getExtractVariableAction(doc, rang); extractVar != nil {
+		actions = append(actions, *extractVar)
+	}
+
+	// 生成构造函数
+	if genConstructor := s.getGenerateConstructorAction(doc, rang); genConstructor != nil {
+		actions = append(actions, *genConstructor)
+	}
+
+	// 生成Getter/Setter
+	if genAccessors := s.getGenerateAccessorsAction(doc, rang); genAccessors != nil {
+		actions = append(actions, genAccessors...)
+	}
+
+	// 实现接口
+	if implInterface := s.getImplementInterfaceAction(doc, rang); implInterface != nil {
+		actions = append(actions, *implInterface)
+	}
+
+	// 添加缺失的导入
+	if addImport := s.getAddMissingImportAction(doc, rang); addImport != nil {
+		actions = append(actions, *addImport)
+	}
+
 	return actions
 }
+
+// getExtractMethodAction 获取提取方法的操作
+func (s *Server) getExtractMethodAction(doc *Document, rang protocol.Range) *protocol.CodeAction {
+	// 检查是否选中了多行代码
+	if rang.Start.Line == rang.End.Line && rang.Start.Character == rang.End.Character {
+		return nil
+	}
+
+	// 检查选中的是否是有效的语句
+	startLine := int(rang.Start.Line)
+	endLine := int(rang.End.Line)
+
+	if endLine-startLine < 1 {
+		return nil
+	}
+
+	// 获取选中的代码
+	var selectedLines []string
+	for i := startLine; i <= endLine && i < len(doc.Lines); i++ {
+		selectedLines = append(selectedLines, doc.Lines[i])
+	}
+
+	if len(selectedLines) == 0 {
+		return nil
+	}
+
+	docURI := protocol.DocumentURI(doc.URI)
+
+	// 获取缩进
+	indent := getIndent(doc.GetLine(startLine))
+
+	// 生成方法存根
+	methodStub := "\n\n" + indent + "private function extractedMethod(): void {\n"
+	for _, line := range selectedLines {
+		methodStub += indent + "    " + strings.TrimLeft(line, " \t") + "\n"
+	}
+	methodStub += indent + "}\n"
+
+	// 找到插入位置（当前类的末尾）
+	insertLine := s.findClassEndLine(doc)
+	if insertLine < 0 {
+		return nil
+	}
+
+	return &protocol.CodeAction{
+		Title: "提取方法 (Extract Method)",
+		Kind:  protocol.RefactorExtract,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				docURI: {
+					// 替换选中区域为方法调用
+					{
+						Range: rang,
+						NewText: indent + "$this->extractedMethod();",
+					},
+					// 添加新方法
+					{
+						Range: protocol.Range{
+							Start: protocol.Position{Line: uint32(insertLine), Character: 0},
+							End:   protocol.Position{Line: uint32(insertLine), Character: 0},
+						},
+						NewText: methodStub,
+					},
+				},
+			},
+		},
+	}
+}
+
+// getExtractVariableAction 获取提取变量的操作
+func (s *Server) getExtractVariableAction(doc *Document, rang protocol.Range) *protocol.CodeAction {
+	// 检查是否选中了表达式
+	if rang.Start.Line != rang.End.Line {
+		return nil // 只支持单行表达式
+	}
+
+	line := int(rang.Start.Line)
+	lineText := doc.GetLine(line)
+
+	startChar := int(rang.Start.Character)
+	endChar := int(rang.End.Character)
+
+	if startChar >= endChar || endChar > len(lineText) {
+		return nil
+	}
+
+	selectedText := lineText[startChar:endChar]
+	if selectedText == "" || strings.TrimSpace(selectedText) == "" {
+		return nil
+	}
+
+	// 检查是否是有效的表达式（简单检查）
+	if strings.Contains(selectedText, "=") && !strings.Contains(selectedText, "==") {
+		return nil // 不是表达式
+	}
+
+	docURI := protocol.DocumentURI(doc.URI)
+	indent := getIndent(lineText)
+
+	// 生成变量声明
+	varDecl := indent + "$extractedVar := " + selectedText + "\n"
+
+	return &protocol.CodeAction{
+		Title: "提取变量 (Extract Variable)",
+		Kind:  protocol.RefactorExtract,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				docURI: {
+					// 在当前行之前添加变量声明
+					{
+						Range: protocol.Range{
+							Start: protocol.Position{Line: uint32(line), Character: 0},
+							End:   protocol.Position{Line: uint32(line), Character: 0},
+						},
+						NewText: varDecl,
+					},
+					// 替换选中的表达式为变量
+					{
+						Range:   rang,
+						NewText: "$extractedVar",
+					},
+				},
+			},
+		},
+	}
+}
+
+// getGenerateConstructorAction 获取生成构造函数的操作
+func (s *Server) getGenerateConstructorAction(doc *Document, rang protocol.Range) *protocol.CodeAction {
+	astFile := doc.GetAST()
+	if astFile == nil {
+		return nil
+	}
+
+	// 查找当前位置所在的类
+	line := int(rang.Start.Line) + 1 // AST 使用 1-based
+	var targetClass *ast.ClassDecl
+
+	for _, decl := range astFile.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			if classDecl.ClassToken.Pos.Line <= line && classDecl.RBrace.Pos.Line >= line {
+				targetClass = classDecl
+				break
+			}
+		}
+	}
+
+	if targetClass == nil {
+		return nil
+	}
+
+	// 检查是否已有构造函数
+	for _, method := range targetClass.Methods {
+		if method.Name.Name == "__construct" {
+			return nil
+		}
+	}
+
+	// 如果没有属性，不生成构造函数
+	if len(targetClass.Properties) == 0 {
+		return nil
+	}
+
+	docURI := protocol.DocumentURI(doc.URI)
+
+	// 生成构造函数
+	var params []string
+	var assignments []string
+	for _, prop := range targetClass.Properties {
+		if prop.Static {
+			continue
+		}
+		paramType := "dynamic"
+		if prop.Type != nil {
+			paramType = typeNodeToString(prop.Type)
+		}
+		params = append(params, "$"+prop.Name.Name+": "+paramType)
+		assignments = append(assignments, "        $this->"+prop.Name.Name+" = $"+prop.Name.Name+";")
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+
+	constructor := "\n    public function __construct(" + strings.Join(params, ", ") + "): void {\n"
+	constructor += strings.Join(assignments, "\n") + "\n"
+	constructor += "    }\n"
+
+	// 找到插入位置（类的第一个方法之前，或属性之后）
+	insertLine := targetClass.RBrace.Pos.Line - 1
+
+	return &protocol.CodeAction{
+		Title: "生成构造函数 (Generate Constructor)",
+		Kind:  protocol.SourceOrganizeImports,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				docURI: {
+					{
+						Range: protocol.Range{
+							Start: protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+							End:   protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+						},
+						NewText: constructor,
+					},
+				},
+			},
+		},
+	}
+}
+
+// getGenerateAccessorsAction 获取生成Getter/Setter的操作
+func (s *Server) getGenerateAccessorsAction(doc *Document, rang protocol.Range) []protocol.CodeAction {
+	var actions []protocol.CodeAction
+
+	astFile := doc.GetAST()
+	if astFile == nil {
+		return actions
+	}
+
+	line := int(rang.Start.Line) + 1
+	var targetClass *ast.ClassDecl
+	var targetProp *ast.PropertyDecl
+
+	for _, decl := range astFile.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			for _, prop := range classDecl.Properties {
+				if prop.Name.Token.Pos.Line == line {
+					targetClass = classDecl
+					targetProp = prop
+					break
+				}
+			}
+		}
+	}
+
+	if targetClass == nil || targetProp == nil || targetProp.Static {
+		return actions
+	}
+
+	docURI := protocol.DocumentURI(doc.URI)
+	propName := targetProp.Name.Name
+	propType := "dynamic"
+	if targetProp.Type != nil {
+		propType = typeNodeToString(targetProp.Type)
+	}
+
+	// 首字母大写
+	capitalName := strings.ToUpper(propName[:1]) + propName[1:]
+
+	// 检查是否已有 getter/setter
+	hasGetter := false
+	hasSetter := false
+	for _, method := range targetClass.Methods {
+		if method.Name.Name == "get"+capitalName {
+			hasGetter = true
+		}
+		if method.Name.Name == "set"+capitalName {
+			hasSetter = true
+		}
+	}
+
+	insertLine := targetClass.RBrace.Pos.Line - 1
+
+	// 生成 Getter
+	if !hasGetter {
+		getter := "\n    public function get" + capitalName + "(): " + propType + " {\n"
+		getter += "        return $this->" + propName + ";\n"
+		getter += "    }\n"
+
+		actions = append(actions, protocol.CodeAction{
+			Title: "生成 Getter: get" + capitalName + "()",
+			Kind:  protocol.SourceOrganizeImports,
+			Edit: &protocol.WorkspaceEdit{
+				Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+					docURI: {
+						{
+							Range: protocol.Range{
+								Start: protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+								End:   protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+							},
+							NewText: getter,
+						},
+					},
+				},
+			},
+		})
+	}
+
+	// 生成 Setter
+	if !hasSetter {
+		setter := "\n    public function set" + capitalName + "($" + propName + ": " + propType + "): void {\n"
+		setter += "        $this->" + propName + " = $" + propName + ";\n"
+		setter += "    }\n"
+
+		actions = append(actions, protocol.CodeAction{
+			Title: "生成 Setter: set" + capitalName + "()",
+			Kind:  protocol.SourceOrganizeImports,
+			Edit: &protocol.WorkspaceEdit{
+				Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+					docURI: {
+						{
+							Range: protocol.Range{
+								Start: protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+								End:   protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+							},
+							NewText: setter,
+						},
+					},
+				},
+			},
+		})
+	}
+
+	return actions
+}
+
+// getImplementInterfaceAction 获取实现接口的操作
+func (s *Server) getImplementInterfaceAction(doc *Document, rang protocol.Range) *protocol.CodeAction {
+	astFile := doc.GetAST()
+	if astFile == nil {
+		return nil
+	}
+
+	line := int(rang.Start.Line) + 1
+	var targetClass *ast.ClassDecl
+
+	for _, decl := range astFile.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			if classDecl.ClassToken.Pos.Line == line || classDecl.Name.Token.Pos.Line == line {
+				targetClass = classDecl
+				break
+			}
+		}
+	}
+
+	if targetClass == nil || len(targetClass.Implements) == 0 {
+		return nil
+	}
+
+	// 收集需要实现的方法
+	var missingMethods []string
+	existingMethods := make(map[string]bool)
+	for _, method := range targetClass.Methods {
+		existingMethods[method.Name.Name] = true
+	}
+
+	for _, impl := range targetClass.Implements {
+		implName := impl.String()
+		if simpleType, ok := impl.(*ast.SimpleType); ok {
+			implName = simpleType.Name
+		}
+
+		// 从工作区查找接口定义
+		if s.workspace != nil {
+			indexed := s.workspace.FindSymbolFile(implName)
+			if indexed != nil && indexed.AST != nil {
+				for _, decl := range indexed.AST.Declarations {
+					if ifaceDecl, ok := decl.(*ast.InterfaceDecl); ok && ifaceDecl.Name.Name == implName {
+						for _, method := range ifaceDecl.Methods {
+							if !existingMethods[method.Name.Name] {
+								missingMethods = append(missingMethods, formatMethodStub(method))
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// 从当前文件查找
+		for _, decl := range astFile.Declarations {
+			if ifaceDecl, ok := decl.(*ast.InterfaceDecl); ok && ifaceDecl.Name.Name == implName {
+				for _, method := range ifaceDecl.Methods {
+					if !existingMethods[method.Name.Name] {
+						missingMethods = append(missingMethods, formatMethodStub(method))
+					}
+				}
+			}
+		}
+	}
+
+	if len(missingMethods) == 0 {
+		return nil
+	}
+
+	docURI := protocol.DocumentURI(doc.URI)
+	insertLine := targetClass.RBrace.Pos.Line - 1
+	methodsCode := "\n" + strings.Join(missingMethods, "\n")
+
+	return &protocol.CodeAction{
+		Title: "实现接口方法 (Implement Interface Methods)",
+		Kind:  protocol.QuickFix,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				docURI: {
+					{
+						Range: protocol.Range{
+							Start: protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+							End:   protocol.Position{Line: uint32(insertLine - 1), Character: 0},
+						},
+						NewText: methodsCode,
+					},
+				},
+			},
+		},
+	}
+}
+
+// getAddMissingImportAction 获取添加缺失导入的操作
+func (s *Server) getAddMissingImportAction(doc *Document, rang protocol.Range) *protocol.CodeAction {
+	line := int(rang.Start.Line)
+	lineText := doc.GetLine(line)
+
+	// 查找可能的类名引用
+	word := doc.GetWordAt(line, int(rang.Start.Character))
+	if word == "" {
+		return nil
+	}
+
+	// 检查是否已导入
+	astFile := doc.GetAST()
+	if astFile != nil {
+		for _, use := range astFile.Uses {
+			if use == nil {
+				continue
+			}
+			// 检查路径的最后部分是否匹配
+			parts := strings.Split(use.Path, ".")
+			if len(parts) > 0 && parts[len(parts)-1] == word {
+				return nil // 已导入
+			}
+			if use.Alias != nil && use.Alias.Name == word {
+				return nil // 已通过别名导入
+			}
+		}
+	}
+
+	// 从工作区查找类定义
+	if s.workspace == nil {
+		return nil
+	}
+
+	indexed := s.workspace.FindSymbolFile(word)
+	if indexed == nil || indexed.AST == nil {
+		return nil
+	}
+
+	// 检查是否确实定义了该类/接口/枚举
+	var importPath string
+	for _, decl := range indexed.AST.Declarations {
+		switch d := decl.(type) {
+		case *ast.ClassDecl:
+			if d.Name.Name == word {
+				importPath = getImportPath(indexed.Path)
+			}
+		case *ast.InterfaceDecl:
+			if d.Name.Name == word {
+				importPath = getImportPath(indexed.Path)
+			}
+		case *ast.EnumDecl:
+			if d.Name.Name == word {
+				importPath = getImportPath(indexed.Path)
+			}
+		}
+	}
+
+	if importPath == "" {
+		return nil
+	}
+
+	// 检查错误消息是否包含 "undefined" 或类似内容
+	if !strings.Contains(strings.ToLower(lineText), word) {
+		return nil
+	}
+
+	docURI := protocol.DocumentURI(doc.URI)
+
+	// 找到插入位置（文件开头或已有use之后）
+	insertLine := 0
+	if astFile != nil && len(astFile.Uses) > 0 {
+		lastUse := astFile.Uses[len(astFile.Uses)-1]
+		insertLine = lastUse.UseToken.Pos.Line
+	}
+
+	importStmt := "use \"" + importPath + "\"\n"
+
+	return &protocol.CodeAction{
+		Title: "导入 " + word + " (Add Import)",
+		Kind:  protocol.QuickFix,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				docURI: {
+					{
+						Range: protocol.Range{
+							Start: protocol.Position{Line: uint32(insertLine), Character: 0},
+							End:   protocol.Position{Line: uint32(insertLine), Character: 0},
+						},
+						NewText: importStmt,
+					},
+				},
+			},
+		},
+	}
+}
+
+// findClassEndLine 查找当前类的结束行
+func (s *Server) findClassEndLine(doc *Document) int {
+	astFile := doc.GetAST()
+	if astFile == nil {
+		return -1
+	}
+
+	for _, decl := range astFile.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			return classDecl.RBrace.Pos.Line - 1
+		}
+	}
+	return -1
+}
+
+// formatMethodStub 格式化方法存根
+func formatMethodStub(method *ast.MethodDecl) string {
+	var params []string
+	for _, param := range method.Parameters {
+		paramStr := "$" + param.Name.Name
+		if param.Type != nil {
+			paramStr = typeNodeToString(param.Type) + " " + paramStr
+		}
+		params = append(params, paramStr)
+	}
+
+	returnType := "void"
+	if method.ReturnType != nil {
+		returnType = typeNodeToString(method.ReturnType)
+	}
+
+	return "    public function " + method.Name.Name + "(" + strings.Join(params, ", ") + "): " + returnType + " {\n        // TODO: 实现此方法\n    }\n"
+}
+
+// getImportPath 从文件路径获取导入路径
+func getImportPath(filePath string) string {
+	// 简化处理：使用文件名作为导入路径
+	base := strings.TrimSuffix(filePath, ".sola")
+	// 将路径分隔符转换为点
+	base = strings.ReplaceAll(base, "\\", "/")
+	parts := strings.Split(base, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return base
+}
+
 
 // getOrganizeUsesAction 获取组织 use 声明的操作
 func (s *Server) getOrganizeUsesAction(doc *Document) *protocol.CodeAction {

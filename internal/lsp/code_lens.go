@@ -50,18 +50,29 @@ func (s *Server) collectCodeLenses(doc *Document) []CodeLens {
 		return lenses
 	}
 
+	// 添加测试相关的 Code Lenses
+	testLenses := s.GetTestCodeLenses(doc)
+	lenses = append(lenses, testLenses...)
+
 	// 为每个类和方法添加代码镜头
 	for _, decl := range astFile.Declarations {
 		switch d := decl.(type) {
 		case *ast.ClassDecl:
-			// 类级别的代码镜头：显示实现数量
-			classLens := s.createClassCodeLens(d, doc.URI)
-			if classLens != nil {
-				lenses = append(lenses, *classLens)
+			// 跳过测试类的引用计数（已经有测试相关的 Code Lens）
+			if !IsTestClass(d) {
+				// 类级别的代码镜头：显示实现数量
+				classLens := s.createClassCodeLens(d, doc.URI)
+				if classLens != nil {
+					lenses = append(lenses, *classLens)
+				}
 			}
 
-			// 方法级别的代码镜头
+			// 方法级别的代码镜头（跳过测试方法）
 			for _, method := range d.Methods {
+				if IsTestClass(d) && IsTestMethod(method) {
+					// 测试方法已经有测试相关的 Code Lens，跳过引用计数
+					continue
+				}
 				methodLenses := s.createMethodCodeLenses(d.Name.Name, method, doc.URI)
 				lenses = append(lenses, methodLenses...)
 			}

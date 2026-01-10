@@ -1132,6 +1132,353 @@ func formatFunctionSigShort(fn *compiler.FunctionSignature) string {
 	return result
 }
 
+// handleCompletionResolve 处理补全项解析请求
+func (s *Server) handleCompletionResolve(id json.RawMessage, params json.RawMessage) {
+	var item protocol.CompletionItem
+	if err := json.Unmarshal(params, &item); err != nil {
+		s.sendError(id, -32700, "Parse error")
+		return
+	}
+
+	// 解析补全项的详细信息
+	resolvedItem := s.resolveCompletionItem(item)
+	s.sendResult(id, resolvedItem)
+}
+
+// resolveCompletionItem 解析补全项的详细信息
+func (s *Server) resolveCompletionItem(item protocol.CompletionItem) protocol.CompletionItem {
+	// 获取补全项的详细文档
+	switch item.Kind {
+	case protocol.CompletionItemKindFunction:
+		item.Documentation = s.getFunctionDocumentation(item.Label)
+	case protocol.CompletionItemKindMethod:
+		item.Documentation = s.getMethodDocumentation(item.Label, item.Detail)
+	case protocol.CompletionItemKindClass:
+		item.Documentation = s.getClassDocumentation(item.Label)
+	case protocol.CompletionItemKindInterface:
+		item.Documentation = s.getInterfaceDocumentation(item.Label)
+	case protocol.CompletionItemKindProperty:
+		item.Documentation = s.getPropertyDocumentation(item.Label, item.Detail)
+	case protocol.CompletionItemKindVariable:
+		item.Documentation = s.getVariableDocumentation(item.Label)
+	case protocol.CompletionItemKindKeyword:
+		item.Documentation = s.getKeywordDocumentation(item.Label)
+	}
+
+	return item
+}
+
+// getFunctionDocumentation 获取函数文档
+func (s *Server) getFunctionDocumentation(name string) *protocol.MarkupContent {
+	// 内置函数文档
+	builtinDocs := map[string]string{
+		"print":   "输出内容到标准输出\n\n**语法**: `print(...$values)`\n\n**参数**: 可变参数，支持任意类型",
+		"println": "输出内容到标准输出并换行\n\n**语法**: `println(...$values)`\n\n**参数**: 可变参数，支持任意类型",
+		"len":     "获取字符串、数组或Map的长度\n\n**语法**: `len($value): int`\n\n**返回**: 长度值",
+		"type":    "获取值的类型名称\n\n**语法**: `type($value): string`\n\n**返回**: 类型名称字符串",
+		"time":    "获取当前Unix时间戳（毫秒）\n\n**语法**: `time(): int`\n\n**返回**: 时间戳",
+		"sleep":   "暂停执行指定毫秒数\n\n**语法**: `sleep($ms: int): void`",
+		"panic":   "抛出运行时错误\n\n**语法**: `panic($message: string): void`",
+		"assert":  "断言条件为真，否则抛出错误\n\n**语法**: `assert($condition: bool, $message?: string): void`",
+	}
+
+	if doc, ok := builtinDocs[name]; ok {
+		return &protocol.MarkupContent{
+			Kind:  protocol.Markdown,
+			Value: doc,
+		}
+	}
+
+	// 从工作区索引查找函数
+	if s.workspace != nil {
+		for _, indexed := range s.workspace.GetAllFiles() {
+			if indexed.Symbols != nil {
+				if fn := indexed.Symbols.GetFunction(name); fn != nil {
+					doc := formatFunctionDoc(name, fn)
+					return &protocol.MarkupContent{
+						Kind:  protocol.Markdown,
+						Value: doc,
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// getMethodDocumentation 获取方法文档
+func (s *Server) getMethodDocumentation(methodName, detail string) *protocol.MarkupContent {
+	// 解析类名（如果detail包含类名信息）
+	className := ""
+	if detail != "" {
+		parts := strings.Split(detail, "::")
+		if len(parts) > 0 {
+			className = strings.TrimSpace(parts[0])
+		}
+	}
+
+	// 从工作区查找方法定义
+	if s.workspace != nil && className != "" {
+		indexed := s.workspace.FindSymbolFile(className)
+		if indexed != nil && indexed.AST != nil {
+			for _, decl := range indexed.AST.Declarations {
+				if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == className {
+					for _, method := range classDecl.Methods {
+						if method.Name.Name == methodName {
+							doc := formatMethodDoc(className, method)
+							return &protocol.MarkupContent{
+								Kind:  protocol.Markdown,
+								Value: doc,
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// getClassDocumentation 获取类文档
+func (s *Server) getClassDocumentation(name string) *protocol.MarkupContent {
+	if s.workspace != nil {
+		indexed := s.workspace.FindSymbolFile(name)
+		if indexed != nil && indexed.AST != nil {
+			for _, decl := range indexed.AST.Declarations {
+				if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == name {
+					doc := formatClassDoc(classDecl)
+					return &protocol.MarkupContent{
+						Kind:  protocol.Markdown,
+						Value: doc,
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// getInterfaceDocumentation 获取接口文档
+func (s *Server) getInterfaceDocumentation(name string) *protocol.MarkupContent {
+	if s.workspace != nil {
+		indexed := s.workspace.FindSymbolFile(name)
+		if indexed != nil && indexed.AST != nil {
+			for _, decl := range indexed.AST.Declarations {
+				if ifaceDecl, ok := decl.(*ast.InterfaceDecl); ok && ifaceDecl.Name.Name == name {
+					doc := formatInterfaceDoc(ifaceDecl)
+					return &protocol.MarkupContent{
+						Kind:  protocol.Markdown,
+						Value: doc,
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// getPropertyDocumentation 获取属性文档
+func (s *Server) getPropertyDocumentation(name, detail string) *protocol.MarkupContent {
+	if detail != "" {
+		return &protocol.MarkupContent{
+			Kind:  protocol.Markdown,
+			Value: "**类型**: `" + detail + "`",
+		}
+	}
+	return nil
+}
+
+// getVariableDocumentation 获取变量文档
+func (s *Server) getVariableDocumentation(name string) *protocol.MarkupContent {
+	// 特殊变量文档
+	specialVars := map[string]string{
+		"$this":   "当前对象实例的引用",
+		"$self":   "当前类的静态引用",
+		"$parent": "父类的静态引用",
+	}
+
+	if doc, ok := specialVars[name]; ok {
+		return &protocol.MarkupContent{
+			Kind:  protocol.Markdown,
+			Value: doc,
+		}
+	}
+	return nil
+}
+
+// getKeywordDocumentation 获取关键字文档
+func (s *Server) getKeywordDocumentation(keyword string) *protocol.MarkupContent {
+	keywordDocs := map[string]string{
+		"class":      "定义一个类\n\n```sola\nclass ClassName {\n    // 属性和方法\n}\n```",
+		"interface":  "定义一个接口\n\n```sola\ninterface InterfaceName {\n    public function methodName(): ReturnType;\n}\n```",
+		"enum":       "定义一个枚举\n\n```sola\nenum EnumName {\n    case Value1;\n    case Value2;\n}\n```",
+		"function":   "定义一个方法\n\n```sola\npublic function name($param: Type): ReturnType {\n    // 方法体\n}\n```",
+		"extends":    "继承一个类\n\n```sola\nclass Child extends Parent {\n}\n```",
+		"implements": "实现一个或多个接口\n\n```sola\nclass MyClass implements Interface1, Interface2 {\n}\n```",
+		"new":        "创建类的实例\n\n```sola\n$obj := new ClassName($arg1, $arg2)\n```",
+		"return":     "从方法返回值\n\n```sola\nreturn $value\n```",
+		"if":         "条件语句\n\n```sola\nif ($condition) {\n    // ...\n} elseif ($other) {\n    // ...\n} else {\n    // ...\n}\n```",
+		"for":        "循环语句\n\n```sola\nfor ($i := 0; $i < 10; $i++) {\n    // ...\n}\n```",
+		"foreach":    "遍历数组或Map\n\n```sola\nforeach ($array as $key => $value) {\n    // ...\n}\n```",
+		"while":      "while循环\n\n```sola\nwhile ($condition) {\n    // ...\n}\n```",
+		"try":        "异常处理\n\n```sola\ntry {\n    // ...\n} catch (Exception $e) {\n    // ...\n} finally {\n    // ...\n}\n```",
+		"throw":      "抛出异常\n\n```sola\nthrow new Exception(\"error message\")\n```",
+		"use":        "导入模块\n\n```sola\nuse \"module.path\"\n```",
+		"static":     "声明静态成员，属于类本身而非实例",
+		"public":     "公开访问修饰符，可从任何地方访问",
+		"private":    "私有访问修饰符，仅在当前类中可访问",
+		"protected":  "受保护访问修饰符，在当前类和子类中可访问",
+		"const":      "定义常量\n\n```sola\nconst NAME: Type = value;\n```",
+		"final":      "声明不可被重写的方法或不可被继承的类",
+		"abstract":   "声明抽象类或抽象方法",
+		"go":         "启动一个并发协程\n\n```sola\ngo functionCall()\n```",
+		"select":     "多路通道选择\n\n```sola\nselect {\n    case $val := <- $ch1:\n        // ...\n    case $ch2 <- $val:\n        // ...\n}\n```",
+		"match":      "模式匹配表达式\n\n```sola\nmatch ($value) {\n    1 => \"one\",\n    2 => \"two\",\n    _ => \"other\"\n}\n```",
+	}
+
+	if doc, ok := keywordDocs[keyword]; ok {
+		return &protocol.MarkupContent{
+			Kind:  protocol.Markdown,
+			Value: doc,
+		}
+	}
+	return nil
+}
+
+// formatFunctionDoc 格式化函数文档
+func formatFunctionDoc(name string, fn *compiler.FunctionSignature) string {
+	var sb strings.Builder
+	sb.WriteString("```sola\n")
+	sb.WriteString("function " + name + "(")
+
+	for i, pt := range fn.ParamTypes {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		paramName := "$arg" + string(rune('0'+i))
+		if i < len(fn.ParamNames) {
+			paramName = "$" + fn.ParamNames[i]
+		}
+		sb.WriteString(paramName + ": " + pt)
+	}
+	sb.WriteString(")")
+
+	if fn.ReturnType != "" && fn.ReturnType != "void" {
+		sb.WriteString(": " + fn.ReturnType)
+	}
+	sb.WriteString("\n```")
+
+	return sb.String()
+}
+
+// formatMethodDoc 格式化方法文档
+func formatMethodDoc(className string, method *ast.MethodDecl) string {
+	var sb strings.Builder
+	sb.WriteString("```sola\n")
+
+	// 访问修饰符
+	if method.Static {
+		sb.WriteString("static ")
+	}
+
+	sb.WriteString("function " + method.Name.Name + "(")
+
+	for i, param := range method.Parameters {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString("$" + param.Name.Name)
+		if param.Type != nil {
+			sb.WriteString(": " + typeNodeToString(param.Type))
+		}
+	}
+	sb.WriteString(")")
+
+	if method.ReturnType != nil {
+		sb.WriteString(": " + typeNodeToString(method.ReturnType))
+	}
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("**类**: `" + className + "`")
+
+	return sb.String()
+}
+
+// formatClassDoc 格式化类文档
+func formatClassDoc(classDecl *ast.ClassDecl) string {
+	var sb strings.Builder
+	sb.WriteString("```sola\n")
+	sb.WriteString("class " + classDecl.Name.Name)
+
+	if classDecl.Extends != nil {
+		sb.WriteString(" extends " + classDecl.Extends.Name)
+	}
+
+	if len(classDecl.Implements) > 0 {
+		sb.WriteString(" implements ")
+		for i, impl := range classDecl.Implements {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(impl.String())
+		}
+	}
+
+	sb.WriteString("\n```\n\n")
+
+	// 方法列表
+	if len(classDecl.Methods) > 0 {
+		sb.WriteString("**方法**:\n")
+		for _, method := range classDecl.Methods {
+			sb.WriteString("- `" + method.Name.Name + formatMethodSignatureShort(method) + "`\n")
+		}
+	}
+
+	// 属性列表
+	if len(classDecl.Properties) > 0 {
+		sb.WriteString("\n**属性**:\n")
+		for _, prop := range classDecl.Properties {
+			sb.WriteString("- `$" + prop.Name.Name)
+			if prop.Type != nil {
+				sb.WriteString(": " + typeNodeToString(prop.Type))
+			}
+			sb.WriteString("`\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// formatInterfaceDoc 格式化接口文档
+func formatInterfaceDoc(ifaceDecl *ast.InterfaceDecl) string {
+	var sb strings.Builder
+	sb.WriteString("```sola\n")
+	sb.WriteString("interface " + ifaceDecl.Name.Name)
+
+	if len(ifaceDecl.Extends) > 0 {
+		sb.WriteString(" extends ")
+		for i, ext := range ifaceDecl.Extends {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(ext.String())
+		}
+	}
+
+	sb.WriteString("\n```\n\n")
+
+	// 方法列表
+	if len(ifaceDecl.Methods) > 0 {
+		sb.WriteString("**方法**:\n")
+		for _, method := range ifaceDecl.Methods {
+			sb.WriteString("- `" + method.Name.Name + formatMethodSignatureShort(method) + "`\n")
+		}
+	}
+
+	return sb.String()
+}
+
 // handleSignatureHelp 处理签名帮助请求
 func (s *Server) handleSignatureHelp(id json.RawMessage, params json.RawMessage) {
 	var p protocol.SignatureHelpParams
@@ -1194,7 +1541,7 @@ func (s *Server) getSignatureHelp(doc *Document, line, character int) *protocol.
 		return nil
 	}
 
-	// 提取函数名
+	// 提取函数名或方法名
 	funcStart := funcEnd - 1
 	for funcStart >= 0 && isWordChar(prefix[funcStart]) {
 		funcStart--
@@ -1206,8 +1553,80 @@ func (s *Server) getSignatureHelp(doc *Document, line, character int) *protocol.
 		return nil
 	}
 
-	// 查找函数签名
+	// 检查是否是方法调用 ($obj->method 或 $obj.method)
+	isMethodCall := false
+	objectName := ""
+	className := ""
+
+	if funcStart > 0 {
+		beforeFunc := prefix[:funcStart]
+		// 检查 -> 或 .
+		if strings.HasSuffix(strings.TrimRight(beforeFunc, " \t"), "->") ||
+			strings.HasSuffix(strings.TrimRight(beforeFunc, " \t"), ".") {
+			isMethodCall = true
+			// 提取对象名
+			sep := "->"
+			if strings.HasSuffix(strings.TrimRight(beforeFunc, " \t"), ".") {
+				sep = "."
+			}
+			idx := strings.LastIndex(beforeFunc, sep)
+			if idx >= 0 {
+				objPart := strings.TrimRight(beforeFunc[:idx], " \t")
+				start := len(objPart) - 1
+				for start >= 0 && (isWordChar(objPart[start]) || objPart[start] == '$') {
+					start--
+				}
+				objectName = objPart[start+1:]
+			}
+		} else if strings.HasSuffix(strings.TrimRight(beforeFunc, " \t"), "::") {
+			// 静态方法调用
+			isMethodCall = true
+			idx := strings.LastIndex(beforeFunc, "::")
+			if idx >= 0 {
+				classPart := strings.TrimRight(beforeFunc[:idx], " \t")
+				start := len(classPart) - 1
+				for start >= 0 && isWordChar(classPart[start]) {
+					start--
+				}
+				className = classPart[start+1:]
+			}
+		}
+	}
+
 	symbols := doc.GetSymbols()
+	astFile := doc.GetAST()
+
+	// 如果是方法调用，尝试获取方法签名
+	if isMethodCall {
+		// 推断对象类型
+		if objectName != "" && className == "" {
+			if objectName == "$this" || objectName == "this" {
+				// 当前类的方法
+				if astFile != nil {
+					for _, decl := range astFile.Declarations {
+						if classDecl, ok := decl.(*ast.ClassDecl); ok {
+							className = classDecl.Name.Name
+							break
+						}
+					}
+				}
+			} else {
+				// 推断变量类型
+				varName := strings.TrimPrefix(objectName, "$")
+				className = inferVariableType(astFile, varName)
+			}
+		}
+
+		// 从类中查找方法签名
+		if className != "" {
+			sig := s.getMethodSignature(className, funcName, astFile, symbols)
+			if sig != nil {
+				return sig
+			}
+		}
+	}
+
+	// 查找普通函数签名
 	if symbols == nil {
 		return nil
 	}
@@ -1248,5 +1667,117 @@ func (s *Server) getSignatureHelp(doc *Document, line, character int) *protocol.
 		},
 		ActiveSignature: 0,
 		ActiveParameter: uint32(commaCount),
+	}
+}
+
+// getMethodSignature 获取方法签名
+func (s *Server) getMethodSignature(className, methodName string, astFile *ast.File, symbols *compiler.SymbolTable) *protocol.SignatureHelp {
+	// 先从符号表查找
+	if symbols != nil {
+		if methods, ok := symbols.ClassMethods[className]; ok {
+			if sigs, ok := methods[methodName]; ok && len(sigs) > 0 {
+				sig := sigs[0]
+				var params []string
+				var paramInfos []protocol.ParameterInformation
+
+				for i, pt := range sig.ParamTypes {
+					paramName := "$arg" + string(rune('0'+i))
+					if i < len(sig.ParamNames) {
+						paramName = "$" + sig.ParamNames[i]
+					}
+					paramStr := pt + " " + paramName
+					params = append(params, paramStr)
+					paramInfos = append(paramInfos, protocol.ParameterInformation{
+						Label: paramStr,
+					})
+				}
+
+				sigLabel := className + "::" + methodName + "(" + strings.Join(params, ", ") + ")"
+				if sig.ReturnType != "" && sig.ReturnType != "void" {
+					sigLabel += ": " + sig.ReturnType
+				}
+
+				return &protocol.SignatureHelp{
+					Signatures: []protocol.SignatureInformation{
+						{
+							Label:      sigLabel,
+							Parameters: paramInfos,
+						},
+					},
+					ActiveSignature: 0,
+					ActiveParameter: 0,
+				}
+			}
+		}
+	}
+
+	// 从当前文件的AST查找
+	if astFile != nil {
+		for _, decl := range astFile.Declarations {
+			if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == className {
+				for _, method := range classDecl.Methods {
+					if method.Name.Name == methodName {
+						return s.methodToSignatureHelp(className, method)
+					}
+				}
+			}
+		}
+	}
+
+	// 从工作区索引查找
+	if s.workspace != nil {
+		indexed := s.workspace.FindSymbolFile(className)
+		if indexed != nil && indexed.AST != nil {
+			for _, decl := range indexed.AST.Declarations {
+				if classDecl, ok := decl.(*ast.ClassDecl); ok && classDecl.Name.Name == className {
+					for _, method := range classDecl.Methods {
+						if method.Name.Name == methodName {
+							return s.methodToSignatureHelp(className, method)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// methodToSignatureHelp 将方法转换为签名帮助
+func (s *Server) methodToSignatureHelp(className string, method *ast.MethodDecl) *protocol.SignatureHelp {
+	var params []string
+	var paramInfos []protocol.ParameterInformation
+
+	for _, param := range method.Parameters {
+		paramStr := "$" + param.Name.Name
+		if param.Type != nil {
+			paramStr = typeNodeToString(param.Type) + " " + paramStr
+		}
+		params = append(params, paramStr)
+
+		paramDoc := ""
+		if param.Type != nil {
+			paramDoc = "类型: " + typeNodeToString(param.Type)
+		}
+		paramInfos = append(paramInfos, protocol.ParameterInformation{
+			Label:         paramStr,
+			Documentation: paramDoc,
+		})
+	}
+
+	sigLabel := className + "::" + method.Name.Name + "(" + strings.Join(params, ", ") + ")"
+	if method.ReturnType != nil {
+		sigLabel += ": " + typeNodeToString(method.ReturnType)
+	}
+
+	return &protocol.SignatureHelp{
+		Signatures: []protocol.SignatureInformation{
+			{
+				Label:      sigLabel,
+				Parameters: paramInfos,
+			},
+		},
+		ActiveSignature: 0,
+		ActiveParameter: 0,
 	}
 }

@@ -26,6 +26,12 @@ type Server struct {
 	// 工作区根目录
 	workspaceRoot string
 
+	// 配置管理
+	configManager *ConfigurationManager
+
+	// 进度报告
+	progress *ProgressReporter
+
 	// 日志
 	logFile *os.File
 	logMu   sync.Mutex
@@ -195,6 +201,8 @@ func (s *Server) handleMessage(ctx context.Context, msg []byte) {
 		s.handleReferences(baseMsg.ID, baseMsg.Params)
 	case "textDocument/completion":
 		s.handleCompletion(baseMsg.ID, baseMsg.Params)
+	case "completionItem/resolve":
+		s.handleCompletionResolve(baseMsg.ID, baseMsg.Params)
 	case "textDocument/formatting":
 		s.handleFormatting(baseMsg.ID, baseMsg.Params)
 	case "textDocument/rangeFormatting":
@@ -239,8 +247,16 @@ func (s *Server) handleMessage(ctx context.Context, msg []byte) {
 		s.handleTypeHierarchySupertypes(baseMsg.ID, baseMsg.Params)
 	case "typeHierarchy/subtypes":
 		s.handleTypeHierarchySubtypes(baseMsg.ID, baseMsg.Params)
+	case "textDocument/linkedEditingRange":
+		s.handleLinkedEditingRange(baseMsg.ID, baseMsg.Params)
+	case "textDocument/documentColor":
+		s.handleDocumentColor(baseMsg.ID, baseMsg.Params)
+	case "textDocument/colorPresentation":
+		s.handleColorPresentation(baseMsg.ID, baseMsg.Params)
 	case "$/cancelRequest":
 		// 忽略取消请求
+	case "workspace/didChangeConfiguration":
+		s.handleConfigurationChanged(baseMsg.Params)
 	default:
 		s.log("Unknown method: %s", baseMsg.Method)
 		// 如果有 ID，返回方法未找到错误
@@ -279,7 +295,7 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 			// 代码补全
 			"completionProvider": map[string]interface{}{
 				"triggerCharacters": []string{".", ">", ":", "$", "\\"},
-				"resolveProvider":   false,
+				"resolveProvider":   true,
 			},
 			// 悬停提示
 			"hoverProvider": true,
@@ -308,6 +324,9 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 				"codeActionKinds": []string{
 					"quickfix",
 					"source.organizeImports",
+					"refactor.extract",
+					"refactor.inline",
+					"refactor.rewrite",
 				},
 			},
 			// 语义高亮
@@ -332,6 +351,10 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 			},
 			// 类型层次
 			"typeHierarchyProvider": true,
+			// 链接编辑
+			"linkedEditingRangeProvider": true,
+			// 文档颜色
+			"colorProvider": true,
 		},
 		"serverInfo": map[string]interface{}{
 			"name":    "solals",
@@ -347,13 +370,31 @@ func (s *Server) handleInitialized() {
 	s.initialized = true
 	s.log("Server initialized")
 
+	// 创建配置管理器
+	s.configManager = NewConfigurationManager(s)
+
+	// 创建进度报告器
+	s.progress = NewProgressReporter(s)
+
 	// 创建工作区索引
 	s.workspace = NewWorkspaceIndex(s.workspaceRoot, s.log)
 
 	// 异步索引标准库和工作区
 	go func() {
-		s.workspace.IndexStandardLibrary()
-		s.workspace.IndexWorkspace()
+		if s.progress != nil {
+			s.progress.WithProgress("索引工作区", func(report func(string, uint32)) {
+				report("正在索引标准库...", 10)
+				s.workspace.IndexStandardLibrary()
+				
+				report("正在索引工作区...", 50)
+				s.workspace.IndexWorkspace()
+				
+				report("索引完成", 100)
+			})
+		} else {
+			s.workspace.IndexStandardLibrary()
+			s.workspace.IndexWorkspace()
+		}
 		s.log("Workspace indexing complete")
 	}()
 }
