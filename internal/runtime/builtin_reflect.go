@@ -119,6 +119,162 @@ func annotationsToArray(annotations []*bytecode.Annotation) bytecode.Value {
 	return bytecode.NewArray(result)
 }
 
+// ============================================================================
+// ORM 反射扩展函数
+// ============================================================================
+
+// native_reflect_set_property(object, propName, value) - 动态设置对象属性值
+func builtinReflectSetProperty(args []bytecode.Value) bytecode.Value {
+	if len(args) < 3 {
+		return bytecode.FalseValue
+	}
+
+	// 第一个参数必须是对象
+	if args[0].Type != bytecode.ValObject {
+		return bytecode.FalseValue
+	}
+
+	obj := args[0].AsObject()
+
+	// 第二个参数必须是字符串（属性名）
+	if args[1].Type != bytecode.ValString {
+		return bytecode.FalseValue
+	}
+
+	propName := args[1].AsString()
+	value := args[2]
+
+	// 设置属性值
+	obj.SetField(propName, value)
+	return bytecode.TrueValue
+}
+
+// native_reflect_get_property(object, propName) - 动态获取对象属性值
+func builtinReflectGetProperty(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NullValue
+	}
+
+	// 第一个参数必须是对象
+	if args[0].Type != bytecode.ValObject {
+		return bytecode.NullValue
+	}
+
+	obj := args[0].AsObject()
+
+	// 第二个参数必须是字符串（属性名）
+	if args[1].Type != bytecode.ValString {
+		return bytecode.NullValue
+	}
+
+	propName := args[1].AsString()
+
+	// 获取属性值
+	if value, ok := obj.GetField(propName); ok {
+		return value
+	}
+
+	return bytecode.NullValue
+}
+
+// native_reflect_new_instance(className) - 根据类名动态创建实例
+func (r *Runtime) reflectNewInstance(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NullValue
+	}
+
+	// 参数必须是字符串（类名）
+	if args[0].Type != bytecode.ValString {
+		return bytecode.NullValue
+	}
+
+	className := args[0].AsString()
+
+	// 查找类定义
+	class := r.vm.GetClass(className)
+	if class == nil {
+		// 尝试其他命名空间格式
+		// 例如：User -> sola.database.orm.User
+		return bytecode.NullValue
+	}
+
+	// 创建对象实例
+	obj := bytecode.NewObjectInstance(class)
+
+	// 初始化属性默认值
+	for propName, defaultVal := range class.Properties {
+		obj.Fields[propName] = defaultVal
+	}
+
+	return bytecode.NewObject(obj)
+}
+
+// native_reflect_get_property_annotations(object, propName) - 获取属性的注解列表
+func (r *Runtime) reflectGetPropertyAnnotations(args []bytecode.Value) bytecode.Value {
+	if len(args) < 2 {
+		return bytecode.NewArray(nil)
+	}
+
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.NewArray(nil)
+	}
+
+	// 第二个参数必须是字符串（属性名）
+	if args[1].Type != bytecode.ValString {
+		return bytecode.NewArray(nil)
+	}
+
+	propName := args[1].AsString()
+
+	// 查找类定义
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.NewArray(nil)
+	}
+
+	// 获取属性注解
+	if annotations, ok := class.PropAnnotations[propName]; ok {
+		return annotationsToArray(annotations)
+	}
+
+	return bytecode.NewArray(nil)
+}
+
+// native_reflect_get_properties(object|className) - 获取对象/类的所有属性名
+// 支持传入对象实例或类名字符串
+func (r *Runtime) reflectGetProperties(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewArray(nil)
+	}
+
+	var class *bytecode.Class
+	if args[0].Type == bytecode.ValObject {
+		class = args[0].AsObject().Class
+	} else if args[0].Type == bytecode.ValString {
+		// 支持通过类名字符串查找
+		className := args[0].AsString()
+		class = r.vm.GetClass(className)
+		if class == nil {
+			return bytecode.NewArray(nil)
+		}
+	} else {
+		return bytecode.NewArray(nil)
+	}
+
+	// 获取所有属性名
+	props := make([]bytecode.Value, 0, len(class.Properties))
+	for propName := range class.Properties {
+		props = append(props, bytecode.NewString(propName))
+	}
+
+	return bytecode.NewArray(props)
+}
+
 
 
 

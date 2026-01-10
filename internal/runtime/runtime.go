@@ -484,6 +484,19 @@ func (r *Runtime) registerBuiltins() {
 		return r.hasAnnotation(args)
 	}
 
+	// ORM 反射扩展函数
+	r.builtins["native_reflect_set_property"] = builtinReflectSetProperty
+	r.builtins["native_reflect_get_property"] = builtinReflectGetProperty
+	r.builtins["native_reflect_new_instance"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectNewInstance(args)
+	}
+	r.builtins["native_reflect_get_property_annotations"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectGetPropertyAnnotations(args)
+	}
+	r.builtins["native_reflect_get_properties"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectGetProperties(args)
+	}
+
 	// 数组函数
 	r.builtins["len"] = builtinLen
 	r.builtins["push"] = builtinPush
