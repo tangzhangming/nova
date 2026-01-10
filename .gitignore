@@ -1,9 +1,10 @@
 *.exe
 *.bat
 *.ps1
+/.cursor/
 /bin/
 /idea/
-/.cursor/
+/tests/
 /examples/
 /editor/vscode/
 /benchmark/
