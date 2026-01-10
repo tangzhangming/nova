@@ -165,6 +165,30 @@ const (
 	
 	// 异常处理
 	OpExceptionFallback // 触发异常回退到解释器
+	
+	// 可变参数操作
+	OpVarArgsArray  // 获取可变参数数组
+	OpVarArgsLen    // 获取可变参数数量
+	OpVarArgsGet    // 获取可变参数指定索引的值
+	OpVarArgsPack   // 将参数打包为可变参数数组
+	OpVarArgsUnpack // 展开可变参数数组
+	
+	// Map 操作
+	OpMapGet    // Map 获取元素
+	OpMapSet    // Map 设置元素
+	OpMapHas    // Map 检查键是否存在
+	OpMapLen    // Map 长度
+	OpMapKeys   // Map 获取所有键
+	OpMapValues // Map 获取所有值
+	OpMapDelete // Map 删除元素
+	
+	// 迭代器操作
+	OpIterInit   // 初始化迭代器
+	OpIterNext   // 获取下一个元素
+	OpIterHasNext // 检查是否有更多元素
+	OpIterKey    // 获取当前键
+	OpIterValue  // 获取当前值
+	OpIterReset  // 重置迭代器
 )
 
 var opcodeNames = map[Opcode]string{
@@ -219,6 +243,24 @@ var opcodeNames = map[Opcode]string{
 	OpArrayBoundsCheck: "boundscheck",
 	OpNop:               "nop",
 	OpExceptionFallback: "exception.fallback",
+	OpVarArgsArray:      "varargs.array",
+	OpVarArgsLen:        "varargs.len",
+	OpVarArgsGet:        "varargs.get",
+	OpVarArgsPack:       "varargs.pack",
+	OpVarArgsUnpack:     "varargs.unpack",
+	OpMapGet:            "map.get",
+	OpMapSet:            "map.set",
+	OpMapHas:            "map.has",
+	OpMapLen:            "map.len",
+	OpMapKeys:           "map.keys",
+	OpMapValues:         "map.values",
+	OpMapDelete:         "map.delete",
+	OpIterInit:          "iter.init",
+	OpIterNext:          "iter.next",
+	OpIterHasNext:       "iter.hasnext",
+	OpIterKey:           "iter.key",
+	OpIterValue:         "iter.value",
+	OpIterReset:         "iter.reset",
 }
 
 func (op Opcode) String() string {
@@ -627,12 +669,17 @@ type IRFunc struct {
 	Entry      *IRBlock     // 入口块
 	Blocks     []*IRBlock   // 所有基本块
 	Values     []*IRValue   // 所有值
-	
+
 	// 源函数信息
 	SourceFunc *bytecode.Function
 	Constants  []bytecode.Value // 常量池
 	LocalCount int              // 局部变量数量
 	
+	// 可变参数支持
+	IsVariadic     bool // 是否是可变参数函数
+	MinArgs        int  // 最小参数数量（不包括可变参数）
+	VarArgsIndex   int  // 可变参数在参数列表中的索引
+
 	// ID 计数器
 	nextValueID int
 	nextBlockID int

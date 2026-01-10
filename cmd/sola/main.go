@@ -15,6 +15,7 @@ import (
 	"github.com/tangzhangming/nova/internal/lexer"
 	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
+	"github.com/tangzhangming/nova/internal/repl"
 	"github.com/tangzhangming/nova/internal/runtime"
 )
 
@@ -60,6 +61,8 @@ func main() {
 		cmdInit(args[1:])
 	case "format", "fmt":
 		cmdFormat(args[1:])
+	case "repl":
+		cmdREPL(args[1:])
 	case "env":
 		cmdEnv()
 	case "version", "-v", "--version":
@@ -118,6 +121,7 @@ func printUsage() {
 	fmt.Printf("  jvm <file>      %s\n", m.CmdJvm)
 	fmt.Printf("  check <file>    %s\n", m.CmdCheck)
 	fmt.Printf("  format <file>   %s\n", m.CmdFormat)
+	fmt.Printf("  repl            %s\n", "Start interactive REPL")
 	fmt.Printf("  env             %s\n", m.CmdEnv)
 	fmt.Printf("  version         %s\n", m.CmdVersion)
 	fmt.Printf("  help            %s\n", m.CmdHelp)
@@ -135,7 +139,33 @@ func printUsage() {
 	fmt.Printf("  sola run -ast main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola check main%s\n", loader.SourceFileExtension)
 	fmt.Printf("  sola format -w main%s\n", loader.SourceFileExtension)
+	fmt.Printf("  sola repl\n")
 	fmt.Printf("  sola --lang zh help\n")
+}
+
+// cmdREPL 启动 REPL 交互模式
+func cmdREPL(args []string) {
+	m := Msg()
+	fs := flag.NewFlagSet("repl", flag.ExitOnError)
+	jitless := fs.Bool("jitless", false, m.OptJitless)
+	xint := fs.Bool("Xint", false, m.OptJitless)
+
+	fs.Usage = func() {
+		fmt.Println(m.HelpUsage + " sola repl [options]")
+		fmt.Println()
+		fmt.Println(m.HelpOptions)
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// 创建并运行 REPL
+	config := repl.DefaultConfig()
+	config.JITEnabled = !(*jitless || *xint)
+	r := repl.New(config)
+	r.Run()
 }
 
 // cmdRun 运行 Sola 源文件或编译后的字节码

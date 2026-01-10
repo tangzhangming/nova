@@ -60,11 +60,6 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 		return JITDisabled
 	}
 	
-	// 不支持可变参数函数
-	if fn.IsVariadic {
-		return JITDisabled
-	}
-	
 	// 支持简单闭包（upvalue 数量限制）
 	// 复杂闭包会降级到 JITWithCalls 级别，需要运行时支持
 	if fn.UpvalueCount > 4 {
@@ -72,6 +67,14 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 	}
 	
 	level := JITFull
+	
+	// 可变参数函数需要降级到 JITWithCalls 级别
+	// 因为需要运行时支持参数数组的创建和访问
+	if fn.IsVariadic {
+		if level > JITWithCalls {
+			level = JITWithCalls
+		}
+	}
 	
 	// 检查是否包含不支持的操作码
 	code := fn.Chunk.Code
@@ -82,11 +85,17 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 		switch op {
 		// 完全不支持的操作
 		case bytecode.OpNewArray, // 创建数组需要复杂的内存分配
-			bytecode.OpNewMap, bytecode.OpMapGet, bytecode.OpMapSet, bytecode.OpMapHas, bytecode.OpMapLen,
+			bytecode.OpNewMap,
 			bytecode.OpConcat, bytecode.OpStringBuilderNew, bytecode.OpStringBuilderAdd, bytecode.OpStringBuilderBuild,
-			bytecode.OpIterInit, bytecode.OpIterNext, bytecode.OpIterKey, bytecode.OpIterValue,
 			bytecode.OpSuperArrayNew, bytecode.OpSuperArrayGet, bytecode.OpSuperArraySet:
 			return JITDisabled
+		
+		// Map 和迭代器操作（需要运行时支持，降级到 JITWithCalls）
+		case bytecode.OpMapGet, bytecode.OpMapSet, bytecode.OpMapHas, bytecode.OpMapLen,
+			bytecode.OpIterInit, bytecode.OpIterNext, bytecode.OpIterKey, bytecode.OpIterValue:
+			if level > JITWithCalls {
+				level = JITWithCalls
+			}
 		
 		// 闭包创建（需要降级到较低级别）
 		case bytecode.OpClosure:

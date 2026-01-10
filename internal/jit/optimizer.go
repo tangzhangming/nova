@@ -42,6 +42,18 @@ type Optimizer struct {
 	level    int            // 优化级别 (0-3)
 	inliner  *Inliner       // 内联优化器
 	resolver func(string) *IRFunc // 函数解析器
+	
+	// 优化统计
+	stats    OptimizerStats
+}
+
+// OptimizerStats 优化器统计信息
+type OptimizerStats struct {
+	ConstantsFolded       int // 折叠的常量数
+	ConstantsPropagated   int // 传播的常量数
+	DeadInstructionsRemoved int // 消除的死指令数
+	UnreachableBlocksRemoved int // 消除的不可达块数
+	TotalIterations       int // 总优化迭代次数
 }
 
 // NewOptimizer 创建优化器
@@ -79,6 +91,16 @@ func (opt *Optimizer) GetInlineStats() *InlineStats {
 	return nil
 }
 
+// GetStats 获取优化统计
+func (opt *Optimizer) GetStats() OptimizerStats {
+	return opt.stats
+}
+
+// ResetStats 重置优化统计
+func (opt *Optimizer) ResetStats() {
+	opt.stats = OptimizerStats{}
+}
+
 // Optimize 优化 IR 函数
 func (opt *Optimizer) Optimize(fn *IRFunc) {
 	if opt.level == 0 {
@@ -94,6 +116,7 @@ func (opt *Optimizer) Optimize(fn *IRFunc) {
 	// 迭代优化直到稳定
 	maxIterations := 10
 	for i := 0; i < maxIterations; i++ {
+		opt.stats.TotalIterations++
 		changed := false
 		
 		// O1: 基本优化
@@ -106,24 +129,24 @@ func (opt *Optimizer) Optimize(fn *IRFunc) {
 		if opt.level >= 2 {
 			changed = opt.algebraicSimplification(fn) || changed
 			changed = opt.strengthReduction(fn) || changed
-			// 新增：公共子表达式消除
+			// 公共子表达式消除
 			changed = opt.CommonSubexpressionElimination(fn) || changed
-			// 新增：复制传播
+			// 复制传播
 			changed = opt.CopyPropagation(fn) || changed
-			// 新增：条件分支优化
+			// 条件分支优化
 			changed = opt.ConditionalBranchOptimization(fn) || changed
-			// 新增：窥孔优化
+			// 窥孔优化
 			changed = opt.PeepholeOptimization(fn) || changed
 		}
 		
 		// O3: 高级优化
 		if opt.level >= 3 {
 			changed = opt.loopInvariantCodeMotion(fn) || changed
-			// 新增：边界检查消除
+			// 边界检查消除
 			changed = opt.BoundsCheckElimination(fn) || changed
-			// 新增：全局值编号
+			// 全局值编号
 			changed = opt.GlobalValueNumbering(fn) || changed
-			// 新增：循环展开
+			// 循环展开
 			changed = opt.LoopUnrolling(fn) || changed
 		}
 		
@@ -291,9 +314,11 @@ func (opt *Optimizer) isSafeToHoist(instr *IRInstr) bool {
 
 // constantPropagation 常量传播和常量折叠
 // 如果一个操作的所有操作数都是常量，则可以在编译时计算结果
+// 增强版本支持跨基本块的常量传播
 func (opt *Optimizer) constantPropagation(fn *IRFunc) bool {
 	changed := false
 	
+	// 第一阶段：块内常量折叠
 	for _, block := range fn.Blocks {
 		for i, instr := range block.Instrs {
 			if instr.Op == OpNop {
@@ -307,20 +332,94 @@ func (opt *Optimizer) constantPropagation(fn *IRFunc) bool {
 				instr.Dest.IsConst = true
 				instr.Dest.ConstVal = result.ConstVal
 				block.Instrs[i] = newInstr
+				opt.stats.ConstantsFolded++
 				changed = true
 			}
 		}
 	}
 	
-	// 传播常量到使用点
+	// 第二阶段：跨块常量传播（数据流分析）
+	// 构建常量映射表
+	constMap := make(map[*IRValue]bool)
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if instr.Dest != nil && instr.Dest.IsConst {
+				constMap[instr.Dest] = true
+			}
+		}
+	}
+	
+	// 传播常量到所有使用点
 	for _, block := range fn.Blocks {
 		for _, instr := range block.Instrs {
 			for i, arg := range instr.Args {
-				if arg != nil && arg.IsConst && arg.Def != nil {
-					// 可以直接使用常量
+				if arg != nil && arg.IsConst {
+					// 直接使用常量值
 					instr.Args[i] = arg
+					opt.stats.ConstantsPropagated++
 				}
 			}
+		}
+	}
+	
+	// 第三阶段：条件分支优化（当条件是常量时）
+	changed = opt.foldConstantBranches(fn) || changed
+	
+	return changed
+}
+
+// foldConstantBranches 折叠常量条件分支
+// 当分支条件是常量时，可以确定性地选择一个分支
+func (opt *Optimizer) foldConstantBranches(fn *IRFunc) bool {
+	changed := false
+	
+	for _, block := range fn.Blocks {
+		lastInstr := block.LastInstr()
+		if lastInstr == nil || lastInstr.Op != OpBranch {
+			continue
+		}
+		
+		// 检查条件是否为常量
+		if len(lastInstr.Args) == 0 || lastInstr.Args[0] == nil {
+			continue
+		}
+		
+		cond := lastInstr.Args[0]
+		if !cond.IsConst {
+			continue
+		}
+		
+		// 确定选择哪个分支
+		var targetBlock *IRBlock
+		var deadBlock *IRBlock
+		
+		condValue := cond.ConstVal.AsBool()
+		if len(lastInstr.Targets) >= 2 {
+			if condValue {
+				targetBlock = lastInstr.Targets[0] // then 分支
+				deadBlock = lastInstr.Targets[1]   // else 分支
+			} else {
+				targetBlock = lastInstr.Targets[1] // else 分支
+				deadBlock = lastInstr.Targets[0]   // then 分支
+			}
+			
+			// 将条件分支替换为无条件跳转
+			lastInstr.Op = OpJump
+			lastInstr.Args = nil
+			lastInstr.Targets = []*IRBlock{targetBlock}
+			
+			// 从死分支的前驱列表中移除当前块
+			if deadBlock != nil {
+				newPreds := make([]*IRBlock, 0, len(deadBlock.Preds))
+				for _, pred := range deadBlock.Preds {
+					if pred != block {
+						newPreds = append(newPreds, pred)
+					}
+				}
+				deadBlock.Preds = newPreds
+			}
+			
+			changed = true
 		}
 	}
 	
@@ -372,23 +471,38 @@ func (opt *Optimizer) tryFold(instr *IRInstr) *IRValue {
 }
 
 // foldArithmetic 折叠算术运算
+// 增强版本：包含溢出检测
 func (opt *Optimizer) foldArithmetic(op Opcode, left, right *IRValue) *IRValue {
 	// 处理整数
 	if left.Type == TypeInt && right.Type == TypeInt {
 		l := left.ConstVal.AsInt()
 		r := right.ConstVal.AsInt()
 		var result int64
+		var overflow bool
 		
 		switch op {
 		case OpAdd:
-			result = l + r
+			result, overflow = safeAddInt64(l, r)
+			if overflow {
+				return nil // 溢出时不折叠，保持运行时行为
+			}
 		case OpSub:
-			result = l - r
+			result, overflow = safeSubInt64(l, r)
+			if overflow {
+				return nil
+			}
 		case OpMul:
-			result = l * r
+			result, overflow = safeMulInt64(l, r)
+			if overflow {
+				return nil
+			}
 		case OpDiv:
 			if r == 0 {
 				return nil // 避免除零
+			}
+			// 检测 MinInt64 / -1 溢出
+			if l == minInt64 && r == -1 {
+				return nil
 			}
 			result = l / r
 		case OpMod:
@@ -429,6 +543,52 @@ func (opt *Optimizer) foldArithmetic(op Opcode, left, right *IRValue) *IRValue {
 	}
 	
 	return nil
+}
+
+// 溢出检测辅助函数
+const (
+	maxInt64 = int64(1<<63 - 1)
+	minInt64 = int64(-1 << 63)
+)
+
+// safeAddInt64 安全加法，检测溢出
+func safeAddInt64(a, b int64) (int64, bool) {
+	if b > 0 && a > maxInt64-b {
+		return 0, true // 正溢出
+	}
+	if b < 0 && a < minInt64-b {
+		return 0, true // 负溢出
+	}
+	return a + b, false
+}
+
+// safeSubInt64 安全减法，检测溢出
+func safeSubInt64(a, b int64) (int64, bool) {
+	if b < 0 && a > maxInt64+b {
+		return 0, true // 正溢出
+	}
+	if b > 0 && a < minInt64+b {
+		return 0, true // 负溢出
+	}
+	return a - b, false
+}
+
+// safeMulInt64 安全乘法，检测溢出
+func safeMulInt64(a, b int64) (int64, bool) {
+	if a == 0 || b == 0 {
+		return 0, false
+	}
+	result := a * b
+	if a == minInt64 || b == minInt64 {
+		// 特殊处理 MinInt64
+		if (a == minInt64 && b != 1) || (b == minInt64 && a != 1) {
+			return 0, true
+		}
+	}
+	if result/b != a {
+		return 0, true // 溢出
+	}
+	return result, false
 }
 
 // foldComparison 折叠比较运算
@@ -540,15 +700,24 @@ func (opt *Optimizer) foldBitwise(op Opcode, left, right *IRValue) *IRValue {
 // ============================================================================
 
 // deadCodeElimination 死代码消除
-// 删除结果没有被使用的指令
+// 增强版本：包含活性分析和不可达块消除
 func (opt *Optimizer) deadCodeElimination(fn *IRFunc) bool {
 	changed := false
 	
+	// 第一阶段：消除不可达的基本块
+	changed = opt.removeUnreachableBlocks(fn) || changed
+	
+	// 第二阶段：活性分析
+	liveValues := opt.livenessAnalysis(fn)
+	
+	// 第三阶段：删除死指令
 	for _, block := range fn.Blocks {
 		newInstrs := make([]*IRInstr, 0, len(block.Instrs))
 		
 		for _, instr := range block.Instrs {
-			if opt.canEliminate(instr) {
+			// 使用活性信息判断是否可以消除
+			if opt.canEliminateWithLiveness(instr, liveValues) {
+				opt.stats.DeadInstructionsRemoved++
 				changed = true
 				continue
 			}
@@ -561,6 +730,110 @@ func (opt *Optimizer) deadCodeElimination(fn *IRFunc) bool {
 	}
 	
 	return changed
+}
+
+// removeUnreachableBlocks 删除不可达的基本块
+func (opt *Optimizer) removeUnreachableBlocks(fn *IRFunc) bool {
+	if len(fn.Blocks) == 0 {
+		return false
+	}
+	
+	// 从入口块开始，标记所有可达的块
+	reachable := make(map[int]bool)
+	var markReachable func(block *IRBlock)
+	markReachable = func(block *IRBlock) {
+		if block == nil || reachable[block.ID] {
+			return
+		}
+		reachable[block.ID] = true
+		for _, succ := range block.Succs {
+			markReachable(succ)
+		}
+	}
+	
+	// 从第一个块开始标记
+	markReachable(fn.Blocks[0])
+	
+	// 删除不可达的块
+	newBlocks := make([]*IRBlock, 0, len(fn.Blocks))
+	removedCount := 0
+	for _, block := range fn.Blocks {
+		if reachable[block.ID] {
+			newBlocks = append(newBlocks, block)
+		} else {
+			removedCount++
+		}
+	}
+	
+	if removedCount > 0 {
+		fn.Blocks = newBlocks
+		opt.stats.UnreachableBlocksRemoved += removedCount
+		return true
+	}
+	
+	return false
+}
+
+// livenessAnalysis 活性分析
+// 返回所有活跃值的集合（在程序某点之后会被使用的值）
+func (opt *Optimizer) livenessAnalysis(fn *IRFunc) map[*IRValue]bool {
+	liveOut := make(map[*IRValue]bool)
+	
+	// 反向遍历：从最后一个块到第一个块
+	// 简化版本：收集所有被使用的值
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			// 所有参数都是活跃的
+			for _, arg := range instr.Args {
+				if arg != nil && !arg.IsConst {
+					liveOut[arg] = true
+				}
+			}
+			// 跳转目标中的 Phi 参数也是活跃的
+			if instr.Op == OpPhi {
+				for _, arg := range instr.Args {
+					if arg != nil {
+						liveOut[arg] = true
+					}
+				}
+			}
+		}
+	}
+	
+	// 返回和分支目标中使用的值也是活跃的
+	for _, block := range fn.Blocks {
+		lastInstr := block.LastInstr()
+		if lastInstr != nil && lastInstr.Op == OpReturn {
+			for _, arg := range lastInstr.Args {
+				if arg != nil {
+					liveOut[arg] = true
+				}
+			}
+		}
+	}
+	
+	return liveOut
+}
+
+// canEliminateWithLiveness 使用活性信息判断指令是否可以消除
+func (opt *Optimizer) canEliminateWithLiveness(instr *IRInstr, liveValues map[*IRValue]bool) bool {
+	// NOP 可以消除
+	if instr.Op == OpNop {
+		return true
+	}
+	
+	// 有副作用的指令不能消除
+	if opt.hasSideEffect(instr) {
+		return false
+	}
+	
+	// 没有目标值的指令不能通过 DCE 消除
+	if instr.Dest == nil {
+		return false
+	}
+	
+	// 如果目标值不活跃（不会被使用），可以消除
+	return !liveValues[instr.Dest] && !instr.Dest.HasUses()
 }
 
 // canEliminate 检查指令是否可以被消除

@@ -98,6 +98,13 @@ func (b *IRBuilder) Build(srcFunc *bytecode.Function) (*IRFunc, error) {
 	// 创建 IR 函数
 	b.fn = NewIRFunc(srcFunc.Name, srcFunc.Arity)
 	b.fn.SourceFunc = srcFunc
+	
+	// 设置可变参数信息
+	if srcFunc.IsVariadic {
+		b.fn.IsVariadic = true
+		b.fn.MinArgs = srcFunc.MinArity
+		b.fn.VarArgsIndex = srcFunc.MinArity // 可变参数从 MinArity 位置开始
+	}
 	b.fn.Constants = srcFunc.Chunk.Constants
 	b.fn.LocalCount = srcFunc.LocalCount
 	
@@ -380,7 +387,33 @@ func (b *IRBuilder) convertInstruction(op bytecode.OpCode, ip int, line int) err
 		
 	case bytecode.OpArraySet:
 		b.emitArraySet(line)
-		
+
+	// Map 操作
+	case bytecode.OpMapGet:
+		b.emitMapGet(line)
+	
+	case bytecode.OpMapSet:
+		b.emitMapSet(line)
+	
+	case bytecode.OpMapHas:
+		b.emitMapHas(line)
+	
+	case bytecode.OpMapLen:
+		b.emitMapLen(line)
+	
+	// 迭代器操作
+	case bytecode.OpIterInit:
+		b.emitIterInit(line)
+	
+	case bytecode.OpIterNext:
+		b.emitIterNext(line)
+	
+	case bytecode.OpIterKey:
+		b.emitIterKey(line)
+	
+	case bytecode.OpIterValue:
+		b.emitIterValue(line)
+
 	// 跳转
 	case bytecode.OpJump:
 		offset := int(int16(b.chunk.ReadU16(ip + 1)))
@@ -1090,4 +1123,181 @@ func (b *IRBuilder) getConstantString(idx uint16) string {
 // GetStats 获取构建统计信息
 func (b *IRBuilder) GetStats() (callCount, objectOpCount int) {
 	return b.callCount, b.objectOpCount
+}
+
+// ============================================================================
+// 可变参数支持
+// ============================================================================
+
+// emitVarArgsArray 生成获取可变参数数组的指令
+func (b *IRBuilder) emitVarArgsArray(line int) *IRValue {
+	dest := b.fn.NewValue(TypeArray)
+	instr := NewInstr(OpVarArgsArray, dest)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	return dest
+}
+
+// emitVarArgsLen 生成获取可变参数数量的指令
+func (b *IRBuilder) emitVarArgsLen(line int) *IRValue {
+	dest := b.fn.NewValue(TypeInt)
+	instr := NewInstr(OpVarArgsLen, dest)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	return dest
+}
+
+// emitVarArgsGet 生成获取可变参数指定索引值的指令
+func (b *IRBuilder) emitVarArgsGet(index *IRValue, line int) *IRValue {
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpVarArgsGet, dest, index)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	return dest
+}
+
+// emitVarArgsPack 生成将参数打包为可变参数数组的指令
+func (b *IRBuilder) emitVarArgsPack(args []*IRValue, line int) *IRValue {
+	dest := b.fn.NewValue(TypeArray)
+	instr := NewInstr(OpVarArgsPack, dest, args...)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	return dest
+}
+
+// emitVarArgsUnpack 生成展开可变参数数组的指令
+func (b *IRBuilder) emitVarArgsUnpack(array *IRValue, line int) *IRValue {
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpVarArgsUnpack, dest, array)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	return dest
+}
+
+// isVarArgsAccess 检查局部变量索引是否是访问可变参数
+func (b *IRBuilder) isVarArgsAccess(idx int) bool {
+	if !b.fn.IsVariadic {
+		return false
+	}
+	// 可变参数存储在固定位置（通常是 MinArgs 位置）
+	return idx == b.fn.VarArgsIndex
+}
+
+// ============================================================================
+// Map 操作支持
+// ============================================================================
+
+// emitMapGet 生成 Map 获取指令
+// 栈布局：[map, key] -> [value]
+func (b *IRBuilder) emitMapGet(line int) {
+	key := b.pop()
+	mapVal := b.pop()
+	
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpMapGet, dest, mapVal, key)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitMapSet 生成 Map 设置指令
+// 栈布局：[map, key, value] -> []
+func (b *IRBuilder) emitMapSet(line int) {
+	value := b.pop()
+	key := b.pop()
+	mapVal := b.pop()
+	
+	instr := NewInstr(OpMapSet, nil, mapVal, key, value)
+	instr.Line = line
+	b.current.AddInstr(instr)
+}
+
+// emitMapHas 生成 Map 检查键存在指令
+// 栈布局：[map, key] -> [bool]
+func (b *IRBuilder) emitMapHas(line int) {
+	key := b.pop()
+	mapVal := b.pop()
+	
+	dest := b.fn.NewValue(TypeBool)
+	instr := NewInstr(OpMapHas, dest, mapVal, key)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitMapLen 生成 Map 长度指令
+// 栈布局：[map] -> [int]
+func (b *IRBuilder) emitMapLen(line int) {
+	mapVal := b.pop()
+	
+	dest := b.fn.NewValue(TypeInt)
+	instr := NewInstr(OpMapLen, dest, mapVal)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// ============================================================================
+// 迭代器操作支持
+// ============================================================================
+
+// emitIterInit 生成迭代器初始化指令
+// 栈布局：[iterable] -> [iterator]
+func (b *IRBuilder) emitIterInit(line int) {
+	iterable := b.pop()
+	
+	dest := b.fn.NewValue(TypePtr) // 迭代器是一个指针类型
+	instr := NewInstr(OpIterInit, dest, iterable)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitIterNext 生成迭代器下一步指令
+// 栈布局：[iterator] -> [bool] (是否有更多元素)
+func (b *IRBuilder) emitIterNext(line int) {
+	iterator := b.pop()
+	
+	dest := b.fn.NewValue(TypeBool)
+	instr := NewInstr(OpIterNext, dest, iterator)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将迭代器重新压回栈
+	b.push(iterator)
+	b.push(dest)
+}
+
+// emitIterKey 生成获取迭代器当前键指令
+// 栈布局：[iterator] -> [key]
+func (b *IRBuilder) emitIterKey(line int) {
+	iterator := b.pop()
+	
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpIterKey, dest, iterator)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将迭代器重新压回栈
+	b.push(iterator)
+	b.push(dest)
+}
+
+// emitIterValue 生成获取迭代器当前值指令
+// 栈布局：[iterator] -> [value]
+func (b *IRBuilder) emitIterValue(line int) {
+	iterator := b.pop()
+	
+	dest := b.fn.NewValue(TypeUnknown)
+	instr := NewInstr(OpIterValue, dest, iterator)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	// 将迭代器重新压回栈
+	b.push(iterator)
+	b.push(dest)
 }

@@ -344,6 +344,69 @@ func (r *Runtime) RunCompiled(cf *bytecode.CompiledFile) error {
 	return nil
 }
 
+// RunREPL 运行 REPL 输入
+// 支持增量执行，保持环境状态
+func (r *Runtime) RunREPL(source, filename string) error {
+	// 解析输入
+	p := parser.New(source, filename)
+	file := p.Parse()
+
+	if p.HasErrors() {
+		for _, e := range p.Errors() {
+			fmt.Printf(i18n.T(i18n.ErrParseError, e) + "\n")
+		}
+		return fmt.Errorf(i18n.T(i18n.ErrParseFailed))
+	}
+
+	// 处理 use 声明
+	for _, use := range file.Uses {
+		if r.loader == nil {
+			var err error
+			r.loader, err = loader.New(filename)
+			if err != nil {
+				return fmt.Errorf(i18n.T(i18n.ErrFailedCreateLoader, err))
+			}
+		}
+		if err := r.loadDependency(use.Path); err != nil {
+			return fmt.Errorf(i18n.T(i18n.ErrLoadFailed, use.Path, err))
+		}
+	}
+
+	// 编译（使用共享符号表保持状态）
+	c := compiler.NewWithSymbolTable(r.symbolTable)
+	fn, errs := c.Compile(file)
+
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Printf(i18n.T(i18n.ErrCompileError, e) + "\n")
+		}
+		return fmt.Errorf(i18n.T(i18n.ErrCompileFailed))
+	}
+
+	// 注册新的类
+	for name, class := range c.Classes() {
+		r.classes[name] = class
+		r.vm.DefineClass(class)
+	}
+
+	// 注册新的枚举
+	for name, enum := range c.Enums() {
+		r.enums[name] = enum
+		r.vm.DefineEnum(enum)
+	}
+
+	// 确保内置函数已注册
+	r.registerBuiltinsToVM()
+
+	// 运行
+	result := r.vm.Run(fn)
+	if result != vm.InterpretOK {
+		return fmt.Errorf("")
+	}
+
+	return nil
+}
+
 // Disassemble 反汇编
 func (r *Runtime) Disassemble(source, filename string) (string, error) {
 	// 解析
