@@ -1,10 +1,13 @@
 package lsp
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/compiler"
@@ -57,8 +60,8 @@ func NewWorkspaceIndex(workspaceRoot string, logFunc func(format string, args ..
 		files:           make(map[string]*IndexedFile),
 		symbolLocations: make(map[string]string),
 		log:             logFunc,
-		maxIndexedFiles: 50, // 降低到50个文件，避免内存暴涨
-		indexingEnabled: true,
+		maxIndexedFiles: 50, // 允许索引50个文件（按需索引）
+		indexingEnabled: false, // 禁用自动扫描工作区
 	}
 
 	// 尝试创建 loader
@@ -77,14 +80,49 @@ func NewWorkspaceIndex(workspaceRoot string, logFunc func(format string, args ..
 
 		// 查找一个入口文件来初始化 loader
 		entryFile := wi.findEntryFile(rootPath)
+		// #region agent log
+		// 假设B1: 记录loader初始化
+		appendLog := func() {
+			f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:80\",\"message\":\"loader initialization attempt\",\"data\":{\"workspaceRoot\":\"%s\",\"rootPath\":\"%s\",\"entryFile\":\"%s\"},\"timestamp\":%d}\n", workspaceRoot, rootPath, entryFile, time.Now().UnixMilli()) }
+		}
+		appendLog()
+		// #endregion
 		if entryFile != "" {
 			l, err := loader.New(entryFile)
 			if err == nil {
 				wi.loader = l
+				// #region agent log
+				// 假设B1: 记录loader初始化成功，包括namespace
+				appendLog2 := func() {
+					f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+					namespace := l.GetProjectNamespace()
+					rootDir := l.RootDir()
+					if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:88\",\"message\":\"loader initialized successfully\",\"data\":{\"entryFile\":\"%s\",\"namespace\":\"%s\",\"rootDir\":\"%s\"},\"timestamp\":%d}\n", entryFile, namespace, rootDir, time.Now().UnixMilli()) }
+				}
+				appendLog2()
+				// #endregion
 				wi.log("Loader initialized with entry: %s", entryFile)
 			} else {
+				// #region agent log
+				// 假设B1: 记录loader初始化失败
+				appendLog3 := func() {
+					f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+					if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:97\",\"message\":\"loader initialization failed\",\"data\":{\"entryFile\":\"%s\",\"error\":\"%s\"},\"timestamp\":%d}\n", entryFile, err.Error(), time.Now().UnixMilli()) }
+				}
+				appendLog3()
+				// #endregion
 				wi.log("Failed to create loader: %v", err)
 			}
+		} else {
+			// #region agent log
+			// 假设B1: 记录找不到入口文件
+			appendLog4 := func() {
+				f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:107\",\"message\":\"no entry file found\",\"data\":{\"rootPath\":\"%s\"},\"timestamp\":%d}\n", rootPath, time.Now().UnixMilli()) }
+			}
+			appendLog4()
+			// #endregion
 		}
 	}
 
@@ -146,8 +184,25 @@ func (wi *WorkspaceIndex) getStdLibPath() string {
 	libPath := filepath.Join(parentDir, "src")
 
 	if _, err := os.Stat(libPath); err == nil {
+		// #region agent log
+		// 假设B3: 记录标准库路径查找结果
+		appendLog := func() {
+			f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B3\",\"location\":\"workspace.go:149\",\"message\":\"stdlib path found\",\"data\":{\"exePath\":\"%s\",\"libPath\":\"%s\"},\"timestamp\":%d}\n", exePath, libPath, time.Now().UnixMilli()) }
+		}
+		appendLog()
+		// #endregion
 		return libPath
 	}
+	
+	// #region agent log
+	// 假设B3: 记录标准库路径查找失败
+	appendLog2 := func() {
+		f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B3\",\"location\":\"workspace.go:159\",\"message\":\"stdlib path not found\",\"data\":{\"exePath\":\"%s\",\"attemptedLibPath\":\"%s\"},\"timestamp\":%d}\n", exePath, libPath, time.Now().UnixMilli()) }
+	}
+	appendLog2()
+	// #endregion
 
 	return ""
 }
@@ -164,55 +219,21 @@ func (wi *WorkspaceIndex) IndexStandardLibrary() {
 
 // IndexWorkspace 索引工作区
 func (wi *WorkspaceIndex) IndexWorkspace() {
-	if wi.workspaceRoot == "" {
-		return
-	}
-
-	rootPath := wi.workspaceRoot
-	if strings.HasPrefix(rootPath, "file:///") {
-		rootPath = strings.TrimPrefix(rootPath, "file:///")
-	}
-
-	wi.log("Indexing workspace: %s", rootPath)
-
-	count := 0
-	filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		// 跳过隐藏目录和 node_modules 等
-		if info.IsDir() {
-			name := info.Name()
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(path, ".sola") {
-			wi.indexFile(path)
-			count++
-		}
-		return nil
-	})
-
-	wi.log("Indexed %d workspace files", count)
+	// 紧急：完全禁用工作区索引，只索引打开的文件
+	wi.log("Workspace indexing DISABLED to prevent memory leak")
+	return
 }
 
 // indexFile 索引单个文件
 func (wi *WorkspaceIndex) indexFile(path string) *IndexedFile {
-	// 检查是否启用索引
-	if !wi.indexingEnabled {
-		return nil
-	}
-	
 	// 检查文件是否存在
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil
 	}
 
-	// 检查文件大小限制（不索引超过 1MB 的文件）
-	if info.Size() > 1*1024*1024 {
+	// 检查文件大小限制（不索引超过 500KB 的文件）
+	if info.Size() > 500*1024 {
 		return nil
 	}
 
@@ -317,6 +338,8 @@ func (wi *WorkspaceIndex) SetIndexingEnabled(enabled bool) {
 func (wi *WorkspaceIndex) updateSymbolLocations(path string, file *ast.File) {
 	wi.symbolMu.Lock()
 	defer wi.symbolMu.Unlock()
+	
+	oldCount := len(wi.symbolLocations)
 
 	for _, decl := range file.Declarations {
 		switch d := decl.(type) {
@@ -332,12 +355,36 @@ func (wi *WorkspaceIndex) updateSymbolLocations(path string, file *ast.File) {
 			wi.symbolLocations[d.Name.Name] = path
 		}
 	}
+	
+	newCount := len(wi.symbolLocations)
+	// #region agent log
+	// 假设A3: 记录symbolLocations映射增长
+	appendLog := func() {
+		f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"A3\",\"location\":\"workspace.go:336\",\"message\":\"symbolLocations updated\",\"data\":{\"path\":\"%s\",\"oldCount\":%d,\"newCount\":%d},\"timestamp\":%d}\n", path, oldCount, newCount, time.Now().UnixMilli()) }
+	}
+	appendLog()
+	// #endregion
 }
 
 // ResolveImport 解析导入路径
 func (wi *WorkspaceIndex) ResolveImport(importPath string) (string, error) {
+	var resolvedPath string
+	var err error
+	
 	if wi.loader != nil {
-		return wi.loader.ResolveImport(importPath)
+		resolvedPath, err = wi.loader.ResolveImport(importPath)
+		// #region agent log
+		// 假设B1: 记录loader解析导入路径的结果
+		appendLog := func() {
+			f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			errStr := "nil"
+			if err != nil { errStr = err.Error() }
+			if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:343\",\"message\":\"loader ResolveImport\",\"data\":{\"importPath\":\"%s\",\"resolvedPath\":\"%s\",\"error\":\"%s\"},\"timestamp\":%d}\n", importPath, resolvedPath, errStr, time.Now().UnixMilli()) }
+		}
+		appendLog()
+		// #endregion
+		return resolvedPath, err
 	}
 
 	// 备用解析：标准库
@@ -346,9 +393,26 @@ func (wi *WorkspaceIndex) ResolveImport(importPath string) (string, error) {
 		libPath := filepath.Join(wi.stdLibDir, filepath.Join(parts[1:]...)+".sola")
 		if _, err := os.Stat(libPath); err == nil {
 			absPath, _ := filepath.Abs(libPath)
+			// #region agent log
+			// 假设B1, B3: 记录标准库解析成功
+			appendLog2 := func() {
+				f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1_B3\",\"location\":\"workspace.go:362\",\"message\":\"stdlib resolved\",\"data\":{\"importPath\":\"%s\",\"libPath\":\"%s\",\"absPath\":\"%s\",\"stdLibDir\":\"%s\"},\"timestamp\":%d}\n", importPath, libPath, absPath, wi.stdLibDir, time.Now().UnixMilli()) }
+			}
+			appendLog2()
+			// #endregion
 			return absPath, nil
 		}
 	}
+	
+	// #region agent log
+	// 假设B1, B3: 记录解析失败
+	appendLog3 := func() {
+		f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1_B3\",\"location\":\"workspace.go:374\",\"message\":\"import resolve failed\",\"data\":{\"importPath\":\"%s\",\"stdLibDir\":\"%s\",\"hasLoader\":%v},\"timestamp\":%d}\n", importPath, wi.stdLibDir, wi.loader != nil, time.Now().UnixMilli()) }
+	}
+	appendLog3()
+	// #endregion
 
 	return "", nil
 }
@@ -394,9 +458,26 @@ func (wi *WorkspaceIndex) FindSymbolFile(symbolName string) *IndexedFile {
 }
 
 // FindDefinitionInImports 在导入的文件中查找定义
-func (wi *WorkspaceIndex) FindDefinitionInImports(currentFile *ast.File, symbolName string) (*IndexedFile, *protocol.Location) {
+func (wi *WorkspaceIndex) FindDefinitionInImports(currentFile *ast.File, symbolName string, docLoader interface{}) (*IndexedFile, *protocol.Location) {
 	if currentFile == nil {
 		return nil, nil
+	}
+	
+	// 优先使用文档专属的loader
+	var loaderToUse interface {
+		ResolveImport(importPath string) (string, error)
+	}
+	
+	if docLoader != nil {
+		if l, ok := docLoader.(interface {
+			ResolveImport(importPath string) (string, error)
+		}); ok {
+			loaderToUse = l
+		}
+	}
+	
+	if loaderToUse == nil && wi.loader != nil {
+		loaderToUse = wi.loader
 	}
 
 	// 遍历 use 声明
@@ -405,13 +486,20 @@ func (wi *WorkspaceIndex) FindDefinitionInImports(currentFile *ast.File, symbolN
 			continue
 		}
 
-		// 解析导入路径
-		importedPath, err := wi.ResolveImport(use.Path)
+		// 解析导入路径 - 使用选定的loader
+		var importedPath string
+		var err error
+		if loaderToUse != nil {
+			importedPath, err = loaderToUse.ResolveImport(use.Path)
+		} else {
+			importedPath, err = wi.ResolveImport(use.Path)
+		}
+		
 		if err != nil || importedPath == "" {
 			continue
 		}
 
-		// 获取导入文件的索引
+		// 获取导入文件的索引（会按需索引）
 		indexed := wi.GetIndexedFile(importedPath)
 		if indexed == nil || indexed.AST == nil {
 			continue
@@ -507,9 +595,9 @@ func (wi *WorkspaceIndex) findSymbolInFile(indexed *IndexedFile, name string) *p
 }
 
 // GetHoverInfoForSymbol 获取符号的悬停信息
-func (wi *WorkspaceIndex) GetHoverInfoForSymbol(currentFile *ast.File, symbolName string) string {
+func (wi *WorkspaceIndex) GetHoverInfoForSymbol(currentFile *ast.File, symbolName string, docLoader interface{}) string {
 	// 首先在导入的文件中查找
-	indexed, _ := wi.FindDefinitionInImports(currentFile, symbolName)
+	indexed, _ := wi.FindDefinitionInImports(currentFile, symbolName, docLoader)
 	if indexed != nil && indexed.AST != nil {
 		for _, decl := range indexed.AST.Declarations {
 			switch d := decl.(type) {
@@ -563,4 +651,81 @@ func (wi *WorkspaceIndex) GetAllFiles() []*IndexedFile {
 		files = append(files, f)
 	}
 	return files
+}
+
+// InitializeDocumentLoader 为文档初始化专属的loader
+func (wi *WorkspaceIndex) InitializeDocumentLoader(doc interface{}) {
+	// 类型断言获取Document
+	type DocumentInterface interface {
+		URI() string
+	}
+	
+	// 获取文档路径
+	var docPath string
+	if d, ok := doc.(interface{ GetURI() string }); ok {
+		docPath = uriToPath(d.GetURI())
+	} else {
+		// 使用反射获取URI字段
+		docVal := reflect.ValueOf(doc)
+		if docVal.Kind() == reflect.Ptr {
+			docVal = docVal.Elem()
+		}
+		if docVal.Kind() == reflect.Struct {
+			uriField := docVal.FieldByName("URI")
+			if uriField.IsValid() && uriField.Kind() == reflect.String {
+				docPath = uriToPath(uriField.String())
+			}
+		}
+	}
+	
+	if docPath == "" {
+		return
+	}
+	
+	// #region agent log
+	// 假设B1: 记录为文档创建loader
+	appendLog := func() {
+		f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:580\",\"message\":\"InitializeDocumentLoader called\",\"data\":{\"docPath\":\"%s\"},\"timestamp\":%d}\n", docPath, time.Now().UnixMilli()) }
+	}
+	appendLog()
+	// #endregion
+	
+	// 为该文档创建loader
+	l, err := loader.New(docPath)
+	if err != nil {
+		// #region agent log
+		appendLog2 := func() {
+			f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:592\",\"message\":\"document loader creation failed\",\"data\":{\"docPath\":\"%s\",\"error\":\"%s\"},\"timestamp\":%d}\n", docPath, err.Error(), time.Now().UnixMilli()) }
+		}
+		appendLog2()
+		// #endregion
+		wi.log("Failed to create loader for document %s: %v", docPath, err)
+		return
+	}
+	
+	// 设置文档的Loader字段
+	docVal := reflect.ValueOf(doc)
+	if docVal.Kind() == reflect.Ptr {
+		docVal = docVal.Elem()
+	}
+	if docVal.Kind() == reflect.Struct {
+		loaderField := docVal.FieldByName("Loader")
+		if loaderField.IsValid() && loaderField.CanSet() {
+			loaderField.Set(reflect.ValueOf(l))
+			
+			// #region agent log
+			appendLog3 := func() {
+				f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				namespace := l.GetProjectNamespace()
+				rootDir := l.RootDir()
+				if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B1\",\"location\":\"workspace.go:613\",\"message\":\"document loader set successfully\",\"data\":{\"docPath\":\"%s\",\"namespace\":\"%s\",\"rootDir\":\"%s\"},\"timestamp\":%d}\n", docPath, namespace, rootDir, time.Now().UnixMilli()) }
+			}
+			appendLog3()
+			// #endregion
+			
+			wi.log("Loader initialized for document: %s (namespace: %s, rootDir: %s)", docPath, l.GetProjectNamespace(), l.RootDir())
+		}
+	}
 }

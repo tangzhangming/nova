@@ -57,6 +57,15 @@ func (s *Server) findDefinition(doc *Document, line, character int) *protocol.Lo
 			isVariable = true
 		}
 	}
+	
+	// 检查是否是静态方法调用 (ClassName::method) 或实例方法调用 ($obj->method)
+	className := getMethodOrPropertyContext(lineText, character)
+	if className != "" {
+		// 先找到类定义所在的文件
+		if loc := s.findMethodInClass(doc, className, word); loc != nil {
+			return loc
+		}
+	}
 
 	// 获取 AST
 	astFile := doc.GetAST()
@@ -95,8 +104,9 @@ func (s *Server) findDefinition(doc *Document, line, character int) *protocol.Lo
 
 	// 使用工作区索引查找（包括标准库和其他文件）
 	if !isVariable && s.workspace != nil {
-		// 首先在导入的文件中查找
-		if _, loc := s.workspace.FindDefinitionInImports(astFile, word); loc != nil {
+		// 首先在导入的文件中查找 - 传递文档的loader
+		_, loc := s.workspace.FindDefinitionInImports(astFile, word, doc.Loader)
+		if loc != nil {
 			return loc
 		}
 
@@ -434,12 +444,80 @@ func (s *Server) findSymbolDefinition(file *ast.File, name string, docURI string
 	return nil
 }
 
+// findMethodInClass 在指定类中查找方法
+func (s *Server) findMethodInClass(doc *Document, className, methodName string) *protocol.Location {
+	// 先在当前文档中查找类
+	astFile := doc.GetAST()
+	if astFile != nil {
+		if loc := findMethodInAST(astFile, className, methodName, doc.URI); loc != nil {
+			return loc
+		}
+	}
+	
+	// 在其他打开的文档中查找
+	for _, otherDoc := range s.documents.GetAll() {
+		if otherDoc.URI == doc.URI {
+			continue
+		}
+		otherAST := otherDoc.GetAST()
+		if otherAST != nil {
+			if loc := findMethodInAST(otherAST, className, methodName, otherDoc.URI); loc != nil {
+				return loc
+			}
+		}
+	}
+	
+	// 使用工作区索引查找类所在文件，然后查找方法
+	if s.workspace != nil && astFile != nil {
+		// 先找到类定义
+		indexed, _ := s.workspace.FindDefinitionInImports(astFile, className, doc.Loader)
+		
+		if indexed != nil && indexed.AST != nil {
+			// 在该文件的AST中查找方法
+			if loc := findMethodInAST(indexed.AST, className, methodName, indexed.URI); loc != nil {
+				return loc
+			}
+		}
+	}
+	
+	return nil
+}
+
+// findMethodInAST 在AST中查找指定类的方法
+func findMethodInAST(astFile *ast.File, className, methodName, docURI string) *protocol.Location {
+	for _, decl := range astFile.Declarations {
+		if classDecl, ok := decl.(*ast.ClassDecl); ok {
+			if classDecl.Name.Name == className {
+				// 找到了类，现在查找方法
+				for _, method := range classDecl.Methods {
+					if method.Name.Name == methodName {
+						return &protocol.Location{
+							URI: protocol.DocumentURI(docURI),
+							Range: protocol.Range{
+								Start: protocol.Position{
+									Line:      uint32(method.Name.Token.Pos.Line - 1),
+									Character: uint32(method.Name.Token.Pos.Column - 1),
+								},
+								End: protocol.Position{
+									Line:      uint32(method.Name.Token.Pos.Line - 1),
+									Character: uint32(method.Name.Token.Pos.Column - 1 + len(methodName)),
+								},
+							},
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // getMethodOrPropertyContext 获取方法或属性的上下文（类名）
 func getMethodOrPropertyContext(lineText string, character int) string {
 	// 向前查找 -> 或 ::
 	pos := character
 	for pos > 1 {
-		if lineText[pos-2:pos] == "->" || lineText[pos-2:pos] == "::" {
+		if pos >= 2 && (lineText[pos-2:pos] == "->" || lineText[pos-2:pos] == "::") {
 			// 继续向前查找对象/类名
 			end := pos - 2
 			start := end

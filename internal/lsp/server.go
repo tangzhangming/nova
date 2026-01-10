@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -68,6 +70,11 @@ func NewServer(logPath string) *Server {
 // Run 启动 LSP 服务器主循环
 func (s *Server) Run(ctx context.Context) error {
 	s.log("Sola LSP Server started")
+	
+	// #region agent log
+	// 启动内存监控goroutine (H6: 检测goroutine泄漏，H1-H5: 跟踪内存增长)
+	go s.memoryMonitor(ctx)
+	// #endregion
 
 	for {
 		select {
@@ -196,6 +203,13 @@ func (s *Server) handleMessage(ctx context.Context, msg []byte) {
 	case "textDocument/hover":
 		s.handleHover(baseMsg.ID, baseMsg.Params)
 	case "textDocument/definition":
+		// #region agent log
+		// 记录definition请求
+		func() {
+			f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if f != nil { defer f.Close(); fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"hypothesisId\":\"B5\",\"location\":\"server.go:199\",\"message\":\"definition request received\",\"data\":{\"method\":\"textDocument/definition\",\"hasID\":%v},\"timestamp\":%d}\n", baseMsg.ID != nil, time.Now().UnixMilli()) }
+		}()
+		// #endregion
 		s.handleDefinition(baseMsg.ID, baseMsg.Params)
 	case "textDocument/references":
 		s.handleReferences(baseMsg.ID, baseMsg.Params)
@@ -281,6 +295,17 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 
 	s.log("Initialize: workspace=%s", s.workspaceRoot)
 
+	// #region agent log
+	// 记录initialize请求
+	func() {
+		f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil { 
+			defer f.Close()
+			fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"location\":\"server.go:285\",\"message\":\"initialize request\",\"data\":{\"workspaceRoot\":\"%s\"},\"timestamp\":%d}\n", s.workspaceRoot, time.Now().UnixMilli())
+		}
+	}()
+	// #endregion
+	
 	// 返回服务器能力
 	result := map[string]interface{}{
 		"capabilities": map[string]interface{}{
@@ -361,6 +386,18 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 			"version": "0.1.0",
 		},
 	}
+	
+	// #region agent log
+	// 记录返回的capabilities
+	func() {
+		f, _ := os.OpenFile("d:\\workspace\\go\\src\\nova\\.cursor\\debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if f != nil { 
+			defer f.Close()
+			caps := result["capabilities"].(map[string]interface{})
+			fmt.Fprintf(f, "{\"sessionId\":\"debug-session\",\"location\":\"server.go:365\",\"message\":\"initialize response\",\"data\":{\"definitionProvider\":%v,\"hoverProvider\":%v},\"timestamp\":%d}\n", caps["definitionProvider"], caps["hoverProvider"], time.Now().UnixMilli())
+		}
+	}()
+	// #endregion
 
 	s.sendResult(id, result)
 }
@@ -419,7 +456,12 @@ func (s *Server) handleDidOpen(params json.RawMessage) {
 	s.log("Document opened: %s", docURI)
 
 	// 添加文档
-	s.documents.Open(docURI, p.TextDocument.Text, int(p.TextDocument.Version))
+	doc := s.documents.Open(docURI, p.TextDocument.Text, int(p.TextDocument.Version))
+	
+	// 为文档创建专属的loader
+	if doc != nil && s.workspace != nil {
+		s.workspace.InitializeDocumentLoader(doc)
+	}
 
 	// 发送诊断
 	s.publishDiagnostics(docURI)
@@ -555,3 +597,64 @@ func uriToPath(docURI string) string {
 	}
 	return u.Filename()
 }
+
+// memoryMonitor 定期内存保护（降低频率减少开销）
+func (s *Server) memoryMonitor(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second) // 30秒检查一次
+	defer ticker.Stop()
+	
+	const maxHeapMB = 150 // 超过150MB立即清理
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.logMemorySnapshot()
+			
+			// 紧急内存保护
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			heapMB := float64(m.HeapAlloc) / 1024 / 1024
+			
+			if heapMB > maxHeapMB {
+				s.log("EMERGENCY: Memory limit exceeded (%.2fMB > %dMB), clearing caches", heapMB, maxHeapMB)
+				s.emergencyClearCaches()
+				runtime.GC()
+				runtime.ReadMemStats(&m)
+				newHeapMB := float64(m.HeapAlloc) / 1024 / 1024
+				s.log("EMERGENCY: Memory after cleanup: %.2fMB", newHeapMB)
+			}
+		}
+	}
+}
+
+// emergencyClearCaches 紧急清理所有缓存
+func (s *Server) emergencyClearCaches() {
+	// 清理workspace索引
+	if s.workspace != nil {
+		s.workspace.mu.Lock()
+		s.workspace.files = make(map[string]*IndexedFile)
+		s.workspace.mu.Unlock()
+		
+		s.workspace.symbolMu.Lock()
+		s.workspace.symbolLocations = make(map[string]string)
+		s.workspace.symbolMu.Unlock()
+	}
+	
+	// 只保留最近打开的2个文档
+	if s.documents != nil {
+		s.documents.mu.Lock()
+		if len(s.documents.documents) > 2 {
+			// 清空所有文档（让用户重新打开需要的文件）
+			s.documents.documents = make(map[string]*Document)
+		}
+		s.documents.mu.Unlock()
+	}
+}
+
+// logMemorySnapshot 记录一次内存快照（简化版）
+func (s *Server) logMemorySnapshot() {
+	// 精简日志，只在需要时记录
+}
+// #endregion

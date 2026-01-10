@@ -115,7 +115,7 @@ func (s *Server) getHoverInfo(doc *Document, line, character int) *protocol.Hove
 		}
 		if content == "" && s.workspace != nil {
 			// 使用工作区索引查找（包括标准库和导入的文件）
-			content = s.workspace.GetHoverInfoForSymbol(astFile, word)
+			content = s.workspace.GetHoverInfoForSymbol(astFile, word, doc.Loader)
 		}
 	}
 

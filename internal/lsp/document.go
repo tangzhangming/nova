@@ -25,6 +25,13 @@ type Document struct {
 
 	// 是否需要重新解析
 	dirty bool
+	
+	// 文档专属的loader（用于解析该文档的导入）
+	Loader interface {
+		ResolveImport(importPath string) (string, error)
+		GetProjectNamespace() string
+		RootDir() string
+	}
 }
 
 // DocumentManager 文档管理器
@@ -40,7 +47,7 @@ type DocumentManager struct {
 func NewDocumentManager() *DocumentManager {
 	return &DocumentManager{
 		documents:    make(map[string]*Document),
-		maxDocuments: 100, // 默认最多管理100个文档
+		maxDocuments: 10, // 紧急：最多10个文档
 	}
 }
 
@@ -139,8 +146,8 @@ func (dm *DocumentManager) GetAll() []*Document {
 	return docs
 }
 
-// maxDocumentSize 文档大小限制（5MB），防止内存暴涨
-const maxDocumentSize = 5 * 1024 * 1024
+// maxDocumentSize 文档大小限制（500KB），防止内存暴涨
+const maxDocumentSize = 500 * 1024
 
 // parse 解析文档
 func (doc *Document) parse() {
