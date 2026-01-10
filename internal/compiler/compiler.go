@@ -3859,17 +3859,30 @@ func (c *Compiler) compileNewExpr(e *ast.NewExpr) {
 	
 	idx := c.makeConstant(bytecode.NewString(e.ClassName.Name))
 	c.emitU16(bytecode.OpNewObject, idx)
+	
+	// 复制对象：构造函数调用会消耗 receiver，但我们需要保留对象作为 new 表达式的结果
+	// 栈: [obj] -> [obj, obj]
+	c.emit(bytecode.OpDup)
 
 	// 处理命名参数
 	args := c.resolveNewExprNamedArguments(e)
 
-	// 调用构造函数
+	// 编译参数
+	// 栈: [obj, obj] -> [obj, obj, arg1, arg2, ...]
 	for _, arg := range args {
 		c.compileExpr(arg)
 	}
+	
+	// 调用构造函数
+	// receiver 是 peek(argCount)，即栈中的第二个 obj
+	// 调用后栈: [obj, null]（构造函数返回 null）
 	constructorIdx := c.makeConstant(bytecode.NewString("__construct"))
 	c.emitU16(bytecode.OpCallMethod, constructorIdx)
-	c.currentChunk().WriteU8(byte(len(args)), c.currentLine) // 参数数量
+	c.currentChunk().WriteU8(byte(len(args)), c.currentLine)
+	
+	// 弹出构造函数的返回值（null），保留对象
+	// 栈: [obj, null] -> [obj]
+	c.emit(bytecode.OpPop)
 }
 
 // resolveNewExprNamedArguments 解析NewExpr的命名参数

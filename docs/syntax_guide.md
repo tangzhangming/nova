@@ -1752,5 +1752,146 @@ foreach ($activeUsers as $user) {
 
 ---
 
+## 关键字和保留字
+
+### 关键字列表
+
+以下是 Sola 语言的所有关键字，不能用作标识符（变量名、函数名、类名等）：
+
+#### 类型关键字
+| 关键字 | 说明 |
+|--------|------|
+| `int`, `i8`, `i16`, `i32`, `i64` | 有符号整数类型 |
+| `uint`, `u8`, `u16`, `u32`, `u64` | 无符号整数类型 |
+| `byte` | 与 `u8` 等价 |
+| `float`, `f32`, `f64` | 浮点数类型 |
+| `bool` | 布尔类型 |
+| `string` | 字符串类型 |
+| `void` | 无返回值（可省略） |
+| `unknown` | 安全的顶类型 |
+| `dynamic` | 动态类型 |
+| `func` | 函数类型 |
+| `map` | 映射类型 |
+
+#### 值关键字
+| 关键字 | 说明 |
+|--------|------|
+| `true` | 布尔真值 |
+| `false` | 布尔假值 |
+| `null` | 空值 |
+
+#### 声明关键字
+| 关键字 | 说明 |
+|--------|------|
+| `class` | 类声明 |
+| `interface` | 接口声明 |
+| `abstract` | 抽象类/方法 |
+| `extends` | 继承 |
+| `implements` | 实现接口 |
+| `function` | 函数声明 |
+| `const` | 常量 |
+| `static` | 静态成员 |
+| `final` | 不可继承/重写 |
+| `enum` | 枚举声明 |
+| `type` | 类型别名/新类型 |
+| `namespace` | 命名空间 |
+| `use` | 导入 |
+
+#### 访问控制关键字
+| 关键字 | 说明 |
+|--------|------|
+| `public` | 公开访问 |
+| `protected` | 保护访问 |
+| `private` | 私有访问 |
+
+#### 控制流关键字
+| 关键字 | 说明 |
+|--------|------|
+| `if`, `else`, `elseif` | 条件分支 |
+| `switch`, `case`, `default` | 多路分支 |
+| `match` | 模式匹配 |
+| `for`, `foreach`, `while`, `do` | 循环 |
+| `break`, `continue` | 循环控制 |
+| `return` | 返回 |
+
+#### 并发关键字
+| 关键字 | 说明 |
+|--------|------|
+| `go` | 启动协程 |
+| `select` | 多路选择 |
+
+#### 异常处理关键字
+| 关键字 | 说明 |
+|--------|------|
+| `try`, `catch`, `finally` | 异常处理 |
+| `throw` | 抛出异常 |
+
+#### 其他关键字
+| 关键字 | 说明 |
+|--------|------|
+| `new` | 创建实例 |
+| `$this` | 当前对象 |
+| `self` | 当前类 |
+| `parent` | 父类 |
+| `as` | 类型转换 |
+| `as?` | 安全类型转换 |
+| `is` | 类型检查 |
+| `echo` | 输出 |
+| `where` | 泛型约束 |
+
+### 上下文关键字
+
+以下是**上下文关键字**，仅在特定上下文中有特殊含义，其他地方可作为普通标识符使用：
+
+| 关键字 | 上下文 | 说明 |
+|--------|--------|------|
+| `get` | 属性访问器 | 定义 getter |
+| `set` | 属性访问器 | 定义 setter |
+| `value` | setter 体内 | 表示设置的值 |
+
+```sola
+// get、set、value 作为上下文关键字
+public class User {
+    private string $name;
+    
+    // 属性访问器中，get/set 是关键字
+    public string $Name {
+        get { return $this->name; }
+        set { $this->name = value; }  // value 是隐式参数
+    }
+}
+
+// 在其他地方，get/set/value 可以作为普通标识符
+public class Pool {
+    public function get(): Connection {  // get 作为方法名
+        return new Connection();
+    }
+}
+
+public class Data {
+    public string $value = "";  // value 作为属性名
+}
+```
+
+### 函数返回类型
+
+函数返回类型可以：
+1. **省略**：表示无返回值
+2. **使用 `void`**：显式声明无返回值（与省略等价）
+3. **指定类型**：如 `string`、`int`、`User` 等
+
+```sola
+// 以下三种写法等价：
+public function doSomething() { }           // 省略返回类型
+public function doSomething(): void { }     // 显式 void（推荐省略）
+
+// 有返回值
+public function getName(): string {
+    return $this->name;
+}
+```
+
+---
+
 *本文档基于 Sola 语言源码分析生成，如有更新请以官方文档为准。*
 

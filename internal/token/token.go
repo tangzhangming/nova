@@ -206,10 +206,14 @@ const (
 	ECHO      // echo
 	WHERE     // where (泛型约束)
 	TYPE      // type (类型别名)
+	keyword_end // 关键字结束标记（不是实际 token）
+
+	// ----------------------------------------------------------
+	// 上下文关键字（仅在特定上下文中是关键字，其他地方是标识符）
+	// ----------------------------------------------------------
 	GET       // get (属性访问器)
 	SET       // set (属性访问器)
 	VALUE     // value (setter参数)
-	keyword_end // 关键字结束标记（不是实际 token）
 )
 
 // ============================================================================
@@ -470,9 +474,8 @@ var keywords = map[string]TokenType{
 	"echo":      ECHO,
 	"where":     WHERE,
 	"type":      TYPE,
-	"get":       GET,
-	"set":       SET,
-	"value":     VALUE,
+	// 注意：get、set、value 是上下文关键字，不在这里注册
+	// 它们在词法分析时被识别为 IDENT，在解析属性访问器时特殊处理
 }
 
 // ============================================================================
@@ -521,7 +524,8 @@ func LookupIdent(ident string) TokenType {
 		}
 
 	case 3:
-		// 三字符关键字：for, int, new, try, use, get, set, i16, i32, i64, u16, u32, u64, f32, f64, map
+		// 三字符关键字：for, int, new, try, use, i16, i32, i64, u16, u32, u64, f32, f64, map
+		// 注意：get、set 是上下文关键字，不在这里匹配
 		switch ident {
 		case "for":
 			return FOR
@@ -533,10 +537,6 @@ func LookupIdent(ident string) TokenType {
 			return TRY
 		case "use":
 			return USE
-		case "get":
-			return GET
-		case "set":
-			return SET
 		case "i16":
 			return I16_TYPE
 		case "i32":
@@ -589,7 +589,8 @@ func LookupIdent(ident string) TokenType {
 		}
 
 	case 5:
-		// 五字符关键字：while, break, catch, throw, class, const, final, float, false, match, where, value
+		// 五字符关键字：while, break, catch, throw, class, const, final, float, false, match, where
+		// 注意：value 是上下文关键字，不在这里匹配
 		switch ident {
 		case "while":
 			return WHILE
@@ -613,8 +614,6 @@ func LookupIdent(ident string) TokenType {
 			return MATCH
 		case "where":
 			return WHERE
-		case "value":
-			return VALUE
 		}
 
 	case 6:

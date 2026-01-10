@@ -152,6 +152,16 @@ func (p *Parser) check(t token.TokenType) bool {
 	return p.peek().Type == t
 }
 
+// checkIdent 检查当前 token 是否是指定名称的标识符
+// 用于匹配上下文关键字（如 get、set、value）
+func (p *Parser) checkIdent(name string) bool {
+	if p.isAtEnd() {
+		return false
+	}
+	tok := p.peek()
+	return tok.Type == token.IDENT && tok.Literal == name
+}
+
 func (p *Parser) checkAny(types ...token.TokenType) bool {
 	for _, t := range types {
 		if p.check(t) {
@@ -414,11 +424,10 @@ func (p *Parser) parseFuncType() *ast.FuncType {
 }
 
 func (p *Parser) parseReturnType() ast.TypeNode {
-	// 检查是否是 void，如果是则报错
+	// void 返回类型：允许但视为无返回值
 	if p.check(token.VOID) {
-		p.error(i18n.T(i18n.ErrVoidNotAllowed))
 		p.advance() // 跳过 void
-		return nil
+		return nil  // nil 表示无返回值
 	}
 
 	// 多返回值类型 (int, string)
@@ -2905,9 +2914,10 @@ func (p *Parser) parsePropertyAccessor(defaultVis ast.Visibility) *ast.PropertyA
 	var getBody, setBody *ast.BlockStmt
 	var getExpr, setExpr ast.Expression
 
-	// 解析 get 和 set
+	// 解析 get 和 set（上下文关键字，作为标识符匹配）
 	for !p.check(token.RBRACE) && !p.isAtEnd() {
-		if p.match(token.GET) {
+		if p.checkIdent("get") {
+			p.advance()
 			getToken = p.previous()
 			
 			// 检查是否有可见性修饰符
@@ -2932,7 +2942,8 @@ func (p *Parser) parsePropertyAccessor(defaultVis ast.Visibility) *ast.PropertyA
 				// 自动属性: get;
 				p.consume(token.SEMICOLON, "expected ';' after 'get'")
 			}
-		} else if p.match(token.SET) {
+		} else if p.checkIdent("set") {
+			p.advance()
 			setToken = p.previous()
 			
 			// 检查是否有可见性修饰符
