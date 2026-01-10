@@ -228,6 +228,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
+	prevMaxLocalCount := c.maxLocalCount
 	prevScopeDepth := c.scopeDepth
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
@@ -239,6 +240,7 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.function.SourceFile = c.sourceFile
 	c.locals = make([]Local, 256)
 	c.localCount = 0
+	c.maxLocalCount = 0
 	c.scopeDepth = 0
 	
 	// 设置返回类型检查
@@ -283,13 +285,14 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	// 添加默认返回
 	c.emit(bytecode.OpReturnNull)
 
-	method.LocalCount = c.localCount
+	method.LocalCount = c.maxLocalCount // 使用 maxLocalCount 确保包含所有作用域内声明的变量
 	method.Chunk = c.function.Chunk
 	
 	// 恢复状态
 	c.function = prevFn
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
+	c.maxLocalCount = prevMaxLocalCount
 	c.scopeDepth = prevScopeDepth
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns
@@ -322,6 +325,7 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		prevFn := c.function
 		prevLocals := c.locals
 		prevLocalCount := c.localCount
+		prevMaxLocalCount := c.maxLocalCount
 		prevScopeDepth := c.scopeDepth
 		prevReturnType := c.returnType
 		prevExpectedReturns := c.expectedReturns
@@ -331,6 +335,7 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		c.function.SourceFile = c.sourceFile
 		c.locals = make([]Local, 256)
 		c.localCount = 0
+		c.maxLocalCount = 0
 		c.scopeDepth = 0
 		
 		// 设置返回类型
@@ -361,13 +366,14 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		// 如果没有显式返回，添加默认返回
 		c.emit(bytecode.OpReturnNull)
 		
-		getter.LocalCount = c.localCount
+		getter.LocalCount = c.maxLocalCount
 		getter.Chunk = c.function.Chunk
 		
 		// 恢复状态
 		c.function = prevFn
 		c.locals = prevLocals
 		c.localCount = prevLocalCount
+		c.maxLocalCount = prevMaxLocalCount
 		c.scopeDepth = prevScopeDepth
 		c.returnType = prevReturnType
 		c.expectedReturns = prevExpectedReturns
@@ -395,6 +401,7 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		prevFn := c.function
 		prevLocals := c.locals
 		prevLocalCount := c.localCount
+		prevMaxLocalCount := c.maxLocalCount
 		prevScopeDepth := c.scopeDepth
 		prevReturnType := c.returnType
 		prevExpectedReturns := c.expectedReturns
@@ -404,6 +411,7 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		c.function.SourceFile = c.sourceFile
 		c.locals = make([]Local, 256)
 		c.localCount = 0
+		c.maxLocalCount = 0
 		c.scopeDepth = 0
 		c.returnType = nil
 		c.expectedReturns = 0
@@ -434,13 +442,14 @@ func (c *Compiler) compilePropertyWithAccessor(class *bytecode.Class, prop *ast.
 		// 添加默认返回
 		c.emit(bytecode.OpReturnNull)
 		
-		setter.LocalCount = c.localCount
+		setter.LocalCount = c.maxLocalCount
 		setter.Chunk = c.function.Chunk
 		
 		// 恢复状态
 		c.function = prevFn
 		c.locals = prevLocals
 		c.localCount = prevLocalCount
+		c.maxLocalCount = prevMaxLocalCount
 		c.scopeDepth = prevScopeDepth
 		c.returnType = prevReturnType
 		c.expectedReturns = prevExpectedReturns
@@ -472,6 +481,7 @@ func (c *Compiler) compileExpressionBodiedProperty(class *bytecode.Class, prop *
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
+	prevMaxLocalCount := c.maxLocalCount
 	prevScopeDepth := c.scopeDepth
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
@@ -481,6 +491,7 @@ func (c *Compiler) compileExpressionBodiedProperty(class *bytecode.Class, prop *
 	c.function.SourceFile = c.sourceFile
 	c.locals = make([]Local, 256)
 	c.localCount = 0
+	c.maxLocalCount = 0
 	c.scopeDepth = 0
 	
 	// 设置返回类型
@@ -501,13 +512,14 @@ func (c *Compiler) compileExpressionBodiedProperty(class *bytecode.Class, prop *
 	c.emit(bytecode.OpReturn)
 	c.endScope()
 	
-	getter.LocalCount = c.localCount
+	getter.LocalCount = c.maxLocalCount
 	getter.Chunk = c.function.Chunk
 	
 	// 恢复状态
 	c.function = prevFn
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
+	c.maxLocalCount = prevMaxLocalCount
 	c.scopeDepth = prevScopeDepth
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns

@@ -17,6 +17,7 @@ type Compiler struct {
 	scopeDepth int
 	locals     []Local
 	localCount int
+	maxLocalCount int // 跟踪使用的最大局部变量数量（修复作用域结束后 localCount 减少的问题）
 
 	// 循环上下文
 	loopStart  int
@@ -219,7 +220,8 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	// 添加返回指令
 	c.emit(bytecode.OpReturnNull)
 
-	c.function.LocalCount = c.localCount
+	// 使用 maxLocalCount 确保包含所有作用域内声明的变量
+	c.function.LocalCount = c.maxLocalCount
 
 	return c.function, c.errors
 }
@@ -230,6 +232,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
+	prevMaxLocalCount := c.maxLocalCount
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
 	prevFuncName := c.currentFuncName
@@ -241,6 +244,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.function.SourceFile = c.sourceFile // 继承源文件信息
 	c.locals = make([]Local, 256)
 	c.localCount = 0
+	c.maxLocalCount = 0
 	c.scopeDepth = 0
 	
 	// 对于 CompileFunction，不检查返回类型（允许隐式返回值，用于箭头函数）
@@ -301,7 +305,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.emit(bytecode.OpReturnNull)
 
 	fn := c.function
-	fn.LocalCount = c.localCount
+	fn.LocalCount = c.maxLocalCount // 使用 maxLocalCount 确保包含所有作用域内声明的变量
 	
 	// 检查函数是否可内联
 	fn.Inlinable = c.isInlinable(fn)
@@ -313,6 +317,7 @@ func (c *Compiler) CompileFunction(name string, params []*ast.Parameter, body *a
 	c.function = prevFn
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
+	c.maxLocalCount = prevMaxLocalCount
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns
 	c.currentFuncName = prevFuncName
@@ -651,6 +656,9 @@ func (c *Compiler) hasSideEffect(expr ast.Expression) bool {
 	}
 
 	switch e := expr.(type) {
+	case *ast.StaticAccess:
+		// 静态访问通常没有副作用
+		return false
 	case *ast.AssignExpr:
 		return true
 	case *ast.MethodCall:
@@ -703,6 +711,7 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 	prevFn := c.function
 	prevLocals := c.locals
 	prevLocalCount := c.localCount
+	prevMaxLocalCount := c.maxLocalCount
 	prevInClosure := c.inClosure
 	prevReturnType := c.returnType
 	prevExpectedReturns := c.expectedReturns
@@ -714,6 +723,7 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 	c.function.SourceFile = c.sourceFile // 继承源文件信息
 	c.locals = make([]Local, 256)
 	c.localCount = 0
+	c.maxLocalCount = 0
 	c.scopeDepth = 0
 	c.inClosure = true // 标记在闭包中，禁止访问全局变量
 	
@@ -779,12 +789,13 @@ func (c *Compiler) CompileClosureWithReturnType(name string, params []*ast.Param
 	c.emit(bytecode.OpReturnNull)
 
 	fn := c.function
-	fn.LocalCount = c.localCount
+	fn.LocalCount = c.maxLocalCount // 使用 maxLocalCount 确保包含所有作用域内声明的变量
 
 	// 恢复状态
 	c.function = prevFn
 	c.locals = prevLocals
 	c.localCount = prevLocalCount
+	c.maxLocalCount = prevMaxLocalCount
 	c.inClosure = prevInClosure
 	c.returnType = prevReturnType
 	c.expectedReturns = prevExpectedReturns
@@ -4450,6 +4461,10 @@ func (c *Compiler) addLocalWithType(name string, typeName string) {
 		TypeName: typeName,
 	}
 	c.localCount++
+	// 跟踪最大局部变量数量，确保在作用域结束后仍保留正确的值
+	if c.localCount > c.maxLocalCount {
+		c.maxLocalCount = c.localCount
+	}
 }
 
 // getLocalType 获取局部变量的类型

@@ -24,6 +24,12 @@ type Command struct {
 
 // handleCodeLens 处理代码镜头请求
 func (s *Server) handleCodeLens(id json.RawMessage, params json.RawMessage) {
+	// 检查是否启用 Code Lens
+	if s.configManager != nil && !s.configManager.GetCodeLens().Enable {
+		s.sendResult(id, []CodeLens{})
+		return
+	}
+	
 	var p protocol.CodeLensParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		s.sendError(id, -32700, "Parse error")
@@ -50,38 +56,30 @@ func (s *Server) collectCodeLenses(doc *Document) []CodeLens {
 		return lenses
 	}
 
-	// 添加测试相关的 Code Lenses
+	// 添加测试相关的 Code Lenses（这是轻量级的，只检查当前文件）
 	testLenses := s.GetTestCodeLenses(doc)
 	lenses = append(lenses, testLenses...)
 
-	// 为每个类和方法添加代码镜头
-	for _, decl := range astFile.Declarations {
-		switch d := decl.(type) {
-		case *ast.ClassDecl:
-			// 跳过测试类的引用计数（已经有测试相关的 Code Lens）
-			if !IsTestClass(d) {
-				// 类级别的代码镜头：显示实现数量
-				classLens := s.createClassCodeLens(d, doc.URI)
-				if classLens != nil {
-					lenses = append(lenses, *classLens)
-				}
-			}
+	// 注意：引用计数的 Code Lens 已被禁用以提高性能
+	// 原因：countReferences 需要遍历所有文档的所有行，
+	// 在每次 Code Lens 请求时（编辑器滚动、输入等都会触发）
+	// 这会导致严重的性能问题和内存压力。
+	//
+	// 如需要引用计数功能，建议：
+	// 1. 通过配置开关控制
+	// 2. 使用缓存机制
+	// 3. 使用延迟计算和防抖
+	//
+	// 用户仍可以通过 "Find All References" 功能查看引用
 
-			// 方法级别的代码镜头（跳过测试方法）
-			for _, method := range d.Methods {
-				if IsTestClass(d) && IsTestMethod(method) {
-					// 测试方法已经有测试相关的 Code Lens，跳过引用计数
-					continue
+	// 只为接口添加实现计数（这个相对轻量）
+	if s.configManager != nil && s.configManager.GetCodeLens().ShowImplementations {
+		for _, decl := range astFile.Declarations {
+			if ifaceDecl, ok := decl.(*ast.InterfaceDecl); ok {
+				ifaceLens := s.createInterfaceCodeLens(ifaceDecl, doc.URI)
+				if ifaceLens != nil {
+					lenses = append(lenses, *ifaceLens)
 				}
-				methodLenses := s.createMethodCodeLenses(d.Name.Name, method, doc.URI)
-				lenses = append(lenses, methodLenses...)
-			}
-
-		case *ast.InterfaceDecl:
-			// 接口级别的代码镜头：显示实现数量
-			ifaceLens := s.createInterfaceCodeLens(d, doc.URI)
-			if ifaceLens != nil {
-				lenses = append(lenses, *ifaceLens)
 			}
 		}
 	}
@@ -341,10 +339,19 @@ func countMethodCallsInExpr(expr ast.Expression, methodName string) int {
 }
 
 // countImplementations 计算接口的实现数量
+// 注意：这是一个轻量级实现，只检查已打开的文档
+// 不会遍历所有行，只检查类声明
 func (s *Server) countImplementations(interfaceName string) int {
 	count := 0
 
-	for _, doc := range s.documents.GetAll() {
+	// 限制检查的文档数量，避免性能问题
+	docs := s.documents.GetAll()
+	maxDocs := 50 // 最多检查50个文档
+	if len(docs) > maxDocs {
+		docs = docs[:maxDocs]
+	}
+
+	for _, doc := range docs {
 		astFile := doc.GetAST()
 		if astFile == nil {
 			continue
@@ -369,11 +376,6 @@ func (s *Server) countImplementations(interfaceName string) int {
 				}
 			}
 		}
-	}
-
-	// 从工作区索引中查找
-	if s.workspace != nil {
-		// 这里可以扩展从工作区索引查找实现
 	}
 
 	return count

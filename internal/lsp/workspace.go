@@ -34,6 +34,10 @@ type WorkspaceIndex struct {
 
 	// 日志函数
 	log func(format string, args ...interface{})
+	
+	// 内存管理
+	maxIndexedFiles int  // 最大索引文件数量
+	indexingEnabled bool // 是否启用索引
 }
 
 // IndexedFile 已索引的文件信息
@@ -53,6 +57,8 @@ func NewWorkspaceIndex(workspaceRoot string, logFunc func(format string, args ..
 		files:           make(map[string]*IndexedFile),
 		symbolLocations: make(map[string]string),
 		log:             logFunc,
+		maxIndexedFiles: 500, // 默认最多索引500个文件
+		indexingEnabled: true,
 	}
 
 	// 尝试创建 loader
@@ -208,9 +214,19 @@ func (wi *WorkspaceIndex) IndexWorkspace() {
 
 // indexFile 索引单个文件
 func (wi *WorkspaceIndex) indexFile(path string) *IndexedFile {
+	// 检查是否启用索引
+	if !wi.indexingEnabled {
+		return nil
+	}
+	
 	// 检查文件是否存在
 	info, err := os.Stat(path)
 	if err != nil {
+		return nil
+	}
+
+	// 检查文件大小限制（不索引超过 1MB 的文件）
+	if info.Size() > 1*1024*1024 {
 		return nil
 	}
 
@@ -223,11 +239,18 @@ func (wi *WorkspaceIndex) indexFile(path string) *IndexedFile {
 
 	wi.mu.RLock()
 	existing, exists := wi.files[absPath]
+	fileCount := len(wi.files)
 	wi.mu.RUnlock()
 
 	// 如果文件已索引且未修改，跳过
 	if exists && existing.ModTime == info.ModTime().Unix() {
 		return existing
+	}
+
+	// 检查索引文件数量限制
+	if !exists && fileCount >= wi.maxIndexedFiles {
+		wi.log("Max indexed files limit reached (%d), skipping: %s", wi.maxIndexedFiles, absPath)
+		return nil
 	}
 
 	// 读取文件内容
@@ -271,6 +294,37 @@ func (wi *WorkspaceIndex) indexFile(path string) *IndexedFile {
 	}
 
 	return indexed
+}
+
+// ClearIndex 清理索引缓存
+func (wi *WorkspaceIndex) ClearIndex() {
+	wi.mu.Lock()
+	wi.files = make(map[string]*IndexedFile)
+	wi.mu.Unlock()
+	
+	wi.symbolMu.Lock()
+	wi.symbolLocations = make(map[string]string)
+	wi.symbolMu.Unlock()
+	
+	wi.log("Workspace index cleared")
+}
+
+// RemoveFile 从索引中移除文件
+func (wi *WorkspaceIndex) RemoveFile(path string) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	absPath = filepath.Clean(absPath)
+	
+	wi.mu.Lock()
+	delete(wi.files, absPath)
+	wi.mu.Unlock()
+}
+
+// SetIndexingEnabled 设置是否启用索引
+func (wi *WorkspaceIndex) SetIndexingEnabled(enabled bool) {
+	wi.indexingEnabled = enabled
 }
 
 // updateSymbolLocations 更新符号位置索引

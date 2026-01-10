@@ -95,6 +95,12 @@ type semanticToken struct {
 
 // handleSemanticTokensFull 处理全量语义tokens请求
 func (s *Server) handleSemanticTokensFull(id json.RawMessage, params json.RawMessage) {
+	// 检查是否启用语义高亮
+	if s.configManager != nil && !s.configManager.Get().SemanticHighlighting.Enable {
+		s.sendResult(id, protocol.SemanticTokens{})
+		return
+	}
+	
 	var p protocol.SemanticTokensParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		s.sendError(id, -32700, "Parse error")

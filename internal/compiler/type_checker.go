@@ -1329,3 +1329,13 @@ func (tc *TypeChecker) addWarning(pos token.Position, code, message string) {
 	})
 }
 
+// GetWarnings 获取警告列表
+func (tc *TypeChecker) GetWarnings() []TypeWarning {
+	return tc.warnings
+}
+
+// GetErrors 获取错误列表
+func (tc *TypeChecker) GetErrors() []TypeError {
+	return tc.errors
+}
+

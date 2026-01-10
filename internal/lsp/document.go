@@ -31,12 +31,16 @@ type Document struct {
 type DocumentManager struct {
 	documents map[string]*Document
 	mu        sync.RWMutex
+	
+	// 内存管理
+	maxDocuments int // 最大文档数量限制
 }
 
 // NewDocumentManager 创建文档管理器
 func NewDocumentManager() *DocumentManager {
 	return &DocumentManager{
-		documents: make(map[string]*Document),
+		documents:    make(map[string]*Document),
+		maxDocuments: 100, // 默认最多管理100个文档
 	}
 }
 

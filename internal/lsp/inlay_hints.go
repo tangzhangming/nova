@@ -45,6 +45,12 @@ type InlayHintOptions struct {
 
 // handleInlayHints 处理内联提示请求
 func (s *Server) handleInlayHints(id json.RawMessage, params json.RawMessage) {
+	// 检查是否启用内联提示
+	if s.configManager != nil && !s.configManager.GetInlayHints().Enable {
+		s.sendResult(id, []InlayHint{})
+		return
+	}
+	
 	var p InlayHintParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		s.sendError(id, -32700, "Parse error")
