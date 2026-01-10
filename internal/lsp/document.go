@@ -223,6 +223,32 @@ func (doc *Document) GetWordAt(line, character int) string {
 	return lineText[start:end]
 }
 
+// GetWordRangeAt 获取指定位置的单词及其范围
+func (doc *Document) GetWordRangeAt(line, character int) (word string, startCol, endCol int) {
+	if line < 0 || line >= len(doc.Lines) {
+		return "", 0, 0
+	}
+
+	lineText := doc.Lines[line]
+	if character < 0 || character > len(lineText) {
+		return "", 0, 0
+	}
+
+	// 向前查找单词开始
+	start := character
+	for start > 0 && isWordChar(lineText[start-1]) {
+		start--
+	}
+
+	// 向后查找单词结束
+	end := character
+	for end < len(lineText) && isWordChar(lineText[end]) {
+		end++
+	}
+
+	return lineText[start:end], start, end
+}
+
 // GetOffset 获取指定位置的字节偏移
 func (doc *Document) GetOffset(line, character int) int {
 	offset := 0

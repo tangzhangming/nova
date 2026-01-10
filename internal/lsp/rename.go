@@ -7,6 +7,120 @@ import (
 	"go.lsp.dev/protocol"
 )
 
+// PrepareRenameResult 准备重命名结果
+type PrepareRenameResult struct {
+	Range       protocol.Range `json:"range"`
+	Placeholder string         `json:"placeholder"`
+}
+
+// handlePrepareRename 处理准备重命名请求
+func (s *Server) handlePrepareRename(id json.RawMessage, params json.RawMessage) {
+	var p protocol.PrepareRenameParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		s.sendError(id, -32700, "Parse error")
+		return
+	}
+
+	docURI := string(p.TextDocument.URI)
+	doc := s.documents.Get(docURI)
+	if doc == nil {
+		s.sendResult(id, nil)
+		return
+	}
+
+	line := int(p.Position.Line)
+	character := int(p.Position.Character)
+
+	// 获取当前位置的单词和范围
+	word, startCol, endCol := doc.GetWordRangeAt(line, character)
+	if word == "" {
+		s.sendResult(id, nil)
+		return
+	}
+
+	// 检查是否是变量（以$开头）
+	lineText := doc.GetLine(line)
+	isVariable := false
+	if startCol > 0 && lineText[startCol-1] == '$' {
+		isVariable = true
+		startCol-- // 包含$符号
+	}
+
+	// 验证是否可以重命名
+	if !canRename(word, isVariable, doc, line, character) {
+		// 返回 null 表示不可重命名
+		s.sendResult(id, nil)
+		return
+	}
+
+	// 返回重命名范围和占位符
+	result := PrepareRenameResult{
+		Range: protocol.Range{
+			Start: protocol.Position{
+				Line:      uint32(line),
+				Character: uint32(startCol),
+			},
+			End: protocol.Position{
+				Line:      uint32(line),
+				Character: uint32(endCol),
+			},
+		},
+		Placeholder: word,
+	}
+
+	if isVariable {
+		result.Placeholder = "$" + word
+	}
+
+	s.sendResult(id, result)
+}
+
+// canRename 检查是否可以重命名
+func canRename(word string, isVariable bool, doc *Document, line, character int) bool {
+	// 不能重命名关键字
+	keywords := map[string]bool{
+		"class": true, "interface": true, "enum": true, "type": true,
+		"function": true, "public": true, "private": true, "protected": true,
+		"static": true, "final": true, "abstract": true, "const": true,
+		"extends": true, "implements": true, "new": true, "return": true,
+		"if": true, "elseif": true, "else": true, "switch": true,
+		"case": true, "default": true, "for": true, "foreach": true,
+		"while": true, "do": true, "break": true, "continue": true,
+		"try": true, "catch": true, "finally": true, "throw": true,
+		"true": true, "false": true, "null": true, "this": true,
+		"self": true, "parent": true, "echo": true, "use": true,
+		"namespace": true, "as": true, "is": true, "go": true, "select": true,
+	}
+
+	if keywords[word] {
+		return false
+	}
+
+	// 不能重命名内置类型
+	builtinTypes := map[string]bool{
+		"int": true, "float": true, "string": true, "bool": true,
+		"array": true, "object": true, "void": true, "mixed": true,
+		"callable": true, "iterable": true, "null": true,
+	}
+
+	if builtinTypes[word] {
+		return false
+	}
+
+	// 不能重命名内置函数
+	builtinFuncs := map[string]bool{
+		"print": true, "println": true, "len": true, "append": true,
+		"range": true, "type": true, "isset": true, "unset": true,
+		"empty": true, "die": true, "exit": true, "var_dump": true,
+	}
+
+	if builtinFuncs[word] {
+		return false
+	}
+
+	return true
+}
+
 // handleRename 处理重命名请求
 func (s *Server) handleRename(id json.RawMessage, params json.RawMessage) {
 	var p protocol.RenameParams

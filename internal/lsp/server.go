@@ -197,16 +197,48 @@ func (s *Server) handleMessage(ctx context.Context, msg []byte) {
 		s.handleCompletion(baseMsg.ID, baseMsg.Params)
 	case "textDocument/formatting":
 		s.handleFormatting(baseMsg.ID, baseMsg.Params)
+	case "textDocument/rangeFormatting":
+		s.handleRangeFormatting(baseMsg.ID, baseMsg.Params)
 	case "textDocument/documentSymbol":
 		s.handleDocumentSymbol(baseMsg.ID, baseMsg.Params)
 	case "textDocument/rename":
 		s.handleRename(baseMsg.ID, baseMsg.Params)
+	case "textDocument/prepareRename":
+		s.handlePrepareRename(baseMsg.ID, baseMsg.Params)
 	case "textDocument/signatureHelp":
 		s.handleSignatureHelp(baseMsg.ID, baseMsg.Params)
 	case "textDocument/codeAction":
 		s.handleCodeAction(baseMsg.ID, baseMsg.Params)
 	case "workspace/symbol":
 		s.handleWorkspaceSymbol(baseMsg.ID, baseMsg.Params)
+	case "textDocument/semanticTokens/full":
+		s.handleSemanticTokensFull(baseMsg.ID, baseMsg.Params)
+	case "textDocument/semanticTokens/range":
+		s.handleSemanticTokensRange(baseMsg.ID, baseMsg.Params)
+	case "textDocument/inlayHint":
+		s.handleInlayHints(baseMsg.ID, baseMsg.Params)
+	case "textDocument/documentHighlight":
+		s.handleDocumentHighlight(baseMsg.ID, baseMsg.Params)
+	case "textDocument/foldingRange":
+		s.handleFoldingRange(baseMsg.ID, baseMsg.Params)
+	case "textDocument/selectionRange":
+		s.handleSelectionRange(baseMsg.ID, baseMsg.Params)
+	case "textDocument/documentLink":
+		s.handleDocumentLinks(baseMsg.ID, baseMsg.Params)
+	case "textDocument/prepareCallHierarchy":
+		s.handleCallHierarchyPrepare(baseMsg.ID, baseMsg.Params)
+	case "callHierarchy/incomingCalls":
+		s.handleCallHierarchyIncomingCalls(baseMsg.ID, baseMsg.Params)
+	case "callHierarchy/outgoingCalls":
+		s.handleCallHierarchyOutgoingCalls(baseMsg.ID, baseMsg.Params)
+	case "textDocument/codeLens":
+		s.handleCodeLens(baseMsg.ID, baseMsg.Params)
+	case "textDocument/prepareTypeHierarchy":
+		s.handleTypeHierarchyPrepare(baseMsg.ID, baseMsg.Params)
+	case "typeHierarchy/supertypes":
+		s.handleTypeHierarchySupertypes(baseMsg.ID, baseMsg.Params)
+	case "typeHierarchy/subtypes":
+		s.handleTypeHierarchySubtypes(baseMsg.ID, baseMsg.Params)
 	case "$/cancelRequest":
 		// 忽略取消请求
 	default:
@@ -234,53 +266,76 @@ func (s *Server) handleInitialize(id json.RawMessage, params json.RawMessage) {
 	s.log("Initialize: workspace=%s", s.workspaceRoot)
 
 	// 返回服务器能力
-	result := protocol.InitializeResult{
-		Capabilities: protocol.ServerCapabilities{
+	result := map[string]interface{}{
+		"capabilities": map[string]interface{}{
 			// 文档同步：增量同步
-			TextDocumentSync: &protocol.TextDocumentSyncOptions{
-				OpenClose: true,
-				Change:    protocol.TextDocumentSyncKindIncremental,
-				Save: &protocol.SaveOptions{
-					IncludeText: true,
+			"textDocumentSync": map[string]interface{}{
+				"openClose": true,
+				"change":    2, // TextDocumentSyncKindIncremental
+				"save": map[string]interface{}{
+					"includeText": true,
 				},
 			},
 			// 代码补全
-			CompletionProvider: &protocol.CompletionOptions{
-				TriggerCharacters: []string{".", ">", ":", "$", "\\"},
-				ResolveProvider:   false,
+			"completionProvider": map[string]interface{}{
+				"triggerCharacters": []string{".", ">", ":", "$", "\\"},
+				"resolveProvider":   false,
 			},
 			// 悬停提示
-			HoverProvider: &protocol.HoverOptions{},
+			"hoverProvider": true,
 			// 签名帮助
-			SignatureHelpProvider: &protocol.SignatureHelpOptions{
-				TriggerCharacters:   []string{"(", ","},
-				RetriggerCharacters: []string{","},
+			"signatureHelpProvider": map[string]interface{}{
+				"triggerCharacters":   []string{"(", ","},
+				"retriggerCharacters": []string{","},
 			},
 			// 跳转定义
-			DefinitionProvider: &protocol.DefinitionOptions{},
+			"definitionProvider": true,
 			// 查找引用
-			ReferencesProvider: &protocol.ReferenceOptions{},
+			"referencesProvider": true,
 			// 文档符号
-			DocumentSymbolProvider: &protocol.DocumentSymbolOptions{},
+			"documentSymbolProvider": true,
 			// 工作区符号
-			WorkspaceSymbolProvider: &protocol.WorkspaceSymbolOptions{},
+			"workspaceSymbolProvider": true,
 			// 代码格式化
-			DocumentFormattingProvider: &protocol.DocumentFormattingOptions{},
+			"documentFormattingProvider":      true,
+			"documentRangeFormattingProvider": true,
 			// 重命名
-			RenameProvider: &protocol.RenameOptions{
-				PrepareProvider: false,
+			"renameProvider": map[string]interface{}{
+				"prepareProvider": true,
 			},
 			// 代码操作
-			CodeActionProvider: &protocol.CodeActionOptions{
-				CodeActionKinds: []protocol.CodeActionKind{
-					protocol.QuickFix,
-					protocol.SourceOrganizeImports,
+			"codeActionProvider": map[string]interface{}{
+				"codeActionKinds": []string{
+					"quickfix",
+					"source.organizeImports",
 				},
 			},
+			// 语义高亮
+			"semanticTokensProvider": getSemanticTokensProviderOptions(),
+			// 内联提示
+			"inlayHintProvider": true,
+			// 文档高亮
+			"documentHighlightProvider": true,
+			// 折叠范围
+			"foldingRangeProvider": true,
+			// 选择范围
+			"selectionRangeProvider": true,
+			// 文档链接
+			"documentLinkProvider": map[string]interface{}{
+				"resolveProvider": false,
+			},
+			// 调用层次
+			"callHierarchyProvider": true,
+			// 代码镜头
+			"codeLensProvider": map[string]interface{}{
+				"resolveProvider": false,
+			},
+			// 类型层次
+			"typeHierarchyProvider": true,
 		},
-		ServerInfo: &protocol.ServerInfo{
-			Name:    "solals",
-			Version: "0.1.0",
+		"serverInfo": map[string]interface{}{
+			"name":    "solals",
+			"version": "0.1.0",
 		},
 	}
 
