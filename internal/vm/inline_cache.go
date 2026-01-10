@@ -408,9 +408,9 @@ func (m *ICManager) GetMethodCache(fn *bytecode.Function, ip int) *InlineCache {
 		return nil
 	}
 
-	fnPtr := uintptr(0) // 简化：使用函数地址
+	fnPtr := uintptr(0)
 	if fn != nil {
-		fnPtr = uintptr(len(fn.Name)) // 临时使用名字长度作为标识
+		fnPtr = uintptr(unsafe.Pointer(fn)) // 使用真正的函数指针作为标识
 	}
 
 	now := time.Now().UnixNano()

@@ -290,11 +290,15 @@ func (c *Compiler) compileInternal(fn *bytecode.Function) (*CompiledFunc, error)
 	}
 	copy(execMem, code)
 
+	// 推断返回类型（默认为 int）
+	returnType := inferReturnType(irFunc)
+	
 	return &CompiledFunc{
-		Name:      fn.Name,
-		Code:      execMem,
-		StackSize: allocation.StackSize,
-		NumArgs:   fn.Arity,
+		Name:       fn.Name,
+		Code:       execMem,
+		StackSize:  allocation.StackSize,
+		NumArgs:    fn.Arity,
+		ReturnType: returnType,
 	}, nil
 }
 
@@ -308,16 +312,27 @@ func (c *Compiler) GetCompiled(name string) *CompiledFunc {
 	return c.cache.Get(name)
 }
 
+// RecordFallback 记录一次回退到解释器的事件
+func (c *Compiler) RecordFallback() {
+	atomic.AddInt64(&c.stats.FallbackCount, 1)
+}
+
+// RecordExecution 记录一次 JIT 执行
+func (c *Compiler) RecordExecution() {
+	atomic.AddInt64(&c.stats.ExecuteCount, 1)
+}
+
 // ============================================================================
 // 已编译函数
 // ============================================================================
 
 // CompiledFunc 已编译的函数
 type CompiledFunc struct {
-	Name      string  // 函数名
-	Code      []byte  // 可执行机器码
-	StackSize int     // 栈帧大小
-	NumArgs   int     // 参数数量
+	Name       string    // 函数名
+	Code       []byte    // 可执行机器码
+	StackSize  int       // 栈帧大小
+	NumArgs    int       // 参数数量
+	ReturnType ValueType // 返回值类型（用于正确转换返回值）
 }
 
 // EntryPoint 获取函数入口点
@@ -360,6 +375,23 @@ type CallingConv struct {
 // ============================================================================
 // 辅助函数
 // ============================================================================
+
+// inferReturnType 从 IR 函数推断返回类型
+// 通过分析 Return 指令的返回值类型来确定
+func inferReturnType(fn *IRFunc) ValueType {
+	// 遍历所有块查找 Return 指令
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if instr.Op == OpReturn && len(instr.Args) > 0 {
+				if instr.Args[0] != nil {
+					return instr.Args[0].Type
+				}
+			}
+		}
+	}
+	// 默认返回 int 类型
+	return TypeInt
+}
 
 // dumpHex 以十六进制格式打印字节数组
 func dumpHex(code []byte) {

@@ -190,6 +190,21 @@ func Int64ToFloatValue(v int64) bytecode.Value {
 	return bytecode.NewFloat(math.Float64frombits(uint64(v)))
 }
 
+// Int64ToValueWithType 根据指定类型将 int64 转换回 Sola 值
+// 对于 float 类型，v 被解释为 IEEE 754 双精度位表示
+func Int64ToValueWithType(v int64, typ ValueType) bytecode.Value {
+	switch typ {
+	case TypeInt:
+		return bytecode.NewInt(v)
+	case TypeFloat:
+		return bytecode.NewFloat(math.Float64frombits(uint64(v)))
+	case TypeBool:
+		return bytecode.NewBool(v != 0)
+	default:
+		return bytecode.NewInt(v)
+	}
+}
+
 // FloatBitsToInt64 将 float64 转换为 IEEE 754 位表示的 int64
 func FloatBitsToInt64(f float64) int64 {
 	return int64(math.Float64bits(f))
@@ -198,6 +213,26 @@ func FloatBitsToInt64(f float64) int64 {
 // Int64ToFloatBits 将 IEEE 754 位表示的 int64 转换为 float64
 func Int64ToFloatBits(v int64) float64 {
 	return math.Float64frombits(uint64(v))
+}
+
+// ValueTypeFromBytecodeType 从字节码值类型推断 IR 类型
+func ValueTypeFromBytecodeType(v bytecode.Value) ValueType {
+	switch v.Type {
+	case bytecode.ValInt:
+		return TypeInt
+	case bytecode.ValFloat:
+		return TypeFloat
+	case bytecode.ValBool:
+		return TypeBool
+	case bytecode.ValString:
+		return TypeString
+	case bytecode.ValArray:
+		return TypeArray
+	case bytecode.ValObject:
+		return TypeObject
+	default:
+		return TypeUnknown
+	}
 }
 
 // ============================================================================

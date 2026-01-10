@@ -4025,16 +4025,19 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closur
 	// 只对简单的纯计算函数启用 JIT 执行
 	// 复杂函数（如有闭包、可变参数等）暂不支持
 	if fn.IsVariadic || len(closure.Upvalues) > 0 {
+		vm.recordJITFallback(fn.Name, "unsupported: variadic or upvalues")
 		return InterpretOK, false
 	}
 	
 	// 最多支持 4 个参数（调用约定限制）
 	if argCount > 4 {
+		vm.recordJITFallback(fn.Name, "unsupported: too many arguments")
 		return InterpretOK, false
 	}
 	
 	// 检查函数是否可以被 JIT 执行
 	if !jit.CanJIT(fn) {
+		vm.recordJITFallback(fn.Name, "unsupported: contains non-JITable opcodes")
 		return InterpretOK, false
 	}
 	
@@ -4049,17 +4052,15 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closur
 	// 获取函数入口点
 	entryPoint := compiled.EntryPoint()
 	if entryPoint == 0 {
+		vm.recordJITFallback(fn.Name, "invalid entry point")
 		return InterpretOK, false
 	}
 	
 	// 使用 defer/recover 捕获 JIT 代码中的崩溃
 	defer func() {
 		if r := recover(); r != nil {
-			// JIT 执行崩溃，回退到解释执行
-			// 记录统计信息（可选）
-			if vm.jitCompiler != nil {
-				// 可以在这里记录崩溃统计
-			}
+			// JIT 执行崩溃，记录并回退到解释执行
+			vm.recordJITFallback(fn.Name, fmt.Sprintf("panic: %v", r))
 			result = InterpretOK
 			success = false
 		}
@@ -4069,6 +4070,7 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closur
 	nativeResult, ok := jit.CallNative(entryPoint, args)
 	if !ok {
 		// JIT 执行失败，回退到解释执行
+		vm.recordJITFallback(fn.Name, "native call failed")
 		return InterpretOK, false
 	}
 	
@@ -4077,10 +4079,22 @@ func (vm *VM) executeNative(compiled *jit.CompiledFunc, closure *bytecode.Closur
 	// 弹出函数和参数
 	vm.stackTop = baseSlot - 1
 	
-	// 将结果推入栈
-	vm.push(jit.Int64ToValue(nativeResult))
+	// 将结果推入栈（使用正确的返回类型）
+	vm.push(jit.Int64ToValueWithType(nativeResult, compiled.ReturnType))
 	
 	return InterpretOK, true
+}
+
+// recordJITFallback 记录 JIT 回退事件
+func (vm *VM) recordJITFallback(funcName, reason string) {
+	// 更新 JIT 编译器的回退统计
+	if vm.jitCompiler != nil {
+		vm.jitCompiler.RecordFallback()
+	}
+	
+	// 调试模式下输出回退原因
+	// 生产环境中可以通过配置开关控制
+	// fmt.Printf("[JIT Fallback] %s: %s\n", funcName, reason)
 }
 
 // GetJITCallCount 获取 JIT 调用次数（调试用）
@@ -4542,7 +4556,7 @@ func (vm *VM) stackOverflowError(currentFuncName string) InterpretResult {
 	// 构建错误消息
 	var sb strings.Builder
 	sb.WriteString(i18n.T(i18n.ErrStackOverflow))
-	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf(" (current depth: %d, max: %d)\n", vm.frameCount, FramesMax))
 	
 	// 如果检测到递归，添加递归信息
 	if recursionInfo.detected {
