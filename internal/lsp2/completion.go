@@ -2,6 +2,8 @@ package lsp2
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
@@ -10,18 +12,20 @@ import (
 
 // 补全上下文类型
 const (
-	CompletionMember   = 1 // $obj->
-	CompletionStatic   = 2 // Class::
-	CompletionVariable = 3 // $
-	CompletionNew      = 4 // new
-	CompletionGeneral  = 5 // 一般输入
+	CompletionMember    = 1 // $obj->
+	CompletionStatic    = 2 // Class::
+	CompletionVariable  = 3 // $
+	CompletionNew       = 4 // new
+	CompletionGeneral   = 5 // 一般输入
+	CompletionNamespace = 6 // use xxx.yyy.
 )
 
 // CompletionContext 补全上下文
 type CompletionContext struct {
-	Type       int
-	ObjectName string // 用于 Member: $obj
-	ClassName  string // 用于 Static: ClassName
+	Type          int
+	ObjectName    string // 用于 Member: $obj
+	ClassName     string // 用于 Static: ClassName
+	NamespacePath string // 用于 Namespace: use sola.collections.
 }
 
 // 最大补全项数量
@@ -80,6 +84,8 @@ func (s *Server) getCompletionItems(doc *Document, line, character int) []protoc
 		items = s.getVariableCompletions(doc, line)
 	case CompletionNew:
 		items = s.getClassCompletions(doc)
+	case CompletionNamespace:
+		items = s.getNamespaceCompletions(doc, ctx.NamespacePath)
 	case CompletionGeneral:
 		items = s.getGeneralCompletions(doc, prefix)
 	}
@@ -94,6 +100,11 @@ func (s *Server) getCompletionItems(doc *Document, line, character int) []protoc
 
 // detectCompletionContext 检测补全上下文
 func detectCompletionContext(prefix string) CompletionContext {
+	// 检查 use xxx.yyy.（命名空间补全）- 在 TrimRight 之前检查
+	if nsPath := extractNamespacePath(prefix); nsPath != "" {
+		return CompletionContext{Type: CompletionNamespace, NamespacePath: nsPath}
+	}
+
 	prefix = strings.TrimRight(prefix, " \t")
 
 	// 检查 $obj->
@@ -135,6 +146,45 @@ func detectCompletionContext(prefix string) CompletionContext {
 	}
 
 	return CompletionContext{Type: CompletionGeneral}
+}
+
+// extractNamespacePath 提取 use 语句中的命名空间路径
+// 例如: "use sola.collections." -> "sola.collections"
+// 例如: "use sola." -> "sola"
+// 例如: "use " -> "" (顶级，返回空字符串但会被处理)
+func extractNamespacePath(prefix string) string {
+	// 查找 use 关键字
+	trimmed := strings.TrimLeft(prefix, " \t")
+
+	// 检查是否以 use 开头
+	if !strings.HasPrefix(trimmed, "use ") && !strings.HasPrefix(trimmed, "use\t") {
+		return ""
+	}
+
+	// 提取 use 后面的内容
+	afterUse := strings.TrimPrefix(trimmed, "use")
+	afterUse = strings.TrimLeft(afterUse, " \t")
+
+	// 如果以 . 结尾，表示正在补全下一级
+	if strings.HasSuffix(afterUse, ".") {
+		// 返回 . 之前的部分
+		return afterUse[:len(afterUse)-1]
+	}
+
+	// 如果没有任何内容，返回特殊标记表示顶级补全
+	if afterUse == "" {
+		return "."
+	}
+
+	// 如果正在输入某个命名空间部分（没有以 . 结尾）
+	// 检查是否有 . 分隔符
+	if lastDot := strings.LastIndex(afterUse, "."); lastDot != -1 {
+		// 返回最后一个 . 之前的部分
+		return afterUse[:lastDot]
+	}
+
+	// 正在输入顶级命名空间
+	return "."
 }
 
 // extractLastWord 提取最后一个单词
@@ -499,6 +549,208 @@ func (s *Server) getClassCompletions(doc *Document) []protocol.CompletionItem {
 	}
 
 	return items
+}
+
+// getNamespaceCompletions 获取命名空间补全
+func (s *Server) getNamespaceCompletions(doc *Document, nsPath string) []protocol.CompletionItem {
+	var items []protocol.CompletionItem
+	seen := make(map[string]bool)
+
+	s.logger.Debug("Namespace completion for: %s", nsPath)
+
+	// 特殊处理：顶级补全（use 后面没有内容）
+	if nsPath == "." {
+		// 提示 sola 标准库
+		items = append(items, protocol.CompletionItem{
+			Label:  "sola",
+			Kind:   protocol.CompletionItemKindModule,
+			Detail: "标准库",
+		})
+		seen["sola"] = true
+
+		// 如果有项目命名空间，也提示
+		projectNs := s.getProjectNamespace(doc)
+		if projectNs != "" {
+			parts := strings.Split(projectNs, ".")
+			if len(parts) > 0 && !seen[parts[0]] {
+				items = append(items, protocol.CompletionItem{
+					Label:  parts[0],
+					Kind:   protocol.CompletionItemKindModule,
+					Detail: "项目命名空间",
+				})
+			}
+		}
+		return items
+	}
+
+	parts := strings.Split(nsPath, ".")
+
+	// 处理标准库命名空间 (sola.*)
+	if parts[0] == "sola" {
+		libDir := s.getStdLibDir()
+		if libDir == "" {
+			return items
+		}
+
+		// 构建目录路径
+		var dirPath string
+		if len(parts) == 1 {
+			// sola. -> 列出标准库根目录
+			dirPath = libDir
+		} else {
+			// sola.collections. -> 列出 src/collections/
+			dirPath = filepath.Join(libDir, filepath.Join(parts[1:]...))
+		}
+
+		items = s.scanNamespaceDir(dirPath, seen)
+	}
+
+	// 处理项目命名空间
+	projectNs := s.getProjectNamespace(doc)
+	if projectNs != "" && strings.HasPrefix(nsPath, projectNs) {
+		// 获取项目根目录
+		projectRoot := s.getProjectRoot(doc)
+		if projectRoot != "" {
+			relativePath := strings.TrimPrefix(nsPath, projectNs)
+			relativePath = strings.TrimPrefix(relativePath, ".")
+
+			var dirPath string
+			if relativePath == "" {
+				dirPath = filepath.Join(projectRoot, "src")
+			} else {
+				pathParts := strings.Split(relativePath, ".")
+				dirPath = filepath.Join(projectRoot, "src", filepath.Join(pathParts...))
+			}
+
+			projectItems := s.scanNamespaceDir(dirPath, seen)
+			items = append(items, projectItems...)
+		}
+	}
+
+	return items
+}
+
+// scanNamespaceDir 扫描目录获取命名空间补全项
+func (s *Server) scanNamespaceDir(dirPath string, seen map[string]bool) []protocol.CompletionItem {
+	var items []protocol.CompletionItem
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		s.logger.Debug("Failed to read dir %s: %v", dirPath, err)
+		return items
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+
+		// 跳过隐藏文件和已处理的名称
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		if entry.IsDir() {
+			// 目录 -> 子命名空间
+			if !seen[name] {
+				seen[name] = true
+				items = append(items, protocol.CompletionItem{
+					Label:  name,
+					Kind:   protocol.CompletionItemKindModule,
+					Detail: "命名空间",
+				})
+			}
+		} else if strings.HasSuffix(name, ".sola") {
+			// .sola 文件 -> 类名
+			className := strings.TrimSuffix(name, ".sola")
+			if !seen[className] && className != "README" {
+				seen[className] = true
+				items = append(items, protocol.CompletionItem{
+					Label:  className,
+					Kind:   protocol.CompletionItemKindClass,
+					Detail: "类",
+				})
+			}
+		}
+	}
+
+	return items
+}
+
+// getStdLibDir 获取标准库目录
+func (s *Server) getStdLibDir() string {
+	// 获取可执行文件路径
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+
+	// 解析符号链接
+	exePath, err = filepath.EvalSymlinks(exePath)
+	if err != nil {
+		return ""
+	}
+
+	// 标准库在可执行文件上一级目录的 src/ 子目录
+	exeDir := filepath.Dir(exePath)
+	parentDir := filepath.Dir(exeDir)
+	libPath := filepath.Join(parentDir, "src")
+
+	if _, err := os.Stat(libPath); err == nil {
+		return libPath
+	}
+
+	return ""
+}
+
+// getProjectNamespace 获取项目命名空间
+func (s *Server) getProjectNamespace(doc *Document) string {
+	projectRoot := s.getProjectRoot(doc)
+	if projectRoot == "" {
+		return ""
+	}
+
+	configPath := filepath.Join(projectRoot, "sola.toml")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+
+	// 简单解析 namespace
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "namespace") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				ns := strings.TrimSpace(parts[1])
+				ns = strings.Trim(ns, "\"")
+				return ns
+			}
+		}
+	}
+
+	return ""
+}
+
+// getProjectRoot 获取项目根目录
+func (s *Server) getProjectRoot(doc *Document) string {
+	docPath := uriToPath(doc.URI)
+	dir := filepath.Dir(docPath)
+
+	// 向上查找 sola.toml
+	for {
+		configPath := filepath.Join(dir, "sola.toml")
+		if _, err := os.Stat(configPath); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return ""
 }
 
 // getGeneralCompletions 获取通用补全
