@@ -631,10 +631,20 @@ func (arr *NativeArray) String() string {
 
 // SuperArray PHP风格万能数组
 // 特性: 有序存储、支持整数/字符串混合键、自动索引管理
+// 优化: 连续整数索引使用 dense 数组直接访问 O(1)
+// 优化: sparse 使用 uint64 哈希索引，避免字符串分配
 type SuperArray struct {
-	Entries []SuperArrayEntry // 保持插入顺序
-	Index   map[string]int    // key字符串表示 -> entries下标，O(1)查找
-	NextInt int64             // 下一个自动分配的整数索引
+	// 快速路径：连续整数索引 (0, 1, 2, ...)
+	dense    []Value // 直接索引，O(1) 访问
+	denseLen int     // dense 有效长度（可能小于 cap）
+
+	// 慢速路径：非连续整数 + 字符串键
+	Entries []SuperArrayEntry // 保持插入顺序（仅存储非 dense 的元素）
+	Index   map[uint64]int    // key.Hash() -> entries下标，O(1)查找
+
+	// 元数据
+	NextInt int64 // 下一个自动分配的整数索引
+	flags   uint8 // 状态标记: bit0=hasSparse（是否有稀疏元素）
 }
 
 // SuperArrayEntry 万能数组条目
@@ -646,50 +656,127 @@ type SuperArrayEntry struct {
 // NewSuperArray 创建空的万能数组
 func NewSuperArray() *SuperArray {
 	return &SuperArray{
-		Entries: make([]SuperArrayEntry, 0),
-		Index:   make(map[string]int),
-		NextInt: 0,
+		dense:    make([]Value, 0, 8), // 预分配 8 个元素
+		denseLen: 0,
+		Entries:  nil,             // 延迟初始化
+		Index:    nil,             // 延迟初始化
+		NextInt:  0,
+		flags:    0,
+	}
+}
+
+// NewSuperArrayWithCapacity 创建指定容量的万能数组
+func NewSuperArrayWithCapacity(cap int) *SuperArray {
+	return &SuperArray{
+		dense:    make([]Value, 0, cap),
+		denseLen: 0,
+		Entries:  nil,
+		Index:    nil,
+		NextInt:  0,
+		flags:    0,
 	}
 }
 
 // keyToString 将 key 转换为字符串用于索引
+// 优化：使用 strconv.FormatInt 替代 fmt.Sprintf，避免堆分配
 func (sa *SuperArray) keyToString(key Value) string {
 	switch key.Type() {
 	case ValInt:
-		return fmt.Sprintf("i:%d", key.AsInt())
+		return "i:" + strconv.FormatInt(key.AsInt(), 10)
 	case ValString:
-		return fmt.Sprintf("s:%s", key.AsString())
+		return "s:" + key.AsString()
 	default:
-		return fmt.Sprintf("o:%v", key.String())
+		return "o:" + key.String()
 	}
 }
 
-// Len 获取长度
+// Len 获取长度（dense + sparse）
 func (sa *SuperArray) Len() int {
-	return len(sa.Entries)
+	return sa.denseLen + len(sa.Entries)
 }
 
 // Get 获取元素
+// 优化：整数索引快速路径，直接访问 dense 数组
 func (sa *SuperArray) Get(key Value) (Value, bool) {
-	keyStr := sa.keyToString(key)
-	if idx, ok := sa.Index[keyStr]; ok {
+	// 快速路径：连续整数索引
+	if key.IsInt() {
+		idx := key.AsInt()
+		if idx >= 0 && idx < int64(sa.denseLen) {
+			return sa.dense[idx], true
+		}
+	}
+
+	// 慢速路径：哈希 map 查找
+	if sa.Index == nil {
+		return NullValue, false
+	}
+	h := key.Hash()
+	if idx, ok := sa.Index[h]; ok {
 		return sa.Entries[idx].Value, true
 	}
 	return NullValue, false
 }
 
 // Set 设置元素（如果存在则更新，否则追加）
+// 优化：连续整数索引存入 dense 数组，其他走 sparse
 func (sa *SuperArray) Set(key Value, value Value) {
-	keyStr := sa.keyToString(key)
-	if idx, ok := sa.Index[keyStr]; ok {
+	if key.IsInt() {
+		idx := key.AsInt()
+
+		// 快速路径：更新 dense 中的现有元素
+		if idx >= 0 && idx < int64(sa.denseLen) {
+			sa.dense[idx] = value
+			return
+		}
+
+		// 检查是否可以追加到 dense（连续索引）
+		if idx == int64(sa.denseLen) && idx >= 0 {
+			// 扩展 dense 数组
+			if int(idx) >= len(sa.dense) {
+				// 需要扩容
+				newCap := len(sa.dense) * 2
+				if newCap < int(idx)+1 {
+					newCap = int(idx) + 1
+				}
+				newDense := make([]Value, newCap)
+				copy(newDense, sa.dense)
+				sa.dense = newDense
+			}
+			sa.dense[idx] = value
+			sa.denseLen = int(idx) + 1
+
+			// 更新 NextInt
+			if idx >= sa.NextInt {
+				sa.NextInt = idx + 1
+			}
+			return
+		}
+	}
+
+	// 慢速路径：使用 Entries + Index
+	sa.setSparse(key, value)
+}
+
+// setSparse 设置稀疏元素（非连续整数或字符串键）
+func (sa *SuperArray) setSparse(key Value, value Value) {
+	// 延迟初始化
+	if sa.Index == nil {
+		sa.Index = make(map[uint64]int, 8)
+		sa.Entries = make([]SuperArrayEntry, 0, 8)
+	}
+
+	h := key.Hash()
+	if idx, ok := sa.Index[h]; ok {
 		// 更新现有元素
 		sa.Entries[idx].Value = value
 	} else {
 		// 追加新元素
-		sa.Index[keyStr] = len(sa.Entries)
+		sa.Index[h] = len(sa.Entries)
 		sa.Entries = append(sa.Entries, SuperArrayEntry{Key: key, Value: value})
+		sa.flags |= 1 // hasSparse
+
 		// 更新 nextInt
-		if key.Type() == ValInt {
+		if key.IsInt() {
 			intKey := key.AsInt()
 			if intKey >= sa.NextInt {
 				sa.NextInt = intKey + 1
@@ -699,22 +786,74 @@ func (sa *SuperArray) Set(key Value, value Value) {
 }
 
 // Push 追加元素（使用自动索引）
+// 优化：直接追加到 dense 数组
 func (sa *SuperArray) Push(value Value) {
-	key := NewInt(sa.NextInt)
+	idx := sa.NextInt
+
+	// 快速路径：如果 NextInt == denseLen，直接追加到 dense
+	if int(idx) == sa.denseLen {
+		if int(idx) >= len(sa.dense) {
+			// 扩容
+			newCap := len(sa.dense) * 2
+			if newCap < int(idx)+1 {
+				newCap = int(idx) + 1
+			}
+			if newCap < 8 {
+				newCap = 8
+			}
+			newDense := make([]Value, newCap)
+			copy(newDense, sa.dense)
+			sa.dense = newDense
+		}
+		sa.dense[idx] = value
+		sa.denseLen = int(idx) + 1
+		sa.NextInt = idx + 1
+		return
+	}
+
+	// 慢速路径
+	key := NewInt(idx)
 	sa.Set(key, value)
 }
 
 // HasKey 检查 key 是否存在
 func (sa *SuperArray) HasKey(key Value) bool {
-	keyStr := sa.keyToString(key)
-	_, ok := sa.Index[keyStr]
+	// 快速路径：整数索引检查 dense
+	if key.IsInt() {
+		idx := key.AsInt()
+		if idx >= 0 && idx < int64(sa.denseLen) {
+			return true
+		}
+	}
+
+	// 慢速路径：检查 sparse
+	if sa.Index == nil {
+		return false
+	}
+	_, ok := sa.Index[key.Hash()]
 	return ok
 }
 
 // Remove 删除元素
+// 注意：删除 dense 中的元素会将其设为 NullValue（保持索引稳定）
 func (sa *SuperArray) Remove(key Value) bool {
-	keyStr := sa.keyToString(key)
-	idx, ok := sa.Index[keyStr]
+	// 检查 dense
+	if key.IsInt() {
+		idx := key.AsInt()
+		if idx >= 0 && idx < int64(sa.denseLen) {
+			// 将该位置设为 NullValue（不移动元素，保持索引稳定）
+			sa.dense[idx] = NullValue
+			return true
+		}
+	}
+
+	// 检查 sparse
+	if sa.Index == nil {
+		return false
+	}
+
+	h := key.Hash()
+	idx, ok := sa.Index[h]
 	if !ok {
 		return false
 	}
@@ -722,44 +861,71 @@ func (sa *SuperArray) Remove(key Value) bool {
 	// 从 entries 中删除
 	sa.Entries = append(sa.Entries[:idx], sa.Entries[idx+1:]...)
 
-	// 重建索引
-	delete(sa.Index, keyStr)
+	// 重建索引（需要重新计算剩余元素的哈希）
+	delete(sa.Index, h)
 	for i := idx; i < len(sa.Entries); i++ {
-		sa.Index[sa.keyToString(sa.Entries[i].Key)] = i
+		sa.Index[sa.Entries[i].Key.Hash()] = i
 	}
 
 	return true
 }
 
-// Keys 获取所有 key
+// Keys 获取所有 key（先 dense，后 sparse）
 func (sa *SuperArray) Keys() []Value {
-	keys := make([]Value, len(sa.Entries))
-	for i, entry := range sa.Entries {
-		keys[i] = entry.Key
+	total := sa.denseLen + len(sa.Entries)
+	keys := make([]Value, total)
+
+	// dense 部分的 key
+	for i := 0; i < sa.denseLen; i++ {
+		keys[i] = NewInt(int64(i))
 	}
+
+	// sparse 部分的 key
+	for i, entry := range sa.Entries {
+		keys[sa.denseLen+i] = entry.Key
+	}
+
 	return keys
 }
 
-// Values 获取所有 value
+// Values 获取所有 value（先 dense，后 sparse）
 func (sa *SuperArray) Values() []Value {
-	values := make([]Value, len(sa.Entries))
+	total := sa.denseLen + len(sa.Entries)
+	values := make([]Value, total)
+
+	// dense 部分的 value
+	copy(values[:sa.denseLen], sa.dense[:sa.denseLen])
+
+	// sparse 部分的 value
 	for i, entry := range sa.Entries {
-		values[i] = entry.Value
+		values[sa.denseLen+i] = entry.Value
 	}
+
 	return values
 }
 
 // Copy 复制万能数组
 func (sa *SuperArray) Copy() *SuperArray {
 	newSa := &SuperArray{
-		Entries: make([]SuperArrayEntry, len(sa.Entries)),
-		Index:   make(map[string]int),
-		NextInt: sa.NextInt,
+		dense:    make([]Value, len(sa.dense)),
+		denseLen: sa.denseLen,
+		NextInt:  sa.NextInt,
+		flags:    sa.flags,
 	}
-	copy(newSa.Entries, sa.Entries)
-	for k, v := range sa.Index {
-		newSa.Index[k] = v
+
+	// 复制 dense
+	copy(newSa.dense, sa.dense)
+
+	// 复制 sparse（如果有）
+	if sa.Index != nil {
+		newSa.Entries = make([]SuperArrayEntry, len(sa.Entries))
+		newSa.Index = make(map[uint64]int, len(sa.Index))
+		copy(newSa.Entries, sa.Entries)
+		for k, v := range sa.Index {
+			newSa.Index[k] = v
+		}
 	}
+
 	return newSa
 }
 
