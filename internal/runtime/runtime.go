@@ -7,7 +7,6 @@ import (
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/compiler"
 	"github.com/tangzhangming/nova/internal/i18n"
-	"github.com/tangzhangming/nova/internal/jit"
 	"github.com/tangzhangming/nova/internal/loader"
 	"github.com/tangzhangming/nova/internal/parser"
 	"github.com/tangzhangming/nova/internal/vm"
@@ -47,13 +46,11 @@ func New() *Runtime {
 
 // NewWithOptions 创建带选项的运行时
 func NewWithOptions(opts Options) *Runtime {
-	var jitConfig *jit.Config
-	if !opts.JITEnabled {
-		jitConfig = jit.InterpretOnlyConfig()
-	}
+	// JIT 配置（当前 JIT 未完全实现，暂时忽略）
+	_ = opts.JITEnabled
 	
 	r := &Runtime{
-		vm:          vm.NewWithConfig(jitConfig),
+		vm:          vm.New(),
 		builtins:    make(map[string]BuiltinFunc),
 		classes:     make(map[string]*bytecode.Class),
 		enums:       make(map[string]*bytecode.Enum),
@@ -385,8 +382,8 @@ func (r *Runtime) RunCompiled(cf *bytecode.CompiledFile) error {
 	r.registerBuiltinsToVM()
 
 	// 运行
-	result := r.vm.Run(cf.MainFunction)
-	if result != vm.InterpretOK {
+	_ = r.vm.Run(cf.MainFunction)
+	if r.vm.HasError() {
 		return fmt.Errorf("")
 	}
 
@@ -449,8 +446,8 @@ func (r *Runtime) RunREPL(source, filename string) error {
 	r.registerBuiltinsToVM()
 
 	// 运行
-	result := r.vm.Run(fn)
-	if result != vm.InterpretOK {
+	_ = r.vm.Run(fn)
+	if r.vm.HasError() {
 		return fmt.Errorf("")
 	}
 
@@ -883,36 +880,31 @@ func (r *Runtime) registerBuiltins() {
 		panic(msg)
 	}
 
-	// GC 控制函数
+	// GC 控制函数 (暂时使用 stub 实现)
 	r.builtins["gc_collect"] = func(args []bytecode.Value) bytecode.Value {
-		freed := r.vm.CollectGarbage()
-		return bytecode.NewInt(int64(freed))
+		// GC 尚未实现
+		return bytecode.NewInt(0)
 	}
 	r.builtins["gc_enable"] = func(args []bytecode.Value) bytecode.Value {
-		r.vm.SetGCEnabled(true)
+		// GC 尚未实现
 		return bytecode.NullValue
 	}
 	r.builtins["gc_disable"] = func(args []bytecode.Value) bytecode.Value {
-		r.vm.SetGCEnabled(false)
+		// GC 尚未实现
 		return bytecode.NullValue
 	}
 	r.builtins["gc_stats"] = func(args []bytecode.Value) bytecode.Value {
-		stats := r.vm.GetGC().Stats()
+		// GC 尚未实现，返回空统计
 		m := make(map[bytecode.Value]bytecode.Value)
-		m[bytecode.NewString("heap_size")] = bytecode.NewInt(int64(stats.HeapSize))
-		m[bytecode.NewString("total_allocations")] = bytecode.NewInt(stats.TotalAllocations)
-		m[bytecode.NewString("total_collections")] = bytecode.NewInt(stats.TotalCollections)
-		m[bytecode.NewString("total_freed")] = bytecode.NewInt(stats.TotalFreed)
-		m[bytecode.NewString("next_threshold")] = bytecode.NewInt(int64(stats.NextThreshold))
+		m[bytecode.NewString("heap_size")] = bytecode.NewInt(0)
+		m[bytecode.NewString("total_allocations")] = bytecode.NewInt(0)
+		m[bytecode.NewString("total_collections")] = bytecode.NewInt(0)
+		m[bytecode.NewString("total_freed")] = bytecode.NewInt(0)
+		m[bytecode.NewString("next_threshold")] = bytecode.NewInt(0)
 		return bytecode.NewMap(m)
 	}
 	r.builtins["gc_set_threshold"] = func(args []bytecode.Value) bytecode.Value {
-		if len(args) > 0 {
-			threshold := int(args[0].AsInt())
-			if threshold > 0 {
-				r.vm.SetGCThreshold(threshold)
-			}
-		}
+		// GC 尚未实现
 		return bytecode.NullValue
 	}
 }
@@ -921,7 +913,7 @@ func (r *Runtime) registerBuiltinsToVM() {
 	for name, fn := range r.builtins {
 		// 创建一个包装函数
 		wrapper := createBuiltinWrapper(fn)
-		r.vm.DefineGlobal(name, bytecode.NewFunc(wrapper))
+		r.vm.RegisterBuiltin(name, wrapper)
 	}
 }
 

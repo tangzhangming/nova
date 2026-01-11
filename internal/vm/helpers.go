@@ -9,9 +9,12 @@ import (
 // ============================================================================
 // 算术 Helper
 // 处理混合类型的算术运算
+// 所有 Helper 函数使用 //go:noinline 确保有稳定的函数地址供 JIT 调用
 // ============================================================================
 
 // Helper_Add 加法 (处理类型转换)
+//
+//go:noinline
 func Helper_Add(a, b bytecode.Value) bytecode.Value {
 	// 整数
 	if a.IsInt() && b.IsInt() {
@@ -41,6 +44,8 @@ func Helper_Sub(a, b bytecode.Value) bytecode.Value {
 }
 
 // Helper_Mul 乘法
+//
+//go:noinline
 func Helper_Mul(a, b bytecode.Value) bytecode.Value {
 	if a.IsInt() && b.IsInt() {
 		return bytecode.NewInt(a.AsInt() * b.AsInt())
@@ -68,6 +73,8 @@ func Helper_Div(a, b bytecode.Value) bytecode.Value {
 }
 
 // Helper_Mod 取模
+//
+//go:noinline
 func Helper_Mod(a, b bytecode.Value) bytecode.Value {
 	ai, bi := a.AsInt(), b.AsInt()
 	if bi == 0 {
@@ -76,11 +83,67 @@ func Helper_Mod(a, b bytecode.Value) bytecode.Value {
 	return bytecode.NewInt(ai % bi)
 }
 
+// Helper_Neg 取负
+//
+//go:noinline
+func Helper_Neg(a bytecode.Value) bytecode.Value {
+	if a.IsInt() {
+		return bytecode.NewInt(-a.AsInt())
+	}
+	return bytecode.NewFloat(-a.AsFloat())
+}
+
+// ============================================================================
+// 比较 Helper
+// ============================================================================
+
+// Helper_Less 小于比较
+//
+//go:noinline
+func Helper_Less(a, b bytecode.Value) bytecode.Value {
+	if a.IsInt() && b.IsInt() {
+		return bytecode.NewBool(a.AsInt() < b.AsInt())
+	}
+	return bytecode.NewBool(a.AsFloat() < b.AsFloat())
+}
+
+// Helper_LessEqual 小于等于比较
+//
+//go:noinline
+func Helper_LessEqual(a, b bytecode.Value) bytecode.Value {
+	if a.IsInt() && b.IsInt() {
+		return bytecode.NewBool(a.AsInt() <= b.AsInt())
+	}
+	return bytecode.NewBool(a.AsFloat() <= b.AsFloat())
+}
+
+// Helper_Greater 大于比较
+//
+//go:noinline
+func Helper_Greater(a, b bytecode.Value) bytecode.Value {
+	if a.IsInt() && b.IsInt() {
+		return bytecode.NewBool(a.AsInt() > b.AsInt())
+	}
+	return bytecode.NewBool(a.AsFloat() > b.AsFloat())
+}
+
+// Helper_GreaterEqual 大于等于比较
+//
+//go:noinline
+func Helper_GreaterEqual(a, b bytecode.Value) bytecode.Value {
+	if a.IsInt() && b.IsInt() {
+		return bytecode.NewBool(a.AsInt() >= b.AsInt())
+	}
+	return bytecode.NewBool(a.AsFloat() >= b.AsFloat())
+}
+
 // ============================================================================
 // 字符串 Helper
 // ============================================================================
 
 // Helper_StringConcat 字符串拼接
+//
+//go:noinline
 func Helper_StringConcat(a, b bytecode.Value) bytecode.Value {
 	return bytecode.NewString(a.String() + b.String())
 }
@@ -184,11 +247,15 @@ func Helper_StringJoin(arr, sep bytecode.Value) bytecode.Value {
 // ============================================================================
 
 // Helper_SA_New 创建 SuperArray
+//
+//go:noinline
 func Helper_SA_New() *bytecode.SuperArray {
 	return bytecode.NewSuperArray()
 }
 
 // Helper_SA_Get 获取 SuperArray 元素
+//
+//go:noinline
 func Helper_SA_Get(arr *bytecode.SuperArray, key bytecode.Value) bytecode.Value {
 	if arr == nil {
 		return bytecode.NullValue
@@ -216,6 +283,8 @@ func Helper_SA_GetString(arr *bytecode.SuperArray, key string) bytecode.Value {
 }
 
 // Helper_SA_Set 设置 SuperArray 元素
+//
+//go:noinline
 func Helper_SA_Set(arr *bytecode.SuperArray, key, val bytecode.Value) {
 	if arr != nil {
 		arr.Set(key, val)
@@ -244,6 +313,8 @@ func Helper_SA_Push(arr *bytecode.SuperArray, val bytecode.Value) {
 }
 
 // Helper_SA_Len 获取长度
+//
+//go:noinline
 func Helper_SA_Len(arr *bytecode.SuperArray) int {
 	if arr == nil {
 		return 0

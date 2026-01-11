@@ -24,6 +24,16 @@ func DefaultConfig() *Config {
 	}
 }
 
+// InterpretOnlyConfig 返回纯解释模式配置（禁用 JIT）
+func InterpretOnlyConfig() *Config {
+	return &Config{
+		Enabled:           false,
+		OptimizationLevel: 0,
+		InlineThreshold:   0,
+		HotspotThreshold:  0,
+	}
+}
+
 // JIT JIT 编译器
 type JIT struct {
 	config *Config

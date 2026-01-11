@@ -155,7 +155,7 @@ func nativeCryptoHashCreate(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewInt(-1)
 	}
-	algo, ok := args[0].Data.(string)
+	algo, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewInt(-1)
 	}
@@ -191,7 +191,7 @@ func nativeCryptoHashUpdate(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.NewBool(false)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -217,7 +217,7 @@ func nativeCryptoHashFinalize(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -241,7 +241,7 @@ func nativeCryptoHashFinalizeBytes(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBytes(nil)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -269,7 +269,7 @@ func nativeCryptoHmac(args []bytecode.Value) bytecode.Value {
 	if len(args) < 3 {
 		return bytecode.NewString("")
 	}
-	algo, ok := args[0].Data.(string)
+	algo, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -305,7 +305,7 @@ func nativeCryptoHmacBytes(args []bytecode.Value) bytecode.Value {
 	if len(args) < 3 {
 		return bytecode.NewBytes(nil)
 	}
-	algo, ok := args[0].Data.(string)
+	algo, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -342,13 +342,13 @@ func nativeCryptoHmacVerify(args []bytecode.Value) bytecode.Value {
 	if len(args) < 4 {
 		return bytecode.NewBool(false)
 	}
-	algo, ok := args[0].Data.(string)
+	algo, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
 	message := getBytes(args, 1)
 	key := getBytes(args, 2)
-	expected, ok := args[3].Data.(string)
+	expected, ok := args[3].Data().(string)
 	if !ok || message == nil || key == nil {
 		return bytecode.NewBool(false)
 	}
@@ -390,7 +390,7 @@ func nativeCryptoHmacCreate(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.NewInt(-1)
 	}
-	algo, ok := args[0].Data.(string)
+	algo, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewInt(-1)
 	}
@@ -431,7 +431,7 @@ func nativeCryptoHmacUpdate(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.NewBool(false)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -456,7 +456,7 @@ func nativeCryptoHmacFinalize(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -809,7 +809,7 @@ var (
 func nativeCryptoRsaGenerate(args []bytecode.Value) bytecode.Value {
 	bits := int64(2048)
 	if len(args) >= 1 {
-		if b, ok := args[0].Data.(int64); ok {
+		if b, ok := args[0].Data().(int64); ok {
 			bits = b
 		}
 	}
@@ -832,7 +832,7 @@ func nativeCryptoRsaGenerate(args []bytecode.Value) bytecode.Value {
 	arr := bytecode.NewSuperArray()
 	arr.Set(bytecode.NewInt(0), bytecode.NewInt(privID))
 	arr.Set(bytecode.NewInt(1), bytecode.NewInt(pubID))
-	return bytecode.Value{Type: bytecode.ValSuperArray, Data: arr}
+	return bytecode.NewSuperArrayValue(arr)
 }
 
 // nativeCryptoRsaGetPublicKeyPem 获取公钥PEM
@@ -840,7 +840,7 @@ func nativeCryptoRsaGetPublicKeyPem(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -870,7 +870,7 @@ func nativeCryptoRsaGetPrivateKeyPem(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -895,7 +895,7 @@ func nativeCryptoRsaLoadPublicKey(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewInt(-1)
 	}
-	pemData, ok := args[0].Data.(string)
+	pemData, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewInt(-1)
 	}
@@ -933,7 +933,7 @@ func nativeCryptoRsaLoadPrivateKey(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewInt(-1)
 	}
-	pemData, ok := args[0].Data.(string)
+	pemData, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewInt(-1)
 	}
@@ -972,7 +972,7 @@ func nativeCryptoRsaEncrypt(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	plaintext := getBytes(args, 0)
-	pubHandle, ok := args[1].Data.(int64)
+	pubHandle, ok := args[1].Data().(int64)
 	if !ok || plaintext == nil {
 		return bytecode.NewBytes(nil)
 	}
@@ -998,7 +998,7 @@ func nativeCryptoRsaDecrypt(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	ciphertext := getBytesArg(args, 0)
-	privHandle, ok := args[1].Data.(int64)
+	privHandle, ok := args[1].Data().(int64)
 	if !ok || ciphertext == nil {
 		return bytecode.NewBytes(nil)
 	}
@@ -1024,11 +1024,11 @@ func nativeCryptoRsaSign(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	message := getBytes(args, 0)
-	privHandle, ok := args[1].Data.(int64)
+	privHandle, ok := args[1].Data().(int64)
 	if !ok || message == nil {
 		return bytecode.NewBytes(nil)
 	}
-	hashAlgo, ok := args[2].Data.(string)
+	hashAlgo, ok := args[2].Data().(string)
 	if !ok {
 		hashAlgo = "sha256"
 	}
@@ -1078,11 +1078,11 @@ func nativeCryptoRsaVerify(args []bytecode.Value) bytecode.Value {
 	}
 	message := getBytes(args, 0)
 	signature := getBytesArg(args, 1)
-	pubHandle, ok := args[2].Data.(int64)
+	pubHandle, ok := args[2].Data().(int64)
 	if !ok || message == nil || signature == nil {
 		return bytecode.NewBool(false)
 	}
-	hashAlgo, ok := args[3].Data.(string)
+	hashAlgo, ok := args[3].Data().(string)
 	if !ok {
 		hashAlgo = "sha256"
 	}
@@ -1127,11 +1127,11 @@ func nativeCryptoRsaSignPkcs1(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	message := getBytes(args, 0)
-	privHandle, ok := args[1].Data.(int64)
+	privHandle, ok := args[1].Data().(int64)
 	if !ok || message == nil {
 		return bytecode.NewBytes(nil)
 	}
-	hashAlgo, ok := args[2].Data.(string)
+	hashAlgo, ok := args[2].Data().(string)
 	if !ok {
 		hashAlgo = "sha256"
 	}
@@ -1181,11 +1181,11 @@ func nativeCryptoRsaVerifyPkcs1(args []bytecode.Value) bytecode.Value {
 	}
 	message := getBytes(args, 0)
 	signature := getBytesArg(args, 1)
-	pubHandle, ok := args[2].Data.(int64)
+	pubHandle, ok := args[2].Data().(int64)
 	if !ok || message == nil || signature == nil {
 		return bytecode.NewBool(false)
 	}
-	hashAlgo, ok := args[3].Data.(string)
+	hashAlgo, ok := args[3].Data().(string)
 	if !ok {
 		hashAlgo = "sha256"
 	}
@@ -1230,7 +1230,7 @@ func nativeCryptoRsaEncryptPkcs1(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	plaintext := getBytes(args, 0)
-	pubHandle, ok := args[1].Data.(int64)
+	pubHandle, ok := args[1].Data().(int64)
 	if !ok || plaintext == nil {
 		return bytecode.NewBytes(nil)
 	}
@@ -1256,7 +1256,7 @@ func nativeCryptoRsaDecryptPkcs1(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	ciphertext := getBytesArg(args, 0)
-	privHandle, ok := args[1].Data.(int64)
+	privHandle, ok := args[1].Data().(int64)
 	if !ok || ciphertext == nil {
 		return bytecode.NewBytes(nil)
 	}
@@ -1281,7 +1281,7 @@ func nativeCryptoRsaFree(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBool(false)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -1315,7 +1315,7 @@ var (
 func nativeCryptoEcdsaGenerate(args []bytecode.Value) bytecode.Value {
 	curve := "P-256"
 	if len(args) >= 1 {
-		if c, ok := args[0].Data.(string); ok {
+		if c, ok := args[0].Data().(string); ok {
 			curve = c
 		}
 	}
@@ -1349,7 +1349,7 @@ func nativeCryptoEcdsaGenerate(args []bytecode.Value) bytecode.Value {
 	arr := bytecode.NewSuperArray()
 	arr.Set(bytecode.NewInt(0), bytecode.NewInt(privID))
 	arr.Set(bytecode.NewInt(1), bytecode.NewInt(pubID))
-	return bytecode.Value{Type: bytecode.ValSuperArray, Data: arr}
+	return bytecode.NewSuperArrayValue(arr)
 }
 
 // nativeCryptoEcdsaSign ECDSA签名
@@ -1358,7 +1358,7 @@ func nativeCryptoEcdsaSign(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	message := getBytes(args, 0)
-	privHandle, ok := args[1].Data.(int64)
+	privHandle, ok := args[1].Data().(int64)
 	if !ok || message == nil {
 		return bytecode.NewBytes(nil)
 	}
@@ -1388,7 +1388,7 @@ func nativeCryptoEcdsaVerify(args []bytecode.Value) bytecode.Value {
 	}
 	message := getBytes(args, 0)
 	signature := getBytesArg(args, 1)
-	pubHandle, ok := args[2].Data.(int64)
+	pubHandle, ok := args[2].Data().(int64)
 	if !ok || message == nil || signature == nil {
 		return bytecode.NewBool(false)
 	}
@@ -1419,7 +1419,7 @@ func nativeCryptoEcdsaGetPublicKeyPem(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -1449,7 +1449,7 @@ func nativeCryptoEcdsaGetPrivateKeyPem(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewString("")
 	}
@@ -1479,7 +1479,7 @@ func nativeCryptoEcdsaLoadPublicKey(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewInt(-1)
 	}
-	pemData, ok := args[0].Data.(string)
+	pemData, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewInt(-1)
 	}
@@ -1513,7 +1513,7 @@ func nativeCryptoEcdsaLoadPrivateKey(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewInt(-1)
 	}
-	pemData, ok := args[0].Data.(string)
+	pemData, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewInt(-1)
 	}
@@ -1551,7 +1551,7 @@ func nativeCryptoEcdsaFree(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBool(false)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -1600,7 +1600,7 @@ func nativeCryptoEd25519Generate(args []bytecode.Value) bytecode.Value {
 	arr := bytecode.NewSuperArray()
 	arr.Set(bytecode.NewInt(0), bytecode.NewInt(privID))
 	arr.Set(bytecode.NewInt(1), bytecode.NewInt(pubID))
-	return bytecode.Value{Type: bytecode.ValSuperArray, Data: arr}
+	return bytecode.NewSuperArrayValue(arr)
 }
 
 // nativeCryptoEd25519Sign Ed25519签名
@@ -1609,7 +1609,7 @@ func nativeCryptoEd25519Sign(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBytes(nil)
 	}
 	message := getBytes(args, 0)
-	privHandle, ok := args[1].Data.(int64)
+	privHandle, ok := args[1].Data().(int64)
 	if !ok || message == nil {
 		return bytecode.NewBytes(nil)
 	}
@@ -1632,7 +1632,7 @@ func nativeCryptoEd25519Verify(args []bytecode.Value) bytecode.Value {
 	}
 	message := getBytes(args, 0)
 	signature := getBytesArg(args, 1)
-	pubHandle, ok := args[2].Data.(int64)
+	pubHandle, ok := args[2].Data().(int64)
 	if !ok || message == nil || signature == nil {
 		return bytecode.NewBool(false)
 	}
@@ -1652,7 +1652,7 @@ func nativeCryptoEd25519GetPublicKeyBytes(args []bytecode.Value) bytecode.Value 
 	if len(args) < 1 {
 		return bytecode.NewBytes(nil)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -1672,7 +1672,7 @@ func nativeCryptoEd25519GetPrivateKeyBytes(args []bytecode.Value) bytecode.Value
 	if len(args) < 1 {
 		return bytecode.NewBytes(nil)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -1730,7 +1730,7 @@ func nativeCryptoEd25519Free(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBool(false)
 	}
-	handle, ok := args[0].Data.(int64)
+	handle, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -1761,15 +1761,15 @@ func nativeCryptoPbkdf2(args []bytecode.Value) bytecode.Value {
 	}
 	password := getBytes(args, 0)
 	salt := getBytesArg(args, 1)
-	iterations, ok := args[2].Data.(int64)
+	iterations, ok := args[2].Data().(int64)
 	if !ok || password == nil || salt == nil {
 		return bytecode.NewBytes(nil)
 	}
-	keyLen, ok := args[3].Data.(int64)
+	keyLen, ok := args[3].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	hashAlgo, ok := args[4].Data.(string)
+	hashAlgo, ok := args[4].Data().(string)
 	if !ok {
 		hashAlgo = "sha256"
 	}
@@ -1801,11 +1801,11 @@ func nativeCryptoHkdf(args []bytecode.Value) bytecode.Value {
 	secret := getBytesArg(args, 0)
 	salt := getBytesArg(args, 1)
 	info := getBytesArg(args, 2)
-	keyLen, ok := args[3].Data.(int64)
+	keyLen, ok := args[3].Data().(int64)
 	if !ok || secret == nil {
 		return bytecode.NewBytes(nil)
 	}
-	hashAlgo, ok := args[4].Data.(string)
+	hashAlgo, ok := args[4].Data().(string)
 	if !ok {
 		hashAlgo = "sha256"
 	}
@@ -1841,19 +1841,19 @@ func nativeCryptoScrypt(args []bytecode.Value) bytecode.Value {
 	}
 	password := getBytes(args, 0)
 	salt := getBytesArg(args, 1)
-	n, ok := args[2].Data.(int64)
+	n, ok := args[2].Data().(int64)
 	if !ok || password == nil || salt == nil {
 		return bytecode.NewBytes(nil)
 	}
-	r, ok := args[3].Data.(int64)
+	r, ok := args[3].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	p, ok := args[4].Data.(int64)
+	p, ok := args[4].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	keyLen, ok := args[5].Data.(int64)
+	keyLen, ok := args[5].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -1874,19 +1874,19 @@ func nativeCryptoArgon2id(args []bytecode.Value) bytecode.Value {
 	}
 	password := getBytes(args, 0)
 	salt := getBytesArg(args, 1)
-	time, ok := args[2].Data.(int64)
+	time, ok := args[2].Data().(int64)
 	if !ok || password == nil || salt == nil {
 		return bytecode.NewBytes(nil)
 	}
-	memory, ok := args[3].Data.(int64)
+	memory, ok := args[3].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	threads, ok := args[4].Data.(int64)
+	threads, ok := args[4].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	keyLen, ok := args[5].Data.(int64)
+	keyLen, ok := args[5].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -1902,19 +1902,19 @@ func nativeCryptoArgon2i(args []bytecode.Value) bytecode.Value {
 	}
 	password := getBytes(args, 0)
 	salt := getBytesArg(args, 1)
-	time, ok := args[2].Data.(int64)
+	time, ok := args[2].Data().(int64)
 	if !ok || password == nil || salt == nil {
 		return bytecode.NewBytes(nil)
 	}
-	memory, ok := args[3].Data.(int64)
+	memory, ok := args[3].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	threads, ok := args[4].Data.(int64)
+	threads, ok := args[4].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
-	keyLen, ok := args[5].Data.(int64)
+	keyLen, ok := args[5].Data().(int64)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -1932,7 +1932,7 @@ func nativeCryptoRandomBytes(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBytes(nil)
 	}
-	n, ok := args[0].Data.(int64)
+	n, ok := args[0].Data().(int64)
 	if !ok || n <= 0 {
 		return bytecode.NewBytes(nil)
 	}
@@ -1950,11 +1950,11 @@ func nativeCryptoRandomInt(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.NewInt(0)
 	}
-	min, ok := args[0].Data.(int64)
+	min, ok := args[0].Data().(int64)
 	if !ok {
 		return bytecode.NewInt(0)
 	}
-	max, ok := args[1].Data.(int64)
+	max, ok := args[1].Data().(int64)
 	if !ok || max <= min {
 		return bytecode.NewInt(0)
 	}
@@ -1974,7 +1974,7 @@ func nativeCryptoRandomHex(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewString("")
 	}
-	n, ok := args[0].Data.(int64)
+	n, ok := args[0].Data().(int64)
 	if !ok || n <= 0 {
 		return bytecode.NewString("")
 	}
@@ -2024,7 +2024,7 @@ func nativeCryptoHexDecode(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBytes(nil)
 	}
-	hexStr, ok := args[0].Data.(string)
+	hexStr, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewBytes(nil)
 	}
@@ -2040,7 +2040,7 @@ func nativeCryptoHexIsValid(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
 		return bytecode.NewBool(false)
 	}
-	hexStr, ok := args[0].Data.(string)
+	hexStr, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -2058,11 +2058,11 @@ func getBytes(args []bytecode.Value, index int) []byte {
 		return nil
 	}
 	v := args[index]
-	switch v.Type {
+	switch v.Type() {
 	case bytecode.ValString:
-		return []byte(v.Data.(string))
+		return []byte(v.AsString())
 	case bytecode.ValBytes:
-		return v.Data.([]byte)
+		return v.AsBytes()
 	default:
 		return nil
 	}
@@ -2074,11 +2074,11 @@ func getBytesArg(args []bytecode.Value, index int) []byte {
 		return nil
 	}
 	v := args[index]
-	if v.Type == bytecode.ValBytes {
-		return v.Data.([]byte)
+	if v.Type() == bytecode.ValBytes {
+		return v.AsBytes()
 	}
-	if v.Type == bytecode.ValString {
-		return []byte(v.Data.(string))
+	if v.Type() == bytecode.ValString {
+		return []byte(v.AsString())
 	}
 	return nil
 }

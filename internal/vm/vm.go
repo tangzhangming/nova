@@ -188,12 +188,27 @@ func (vm *VM) SetGlobal(index int, v bytecode.Value) {
 }
 
 // ============================================================================
+// 执行结果常量
+// ============================================================================
+
+const (
+	InterpretOK          = 0 // 执行成功
+	InterpretCompileError = 1 // 编译错误
+	InterpretRuntimeError = 2 // 运行时错误
+)
+
+// ============================================================================
 // 类和函数注册
 // ============================================================================
 
 // RegisterClass 注册类
 func (vm *VM) RegisterClass(class *bytecode.Class) {
 	vm.classes[class.FullName()] = class
+}
+
+// DefineClass 定义类（RegisterClass 的别名，兼容旧 API）
+func (vm *VM) DefineClass(class *bytecode.Class) {
+	vm.RegisterClass(class)
 }
 
 // GetClass 获取类
@@ -209,6 +224,68 @@ func (vm *VM) RegisterFunction(fn *bytecode.Function) {
 // GetFunction 获取函数
 func (vm *VM) GetFunction(name string) *bytecode.Function {
 	return vm.functions[name]
+}
+
+// RegisterBuiltin 注册内置函数
+func (vm *VM) RegisterBuiltin(name string, fn *bytecode.Function) {
+	vm.functions[name] = fn
+}
+
+// ============================================================================
+// 枚举注册
+// ============================================================================
+
+// enums 枚举注册表（在 VM 结构体外定义，简化结构）
+var vmEnums = make(map[string]*bytecode.Enum)
+
+// DefineEnum 定义枚举
+func (vm *VM) DefineEnum(enum *bytecode.Enum) {
+	vmEnums[enum.Name] = enum
+}
+
+// GetEnum 获取枚举
+func (vm *VM) GetEnum(name string) *bytecode.Enum {
+	return vmEnums[name]
+}
+
+// ============================================================================
+// 方法调用
+// ============================================================================
+
+// CallStaticMethod 调用静态方法
+func (vm *VM) CallStaticMethod(class *bytecode.Class, methodName string, args []bytecode.Value) int {
+	method := class.GetMethod(methodName)
+	if method == nil {
+		vm.runtimeError("undefined method: %s.%s", class.Name, methodName)
+		return InterpretRuntimeError
+	}
+
+	// 设置参数到栈上
+	argCount := 0
+	if args != nil {
+		for _, arg := range args {
+			vm.push(arg)
+		}
+		argCount = len(args)
+	}
+
+	// 创建临时 Function 包装 Method 的 Chunk
+	fn := &bytecode.Function{
+		Name:  method.Name,
+		Arity: method.Arity,
+		Chunk: method.Chunk,
+	}
+
+	// 压入调用帧并执行
+	vm.pushFrame(fn, vm.sp-argCount)
+	result := vm.runLoop()
+
+	// 检查执行结果
+	if vm.hasError {
+		return InterpretRuntimeError
+	}
+	_ = result // 忽略返回值
+	return InterpretOK
 }
 
 // ============================================================================

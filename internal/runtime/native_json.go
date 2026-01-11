@@ -70,19 +70,19 @@ func nativeJsonEncode(args []bytecode.Value) bytecode.Value {
 // native_json_decode(json string) -> dynamic
 func nativeJsonDecode(args []bytecode.Value) bytecode.Value {
 	if len(args) < 1 {
-		return bytecode.Value{Type: ValNull}
+		return bytecode.NullValue
 	}
 
 	jsonStr, ok := args[0].Data().(string)
 	if !ok {
-		return bytecode.Value{Type: ValNull}
+		return bytecode.NullValue
 	}
 
 	// 解码JSON
 	var goValue interface{}
 	err := json.Unmarshal([]byte(jsonStr), &goValue)
 	if err != nil {
-		return bytecode.Value{Type: ValNull}
+		return bytecode.NullValue
 	}
 
 	// 转换为Sola值
@@ -167,7 +167,7 @@ func nativeJsonEncodeObject(args []bytecode.Value) bytecode.Value {
 
 // solaValueToGo 将Sola值转换为Go值（用于JSON编码）
 func solaValueToGo(v bytecode.Value) interface{} {
-	switch v.Type {
+	switch v.Type() {
 	case ValNull:
 		return nil
 	case ValBool:
@@ -346,7 +346,7 @@ func encodeObjectToJson(obj *bytecode.Object, namingStrategy int) map[string]int
 
 // isEmptyValue 检查值是否为空
 func isEmptyValue(v bytecode.Value) bool {
-	switch v.Type {
+	switch v.Type() {
 	case ValNull:
 		return true
 	case ValBool:
@@ -444,13 +444,13 @@ func toKebabCase(s string) string {
 
 // valueToString 将值转换为字符串（用作map键）
 func valueToString(v bytecode.Value) string {
-	switch v.Type {
+	switch v.Type() {
 	case ValInt:
 		return fmt.Sprintf("%d", v.Data().(int64))
 	case ValString:
 		return v.Data().(string)
 	default:
-		return fmt.Sprintf("%v", v.Data)
+		return fmt.Sprintf("%v", v.Data())
 	}
 }
 
@@ -461,7 +461,7 @@ func valueToString(v bytecode.Value) string {
 // goValueToSola 将Go值转换为Sola值（用于JSON解码）
 func goValueToSola(v interface{}) bytecode.Value {
 	if v == nil {
-		return bytecode.Value{Type: ValNull}
+		return bytecode.NullValue
 	}
 
 	switch val := v.(type) {
@@ -481,7 +481,7 @@ func goValueToSola(v interface{}) bytecode.Value {
 	case map[string]interface{}:
 		return goMapToSuperArray(val)
 	default:
-		return bytecode.Value{Type: ValNull}
+		return bytecode.NullValue
 	}
 }
 
@@ -491,7 +491,7 @@ func goSliceToSuperArray(slice []interface{}) bytecode.Value {
 	for i, v := range slice {
 		arr.Set(bytecode.NewInt(int64(i)), goValueToSola(v))
 	}
-	return bytecode.Value{Type: ValSuperArray, Data: arr}
+	return bytecode.NewSuperArrayValue(arr)
 }
 
 // goMapToSuperArray 将Go map转换为SuperArray（字符串键）
@@ -508,7 +508,7 @@ func goMapToSuperArray(m map[string]interface{}) bytecode.Value {
 	for _, k := range keys {
 		arr.Set(bytecode.NewString(k), goValueToSola(m[k]))
 	}
-	return bytecode.Value{Type: ValSuperArray, Data: arr}
+	return bytecode.NewSuperArrayValue(arr)
 }
 
 
