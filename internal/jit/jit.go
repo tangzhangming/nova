@@ -12,6 +12,7 @@ type Config struct {
 	OptimizationLevel int  // 优化级别 (0-3)
 	InlineThreshold   int  // 内联阈值
 	HotspotThreshold  int  // 热点检测阈值
+	Threshold         int  // 热点阈值 (别名，兼容性)
 }
 
 // DefaultConfig 返回默认配置

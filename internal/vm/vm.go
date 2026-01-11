@@ -44,6 +44,10 @@ type VM struct {
 
 	// 统计信息
 	stats VMStats
+
+	// Profile 配置
+	profilingEnabled bool
+	currentFunction  *bytecode.Function
 }
 
 // CallFrame 调用帧
@@ -58,6 +62,7 @@ type CallFrame struct {
 // VMStats 虚拟机统计信息
 type VMStats struct {
 	InstructionsExecuted uint64 // 执行的指令数
+	HotFunctionsDetected int    // 检测到的热点函数数
 	FunctionCalls        uint64 // 函数调用次数
 	Allocations          uint64 // 分配次数
 }
@@ -203,7 +208,12 @@ const (
 
 // RegisterClass 注册类
 func (vm *VM) RegisterClass(class *bytecode.Class) {
+	// 注册完整名称
 	vm.classes[class.FullName()] = class
+	// 同时注册短名（用于简单引用）
+	if class.Name != "" && class.Name != class.FullName() {
+		vm.classes[class.Name] = class
+	}
 }
 
 // DefineClass 定义类（RegisterClass 的别名，兼容旧 API）
@@ -214,6 +224,15 @@ func (vm *VM) DefineClass(class *bytecode.Class) {
 // GetClass 获取类
 func (vm *VM) GetClass(name string) *bytecode.Class {
 	return vm.classes[name]
+}
+
+// listClasses 列出所有已注册的类
+func (vm *VM) listClasses() []string {
+	var names []string
+	for name := range vm.classes {
+		names = append(names, name)
+	}
+	return names
 }
 
 // RegisterFunction 注册函数
@@ -367,4 +386,59 @@ func (vm *VM) StackDepth() int {
 // CallDepth 获取调用深度 (调试用)
 func (vm *VM) CallDepth() int {
 	return vm.fp
+}
+
+// ============================================================================
+// Profile 支持
+// ============================================================================
+
+// EnableProfiling 启用 Profile 收集
+func (vm *VM) EnableProfiling() {
+	vm.profilingEnabled = true
+}
+
+// DisableProfiling 禁用 Profile 收集
+func (vm *VM) DisableProfiling() {
+	vm.profilingEnabled = false
+}
+
+// IsProfilingEnabled 检查是否启用 Profile
+func (vm *VM) IsProfilingEnabled() bool {
+	return vm.profilingEnabled
+}
+
+// SetCurrentFunction 设置当前函数 (用于 Profile)
+func (vm *VM) SetCurrentFunction(fn *bytecode.Function) {
+	vm.currentFunction = fn
+}
+
+// GetCurrentFunction 获取当前函数
+func (vm *VM) GetCurrentFunction() *bytecode.Function {
+	return vm.currentFunction
+}
+
+// RecordTypeProfile 记录类型 Profile
+func (vm *VM) RecordTypeProfile(ip int, t bytecode.ValueType) {
+	if vm.profilingEnabled && vm.currentFunction != nil {
+		RecordType(vm.currentFunction, ip, t)
+	}
+}
+
+// RecordBranchProfile 记录分支 Profile
+func (vm *VM) RecordBranchProfile(ip int, taken bool) {
+	if vm.profilingEnabled && vm.currentFunction != nil {
+		RecordBranch(vm.currentFunction, ip, taken)
+	}
+}
+
+// CheckHotFunction 检查并记录热点函数
+func (vm *VM) CheckHotFunction(fn *bytecode.Function) bool {
+	if !vm.profilingEnabled {
+		return false
+	}
+	if RecordExecution(fn) {
+		vm.stats.HotFunctionsDetected++
+		return true
+	}
+	return false
 }

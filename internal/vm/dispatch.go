@@ -75,7 +75,9 @@ func init() {
 
 	// 函数调用
 	dispatchTable[bytecode.OpCall] = opCall
+	dispatchTable[bytecode.OpCallStatic] = opCallStatic
 	dispatchTable[bytecode.OpReturn] = opReturn
+	dispatchTable[bytecode.OpReturnNull] = opReturnNull
 	dispatchTable[bytecode.OpClosure] = opClosure
 
 	// 对象操作

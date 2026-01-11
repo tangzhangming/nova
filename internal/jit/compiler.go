@@ -124,10 +124,24 @@ func (c *JITCompiler) Compile(fn *bytecode.Function) (*CompiledCode, error) {
 	// 2. IR 优化
 	ir = c.optimizeIR(ir)
 
-	// 3. IR -> 机器码 (当前返回空实现)
+	// 3. IR -> 机器码
+	machineCode, err := c.generateMachineCode(fn, ir)
+	if err != nil {
+		// 如果机器码生成失败，仍然返回 CompiledCode 但不含机器码
+		// 可以回退到解释器
+		code := &CompiledCode{
+			Function: fn,
+			IRInsts:  ir,
+		}
+		c.cache.Store(fn, code)
+		return code, nil
+	}
+
 	code := &CompiledCode{
 		Function: fn,
 		IRInsts:  ir,
+		Code:     machineCode,
+		Size:     len(machineCode),
 	}
 
 	// 缓存结果
@@ -136,9 +150,123 @@ func (c *JITCompiler) Compile(fn *bytecode.Function) (*CompiledCode, error) {
 	c.mu.Lock()
 	c.stats.TotalCompiled++
 	c.stats.TotalIRInsts += int64(len(ir))
+	c.stats.TotalCodeBytes += int64(len(machineCode))
 	c.mu.Unlock()
 
 	return code, nil
+}
+
+// generateMachineCode 生成机器码
+func (c *JITCompiler) generateMachineCode(fn *bytecode.Function, ir []IRInst) ([]byte, error) {
+	// 创建简单的 IRFunction
+	irFn := &IRFunction{
+		Name:       fn.Name,
+		LocalCount: fn.LocalCount,
+		ArgCount:   fn.Arity,
+		CFG: &CFG{
+			Blocks: []*BasicBlock{
+				{
+					ID:    0,
+					Name:  "entry",
+					Insts: ir,
+				},
+			},
+		},
+	}
+
+	// 使用 IREmitter 生成机器码
+	return GenerateMachineCode(irFn, c.helperAddrs)
+}
+
+// CompileWithProfile 使用 Profile 信息编译
+func (c *JITCompiler) CompileWithProfile(fn *bytecode.Function, profile *FunctionProfile) (*CompiledCode, error) {
+	if fn == nil {
+		return nil, nil
+	}
+
+	// 1. 字节码 -> IR (使用 Profile 信息)
+	builder := NewFunctionBuilder(fn)
+	irFn := builder.BuildFromBytecode(fn)
+
+	// 2. 应用 Profile 指导的优化
+	if profile != nil {
+		c.applyProfileOptimizations(irFn, profile)
+	}
+
+	// 3. 运行优化 Pass
+	pm := CreateStandardPipeline()
+	pm.Run(irFn)
+
+	// 4. 收集所有 IR 指令
+	var allIR []IRInst
+	if irFn.CFG != nil {
+		for _, bb := range irFn.CFG.Blocks {
+			allIR = append(allIR, bb.Insts...)
+		}
+	}
+
+	code := &CompiledCode{
+		Function: fn,
+		IRInsts:  allIR,
+	}
+
+	c.cache.Store(fn, code)
+
+	c.mu.Lock()
+	c.stats.TotalCompiled++
+	c.stats.TotalIRInsts += int64(len(allIR))
+	c.mu.Unlock()
+
+	return code, nil
+}
+
+// FunctionProfile Profile 信息 (从 vm 包引用)
+type FunctionProfile struct {
+	Name           string
+	ExecutionCount int64
+	IsHot          bool
+	TypeProfiles   map[int]*TypeProfileData
+}
+
+// TypeProfileData 类型 Profile 数据
+type TypeProfileData struct {
+	IntCount   int64
+	FloatCount int64
+	OtherCount int64
+}
+
+// applyProfileOptimizations 应用 Profile 指导的优化
+func (c *JITCompiler) applyProfileOptimizations(fn *IRFunction, profile *FunctionProfile) {
+	if fn.CFG == nil {
+		return
+	}
+
+	for _, bb := range fn.CFG.Blocks {
+		for i, inst := range bb.Insts {
+			// 获取该 IP 的类型 Profile
+			tp := profile.TypeProfiles[inst.BytecodeIP]
+			if tp == nil {
+				continue
+			}
+
+			// 计算类型占比
+			total := tp.IntCount + tp.FloatCount + tp.OtherCount
+			if total == 0 {
+				continue
+			}
+
+			intRatio := float64(tp.IntCount) / float64(total)
+
+			// 如果 95%+ 是整数，标记为整数特化
+			if intRatio >= 0.95 {
+				switch inst.Op {
+				case IR_ADD, IR_SUB, IR_MUL, IR_DIV, IR_MOD:
+					// 可以生成整数特化代码
+					bb.Insts[i].Arg2 = 1 // 标记为整数特化
+				}
+			}
+		}
+	}
 }
 
 // CanCompile 检查是否可以编译函数

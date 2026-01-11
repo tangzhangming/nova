@@ -352,9 +352,26 @@ func opStoreLocal(vm *VM) {
 	vm.setLocal(slot, vm.peek(0))
 }
 
-// opLoadGlobal 加载全局变量
+// opLoadGlobal 加载全局变量或全局函数
 func opLoadGlobal(vm *VM) {
 	index := int(vm.readShort())
+	frame := vm.currentFrame()
+	
+	// 从常量池获取名称
+	if index < len(frame.chunk.Constants) {
+		c := frame.chunk.Constants[index]
+		if c.IsString() {
+			name := c.AsString()
+			// 优先查找已注册的函数
+			if fn := vm.GetFunction(name); fn != nil {
+				vm.push(bytecode.NewFunc(fn))
+				return
+			}
+			// 注意：类的查找需要其他方式处理，这里暂不支持
+		}
+	}
+	
+	// 回退到按索引查找全局变量
 	vm.push(vm.GetGlobal(index))
 }
 
@@ -436,6 +453,22 @@ func opCall(vm *VM) {
 
 // callFunction 调用普通函数
 func (vm *VM) callFunction(fn *bytecode.Function, argCount int) {
+	// 处理内置函数
+	if fn.IsBuiltin && fn.BuiltinFn != nil {
+		// 收集参数
+		args := make([]bytecode.Value, argCount)
+		for i := argCount - 1; i >= 0; i-- {
+			args[i] = vm.pop()
+		}
+		// 弹出函数本身
+		vm.pop()
+		// 调用内置函数
+		result := fn.BuiltinFn(args)
+		// 压入结果
+		vm.push(result)
+		return
+	}
+
 	// 处理参数数量不匹配
 	if argCount < fn.MinArity {
 		// 填充默认参数
@@ -496,6 +529,91 @@ func opReturn(vm *VM) {
 
 	// 压入返回值
 	vm.push(result)
+}
+
+// opReturnNull 返回 null
+func opReturnNull(vm *VM) {
+	// 弹出当前帧
+	frame := vm.popFrame()
+
+	// 清理栈上的局部变量和参数
+	vm.sp = frame.bp
+
+	// 弹出被调用者 (如果有)
+	if vm.sp > 0 {
+		vm.sp--
+	}
+
+	// 压入 null 作为返回值
+	vm.push(bytecode.NullValue)
+}
+
+// opCallStatic 调用静态方法
+// 字节码格式: OpCallStatic + classIdx(u16) + methodIdx(u16) + argCount(u8)
+func opCallStatic(vm *VM) {
+	// 读取类索引
+	classIndex := int(vm.readShort())
+	// 读取方法名索引
+	methodIndex := int(vm.readShort())
+	// 读取参数数量
+	argCount := int(vm.readByte())
+
+	frame := vm.currentFrame()
+	
+	// 从常量池获取类名
+	if classIndex >= len(frame.chunk.Constants) {
+		vm.runtimeError("invalid class index: %d", classIndex)
+		return
+	}
+	
+	classNameVal := frame.chunk.Constants[classIndex]
+	if !classNameVal.IsString() {
+		vm.runtimeError("class name must be string, got %s", classNameVal.Type())
+		return
+	}
+	
+	className := classNameVal.AsString()
+	
+	// 查找类
+	class := vm.GetClass(className)
+	if class == nil {
+		vm.runtimeError("undefined class: %s", className)
+		return
+	}
+	
+	// 从常量池获取方法名
+	if methodIndex >= len(frame.chunk.Constants) {
+		vm.runtimeError("invalid method index: %d", methodIndex)
+		return
+	}
+	
+	methodNameVal := frame.chunk.Constants[methodIndex]
+	if !methodNameVal.IsString() {
+		vm.runtimeError("method name must be string")
+		return
+	}
+	
+	methodName := methodNameVal.AsString()
+	
+	// 查找方法
+	method := class.GetMethod(methodName)
+	if method == nil {
+		vm.runtimeError("undefined method: %s.%s", className, methodName)
+		return
+	}
+	
+	// 创建临时 Function 包装 Method
+	fn := &bytecode.Function{
+		Name:  method.Name,
+		Arity: method.Arity,
+		Chunk: method.Chunk,
+	}
+	
+	// 计算基指针（参数已经在栈上了）
+	bp := vm.sp - argCount
+	
+	// 直接压入调用帧（静态方法调用不需要被调用者在栈上）
+	vm.pushFrame(fn, bp)
 }
 
 // opClosure 创建闭包
