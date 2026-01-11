@@ -83,10 +83,15 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 		op := bytecode.OpCode(code[ip])
 		
 		switch op {
-		// 完全不支持的操作（需要复杂的运行时支持）
-		case bytecode.OpNewMap,
-			bytecode.OpSuperArrayNew, bytecode.OpSuperArrayGet, bytecode.OpSuperArraySet:
+		// 完全不支持的操作（SuperArray 使用动态类型）
+		case bytecode.OpSuperArrayNew, bytecode.OpSuperArrayGet, bytecode.OpSuperArraySet:
 			return JITDisabled
+		
+		// Map 创建（通过 JITMap 实现，使用 Helper）
+		case bytecode.OpNewMap:
+			if level > JITWithCalls {
+				level = JITWithCalls
+			}
 		
 		// 数组创建和字符串操作（已通过 Runtime Helper 支持）
 		// OpNewArray, OpNewFixedArray, OpConcat, OpStringBuilder* 现在可以 JIT
@@ -111,16 +116,15 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 				level = JITWithExceptions
 			}
 		
-		// ⚠️ BUG-002 修复: 函数调用必须禁用 JIT
-		// 
-		// 原因: runtime_helpers.go 中的 CallHelper 是空实现，总是返回 0
-		// 如果允许包含函数调用的函数被 JIT 编译，递归调用会返回错误结果
-		// 例如: fib(10) 返回 40 而不是 55
-		//
-		// 在 CallHelper 被完整实现之前，不要将此改为 JITWithCalls！
-		// 参见: docs/bug.md BUG-002
+		// 函数调用（已实现直接调用和延迟绑定）
+		// 通过 FunctionTable 解析目标地址，支持：
+		// - 直接调用：目标已编译时直接生成 call
+		// - 延迟绑定：目标未编译时生成占位调用，后续修补
+		// - PLT 调用：通过过程链接表间接调用
 		case bytecode.OpCall, bytecode.OpTailCall, bytecode.OpCallMethod, bytecode.OpCallStatic:
-			return JITDisabled
+			if level > JITWithCalls {
+				level = JITWithCalls
+			}
 		
 		// 对象操作（需要 JITWithObjects 级别）
 		case bytecode.OpNewObject, bytecode.OpGetField, bytecode.OpSetField,

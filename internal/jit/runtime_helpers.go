@@ -8,6 +8,7 @@
 package jit
 
 import (
+	"sync"
 	"unsafe"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
@@ -233,61 +234,219 @@ type CallContext struct {
 	ClassName    string          // 类名（用于静态方法）
 	MethodName   string          // 方法名
 	Args         []int64         // 参数列表
+	ArgCount     int             // 参数数量
 	ReturnValue  int64           // 返回值
 	Error        error           // 错误信息
 }
 
 // 全局调用上下文（简化实现，生产环境应使用线程本地存储）
 var globalCallContext CallContext
+var callContextMu sync.Mutex
+
+// VMCallbackFunc VM 回调函数类型
+// 用于从 JIT 代码调用 VM 执行
+type VMCallbackFunc func(funcName string, args []int64) (int64, error)
+
+// 全局 VM 回调
+var vmCallback VMCallbackFunc
+
+// SetVMCallback 设置 VM 回调函数
+func SetVMCallback(cb VMCallbackFunc) {
+	vmCallback = cb
+}
 
 // CallHelper 通用函数调用辅助函数
-// 这是一个占位实现，实际调用应通过VM进行
+// 从函数表中查找目标函数并调用
 //
 //go:nosplit
 func CallHelper() int64 {
-	// 实际实现需要：
-	// 1. 从调用上下文获取函数信息
-	// 2. 通过VM解析函数地址
-	// 3. 执行调用
-	// 4. 返回结果
+	callContextMu.Lock()
+	ctx := globalCallContext
+	callContextMu.Unlock()
+	
+	if ctx.FunctionName == "" {
+		return 0
+	}
+	
+	// 尝试从函数表获取已编译函数
+	ft := GetFunctionTable()
+	if addr := ft.GetAddress(ctx.FunctionName); addr != 0 {
+		// 直接调用已编译函数
+		return callCompiledFunc(addr, ctx.Args)
+	}
+	
+	// 回退到 VM 执行
+	if vmCallback != nil {
+		result, err := vmCallback(ctx.FunctionName, ctx.Args)
+		if err != nil {
+			ctx.Error = err
+			return 0
+		}
+		return result
+	}
+	
 	return 0
 }
 
+// CallHelperWithName 带函数名的调用辅助函数
+// 参数通过寄存器传递：RCX=funcNamePtr, RDX=arg0, R8=arg1, R9=arg2
+// 栈上传递更多参数
+func CallHelperWithName(funcNamePtr uintptr, args ...int64) int64 {
+	if funcNamePtr == 0 {
+		return 0
+	}
+	
+	// 从指针恢复函数名
+	funcName := *(*string)(unsafe.Pointer(funcNamePtr))
+	
+	// 尝试从函数表获取
+	ft := GetFunctionTable()
+	if addr := ft.GetAddress(funcName); addr != 0 {
+		return callCompiledFunc(addr, args)
+	}
+	
+	// 回退到 VM
+	if vmCallback != nil {
+		result, _ := vmCallback(funcName, args)
+		return result
+	}
+	
+	return 0
+}
+
+// callCompiledFunc 调用已编译的函数
+// 通过函数指针调用
+func callCompiledFunc(addr uintptr, args []int64) int64 {
+	if addr == 0 {
+		return 0
+	}
+	
+	// 根据参数数量选择调用方式
+	switch len(args) {
+	case 0:
+		fn := *(*func() int64)(unsafe.Pointer(&addr))
+		return fn()
+	case 1:
+		fn := *(*func(int64) int64)(unsafe.Pointer(&addr))
+		return fn(args[0])
+	case 2:
+		fn := *(*func(int64, int64) int64)(unsafe.Pointer(&addr))
+		return fn(args[0], args[1])
+	case 3:
+		fn := *(*func(int64, int64, int64) int64)(unsafe.Pointer(&addr))
+		return fn(args[0], args[1], args[2])
+	case 4:
+		fn := *(*func(int64, int64, int64, int64) int64)(unsafe.Pointer(&addr))
+		return fn(args[0], args[1], args[2], args[3])
+	default:
+		// 超过 4 个参数，使用通用调用
+		// 这里简化处理，实际应该通过汇编实现
+		fn := *(*func(int64, int64, int64, int64) int64)(unsafe.Pointer(&addr))
+		return fn(args[0], args[1], args[2], args[3])
+	}
+}
+
 // TailCallHelper 尾调用辅助函数
-//
-//go:nosplit
-func TailCallHelper(funcName string) int64 {
-	// 尾调用优化：复用当前栈帧
+func TailCallHelper(funcNamePtr uintptr) int64 {
+	if funcNamePtr == 0 {
+		return 0
+	}
+	
+	funcName := *(*string)(unsafe.Pointer(funcNamePtr))
+	
+	// 尾调用：尝试直接跳转到目标函数
+	ft := GetFunctionTable()
+	if addr := ft.GetAddress(funcName); addr != 0 {
+		return callCompiledFunc(addr, nil)
+	}
+	
 	return 0
 }
 
 // MethodCallHelper 方法调用辅助函数
 // 参数：receiver - 对象指针
 // 返回：方法返回值
-//
-//go:nosplit
-func MethodCallHelper(receiver uintptr) int64 {
-	if receiver == 0 {
+func MethodCallHelper(receiver uintptr, methodNamePtr uintptr, args ...int64) int64 {
+	if receiver == 0 || methodNamePtr == 0 {
 		return 0
 	}
 	
-	// 实际实现需要：
-	// 1. 获取对象的类型信息
-	// 2. 查找方法
-	// 3. 执行方法调用
+	methodName := *(*string)(unsafe.Pointer(methodNamePtr))
+	
+	// 获取对象的类信息
+	obj := (*bytecode.JITObject)(unsafe.Pointer(receiver))
+	registry := bytecode.GetClassRegistry()
+	
+	layout, ok := registry.GetByID(obj.ClassID)
+	if !ok {
+		return 0
+	}
+	
+	// 查找方法
+	fullName := layout.ClassName + "::" + methodName
+	ft := GetFunctionTable()
+	
+	if addr := ft.GetAddress(fullName); addr != 0 {
+		// 将 receiver 作为第一个参数
+		allArgs := make([]int64, len(args)+1)
+		allArgs[0] = int64(receiver)
+		copy(allArgs[1:], args)
+		return callCompiledFunc(addr, allArgs)
+	}
+	
+	// 尝试通过虚表调用
+	if method, ok := layout.Methods[methodName]; ok && method.VTableIndex >= 0 {
+		if method.VTableIndex < len(layout.VTable) && layout.VTable[method.VTableIndex] != 0 {
+			allArgs := make([]int64, len(args)+1)
+			allArgs[0] = int64(receiver)
+			copy(allArgs[1:], args)
+			return callCompiledFunc(layout.VTable[method.VTableIndex], allArgs)
+		}
+	}
+	
+	return 0
+}
+
+// StaticCallHelper 静态方法调用辅助函数
+func StaticCallHelper(classNamePtr, methodNamePtr uintptr, args ...int64) int64 {
+	if classNamePtr == 0 || methodNamePtr == 0 {
+		return 0
+	}
+	
+	className := *(*string)(unsafe.Pointer(classNamePtr))
+	methodName := *(*string)(unsafe.Pointer(methodNamePtr))
+	
+	fullName := className + "::" + methodName
+	ft := GetFunctionTable()
+	
+	if addr := ft.GetAddress(fullName); addr != 0 {
+		return callCompiledFunc(addr, args)
+	}
+	
+	// 回退到 VM
+	if vmCallback != nil {
+		result, _ := vmCallback(fullName, args)
+		return result
+	}
+	
 	return 0
 }
 
 // BuiltinCallHelper 内建函数调用辅助函数
-//
-//go:nosplit
-func BuiltinCallHelper() int64 {
+func BuiltinCallHelper(builtinID int64, args ...int64) int64 {
+	// 内建函数通过 ID 直接调用
+	// 这里需要维护一个内建函数表
 	return 0
 }
 
 // GetCallHelperPtr 获取通用调用辅助函数指针
 func GetCallHelperPtr() uintptr {
 	return getFuncPtr(CallHelper)
+}
+
+// GetCallHelperWithNamePtr 获取带函数名的调用辅助函数指针
+func GetCallHelperWithNamePtr() uintptr {
+	return getFuncPtr(CallHelperWithName)
 }
 
 // GetTailCallHelperPtr 获取尾调用辅助函数指针
@@ -300,6 +459,11 @@ func GetMethodCallHelperPtr(methodName string) uintptr {
 	return getFuncPtr(MethodCallHelper)
 }
 
+// GetStaticCallHelperPtr 获取静态方法调用辅助函数指针
+func GetStaticCallHelperPtr() uintptr {
+	return getFuncPtr(StaticCallHelper)
+}
+
 // GetBuiltinCallHelperPtr 获取内建函数调用辅助函数指针
 func GetBuiltinCallHelperPtr(builtinName string) uintptr {
 	return getFuncPtr(BuiltinCallHelper)
@@ -310,55 +474,113 @@ func GetBuiltinCallHelperPtr(builtinName string) uintptr {
 // ============================================================================
 
 // NewObjectHelper 创建新对象
-// 返回：对象指针
-//
-//go:nosplit
+// 参数：classNamePtr - 类名字符串指针
+// 返回：JITObject 指针
 func NewObjectHelper(classNamePtr uintptr) uintptr {
-	// 实际实现需要：
-	// 1. 获取类定义
-	// 2. 分配对象内存
-	// 3. 初始化字段
-	// 4. 返回对象指针
-	return 0
+	if classNamePtr == 0 {
+		return 0
+	}
+	
+	className := *(*string)(unsafe.Pointer(classNamePtr))
+	
+	// 获取类布局
+	registry := bytecode.GetClassRegistry()
+	layout := registry.GetOrCreate(className)
+	
+	if !layout.IsJITEnabled {
+		// 类字段太多，不能使用 JIT 对象
+		return 0
+	}
+	
+	// 创建 JITObject
+	obj := bytecode.NewJITObject(layout.ClassID, layout.VTablePtr, layout.FieldCount)
+	
+	return uintptr(unsafe.Pointer(obj))
+}
+
+// NewObjectWithClassIDHelper 通过类 ID 创建对象（更快）
+func NewObjectWithClassIDHelper(classID int32) uintptr {
+	registry := bytecode.GetClassRegistry()
+	layout, ok := registry.GetByID(classID)
+	if !ok || !layout.IsJITEnabled {
+		return 0
+	}
+	
+	obj := bytecode.NewJITObject(classID, layout.VTablePtr, layout.FieldCount)
+	return uintptr(unsafe.Pointer(obj))
 }
 
 // GetFieldHelper 获取对象字段值
-// 参数：
-//   - objPtr: 对象指针
-//   - fieldNamePtr: 字段名指针
-// 返回：字段值（int64表示）
-//
-//go:nosplit
-func GetFieldHelper(objPtr uintptr) int64 {
+// 参数：objPtr - JITObject 指针，fieldIndex - 字段索引
+// 返回：字段值
+func GetFieldHelper(objPtr uintptr, fieldIndex int32) int64 {
 	if objPtr == 0 {
 		return 0
 	}
 	
-	// 实际实现需要：
-	// 1. 获取对象类型信息
-	// 2. 查找字段偏移
-	// 3. 读取字段值
-	return 0
+	obj := (*bytecode.JITObject)(unsafe.Pointer(objPtr))
+	return obj.GetField(int(fieldIndex))
+}
+
+// GetFieldByNameHelper 通过字段名获取值
+func GetFieldByNameHelper(objPtr, fieldNamePtr uintptr) int64 {
+	if objPtr == 0 || fieldNamePtr == 0 {
+		return 0
+	}
+	
+	obj := (*bytecode.JITObject)(unsafe.Pointer(objPtr))
+	fieldName := *(*string)(unsafe.Pointer(fieldNamePtr))
+	
+	// 获取类布局
+	registry := bytecode.GetClassRegistry()
+	layout, ok := registry.GetByID(obj.ClassID)
+	if !ok {
+		return 0
+	}
+	
+	// 查找字段索引
+	fieldIndex := layout.GetFieldIndex(fieldName)
+	if fieldIndex < 0 {
+		return 0
+	}
+	
+	return obj.GetField(fieldIndex)
 }
 
 // SetFieldHelper 设置对象字段值
-// 参数：
-//   - objPtr: 对象指针
-//   - fieldNamePtr: 字段名指针
-//   - value: 要设置的值
-// 返回：1成功，0失败
-//
-//go:nosplit
-func SetFieldHelper(objPtr uintptr, value int64) int64 {
+// 参数：objPtr - JITObject 指针，fieldIndex - 字段索引，value - 值
+func SetFieldHelper(objPtr uintptr, fieldIndex int32, value int64) {
 	if objPtr == 0 {
-		return 0
+		return
 	}
 	
-	// 实际实现需要：
-	// 1. 获取对象类型信息
-	// 2. 查找字段偏移
-	// 3. 写入字段值
-	return 1
+	obj := (*bytecode.JITObject)(unsafe.Pointer(objPtr))
+	obj.SetField(int(fieldIndex), value)
+}
+
+// SetFieldByNameHelper 通过字段名设置值
+func SetFieldByNameHelper(objPtr, fieldNamePtr uintptr, value int64) {
+	if objPtr == 0 || fieldNamePtr == 0 {
+		return
+	}
+	
+	obj := (*bytecode.JITObject)(unsafe.Pointer(objPtr))
+	fieldName := *(*string)(unsafe.Pointer(fieldNamePtr))
+	
+	// 获取类布局
+	registry := bytecode.GetClassRegistry()
+	layout, ok := registry.GetByID(obj.ClassID)
+	if !ok {
+		return
+	}
+	
+	// 查找字段索引
+	fieldIndex := layout.GetFieldIndex(fieldName)
+	if fieldIndex < 0 {
+		return
+	}
+	
+	obj.SetField(fieldIndex, value)
 }
 
 // GetNewObjectHelperPtr 获取对象创建辅助函数指针
@@ -366,14 +588,361 @@ func GetNewObjectHelperPtr(className string) uintptr {
 	return getFuncPtr(NewObjectHelper)
 }
 
+// GetNewObjectWithClassIDHelperPtr 获取通过类ID创建对象的辅助函数指针
+func GetNewObjectWithClassIDHelperPtr() uintptr {
+	return getFuncPtr(NewObjectWithClassIDHelper)
+}
+
 // GetFieldHelperPtr 获取字段读取辅助函数指针
 func GetFieldHelperPtr(fieldName string) uintptr {
 	return getFuncPtr(GetFieldHelper)
 }
 
+// GetFieldByNameHelperPtr 获取通过字段名读取的辅助函数指针
+func GetFieldByNameHelperPtr() uintptr {
+	return getFuncPtr(GetFieldByNameHelper)
+}
+
 // GetSetFieldHelperPtr 获取字段写入辅助函数指针
 func GetSetFieldHelperPtr(fieldName string) uintptr {
 	return getFuncPtr(SetFieldHelper)
+}
+
+// GetSetFieldByNameHelperPtr 获取通过字段名写入的辅助函数指针
+func GetSetFieldByNameHelperPtr() uintptr {
+	return getFuncPtr(SetFieldByNameHelper)
+}
+
+// ============================================================================
+// Map 操作辅助函数
+// ============================================================================
+
+// MapNewHelper 创建新的 JITMap
+// 参数：capacity - 初始容量
+// 返回：JITMap 指针
+func MapNewHelper(capacity int64) uintptr {
+	m := bytecode.NewJITMap(int32(capacity))
+	return uintptr(unsafe.Pointer(m))
+}
+
+// MapGetHelper 获取 Map 中的值
+// 参数：mapPtr - JITMap 指针，key - 键
+// 返回：值（如果找到）或 0（如果未找到）
+func MapGetHelper(mapPtr uintptr, key int64) int64 {
+	if mapPtr == 0 {
+		return 0
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	if value, found := m.Get(key); found {
+		return value
+	}
+	return 0
+}
+
+// MapGetWithFoundHelper 获取 Map 中的值，带找到标志
+// 返回：高 32 位 = 是否找到 (1/0)，低 32 位 = 值
+func MapGetWithFoundHelper(mapPtr uintptr, key int64) int64 {
+	if mapPtr == 0 {
+		return 0
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	if value, found := m.Get(key); found {
+		return value | int64(-1<<62) // 设置高两位为 11 表示找到
+	}
+	return 0
+}
+
+// MapSetHelper 设置 Map 中的值
+// 参数：mapPtr - JITMap 指针，key - 键，value - 值
+func MapSetHelper(mapPtr uintptr, key, value int64) {
+	if mapPtr == 0 {
+		return
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	m.Set(key, value)
+}
+
+// MapHasHelper 检查 Map 中是否存在键
+// 返回：1 存在，0 不存在
+func MapHasHelper(mapPtr uintptr, key int64) int64 {
+	if mapPtr == 0 {
+		return 0
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	if m.Has(key) {
+		return 1
+	}
+	return 0
+}
+
+// MapLenHelper 获取 Map 长度
+func MapLenHelper(mapPtr uintptr) int64 {
+	if mapPtr == 0 {
+		return 0
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	return int64(m.Len())
+}
+
+// MapDeleteHelper 删除 Map 中的键
+// 返回：1 删除成功，0 键不存在
+func MapDeleteHelper(mapPtr uintptr, key int64) int64 {
+	if mapPtr == 0 {
+		return 0
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	if m.Delete(key) {
+		return 1
+	}
+	return 0
+}
+
+// GetMapNewHelperPtr 获取 Map 创建辅助函数指针
+func GetMapNewHelperPtr() uintptr {
+	return getFuncPtr(MapNewHelper)
+}
+
+// GetMapGetHelperPtr 获取 Map 读取辅助函数指针
+func GetMapGetHelperPtr() uintptr {
+	return getFuncPtr(MapGetHelper)
+}
+
+// GetMapGetWithFoundHelperPtr 获取带找到标志的 Map 读取辅助函数指针
+func GetMapGetWithFoundHelperPtr() uintptr {
+	return getFuncPtr(MapGetWithFoundHelper)
+}
+
+// GetMapSetHelperPtr 获取 Map 写入辅助函数指针
+func GetMapSetHelperPtr() uintptr {
+	return getFuncPtr(MapSetHelper)
+}
+
+// GetMapHasHelperPtr 获取 Map 存在检查辅助函数指针
+func GetMapHasHelperPtr() uintptr {
+	return getFuncPtr(MapHasHelper)
+}
+
+// GetMapLenHelperPtr 获取 Map 长度辅助函数指针
+func GetMapLenHelperPtr() uintptr {
+	return getFuncPtr(MapLenHelper)
+}
+
+// GetMapDeleteHelperPtr 获取 Map 删除辅助函数指针
+func GetMapDeleteHelperPtr() uintptr {
+	return getFuncPtr(MapDeleteHelper)
+}
+
+// ============================================================================
+// 迭代器操作辅助函数
+// ============================================================================
+
+// IterInitHelper 初始化迭代器
+// 参数：valuePtr - 指向要迭代的值（数组/Map/字符串）
+// 返回：JITIterator 指针
+func IterInitHelper(valuePtr uintptr) uintptr {
+	if valuePtr == 0 {
+		return 0
+	}
+	
+	value := (*bytecode.Value)(unsafe.Pointer(valuePtr))
+	iter := bytecode.JITIteratorFromValue(*value)
+	return uintptr(unsafe.Pointer(iter))
+}
+
+// IterInitFromNativeArrayHelper 从 NativeArray 初始化迭代器
+func IterInitFromNativeArrayHelper(arrPtr uintptr) uintptr {
+	if arrPtr == 0 {
+		return 0
+	}
+	
+	arr := (*bytecode.NativeArray)(unsafe.Pointer(arrPtr))
+	iter := bytecode.GetJITIterator()
+	iter.InitFromNativeArray(arr)
+	return uintptr(unsafe.Pointer(iter))
+}
+
+// IterInitFromJITMapHelper 从 JITMap 初始化迭代器
+func IterInitFromJITMapHelper(mapPtr uintptr) uintptr {
+	if mapPtr == 0 {
+		return 0
+	}
+	
+	m := (*bytecode.JITMap)(unsafe.Pointer(mapPtr))
+	iter := bytecode.GetJITIterator()
+	iter.InitFromJITMap(m)
+	return uintptr(unsafe.Pointer(iter))
+}
+
+// IterNextHelper 移动到下一个元素
+// 返回：1 有更多元素，0 完成
+func IterNextHelper(iterPtr uintptr) int64 {
+	if iterPtr == 0 {
+		return 0
+	}
+	
+	iter := (*bytecode.JITIterator)(unsafe.Pointer(iterPtr))
+	if iter.Next() {
+		return 1
+	}
+	return 0
+}
+
+// IterKeyHelper 获取当前键
+func IterKeyHelper(iterPtr uintptr) int64 {
+	if iterPtr == 0 {
+		return 0
+	}
+	
+	iter := (*bytecode.JITIterator)(unsafe.Pointer(iterPtr))
+	return iter.Key()
+}
+
+// IterValueHelper 获取当前值
+func IterValueHelper(iterPtr uintptr) int64 {
+	if iterPtr == 0 {
+		return 0
+	}
+	
+	iter := (*bytecode.JITIterator)(unsafe.Pointer(iterPtr))
+	return iter.Value()
+}
+
+// IterResetHelper 重置迭代器
+func IterResetHelper(iterPtr uintptr) {
+	if iterPtr == 0 {
+		return
+	}
+	
+	iter := (*bytecode.JITIterator)(unsafe.Pointer(iterPtr))
+	iter.Reset()
+}
+
+// IterReleaseHelper 释放迭代器（放回池）
+func IterReleaseHelper(iterPtr uintptr) {
+	if iterPtr == 0 {
+		return
+	}
+	
+	iter := (*bytecode.JITIterator)(unsafe.Pointer(iterPtr))
+	bytecode.PutJITIterator(iter)
+}
+
+// GetIterInitHelperPtr 获取迭代器初始化辅助函数指针
+func GetIterInitHelperPtr() uintptr {
+	return getFuncPtr(IterInitHelper)
+}
+
+// GetIterInitFromNativeArrayHelperPtr 获取从 NativeArray 初始化迭代器的辅助函数指针
+func GetIterInitFromNativeArrayHelperPtr() uintptr {
+	return getFuncPtr(IterInitFromNativeArrayHelper)
+}
+
+// GetIterInitFromJITMapHelperPtr 获取从 JITMap 初始化迭代器的辅助函数指针
+func GetIterInitFromJITMapHelperPtr() uintptr {
+	return getFuncPtr(IterInitFromJITMapHelper)
+}
+
+// GetIterNextHelperPtr 获取迭代器下一步辅助函数指针
+func GetIterNextHelperPtr() uintptr {
+	return getFuncPtr(IterNextHelper)
+}
+
+// GetIterKeyHelperPtr 获取迭代器键辅助函数指针
+func GetIterKeyHelperPtr() uintptr {
+	return getFuncPtr(IterKeyHelper)
+}
+
+// GetIterValueHelperPtr 获取迭代器值辅助函数指针
+func GetIterValueHelperPtr() uintptr {
+	return getFuncPtr(IterValueHelper)
+}
+
+// GetIterResetHelperPtr 获取迭代器重置辅助函数指针
+func GetIterResetHelperPtr() uintptr {
+	return getFuncPtr(IterResetHelper)
+}
+
+// GetIterReleaseHelperPtr 获取迭代器释放辅助函数指针
+func GetIterReleaseHelperPtr() uintptr {
+	return getFuncPtr(IterReleaseHelper)
+}
+
+// ============================================================================
+// 闭包操作辅助函数
+// ============================================================================
+
+// ClosureNewHelper 创建新的闭包
+// 参数：funcPtr - 函数地址，numUpvals - upvalue 数量
+// 返回：JITClosure 指针
+func ClosureNewHelper(funcPtr uintptr, numUpvals int32) uintptr {
+	c := bytecode.NewJITClosure(funcPtr, int(numUpvals))
+	return uintptr(unsafe.Pointer(c))
+}
+
+// ClosureGetUpvalueHelper 获取闭包的 upvalue
+// 参数：closurePtr - JITClosure 指针，index - upvalue 索引
+// 返回：upvalue 值
+func ClosureGetUpvalueHelper(closurePtr uintptr, index int32) int64 {
+	if closurePtr == 0 {
+		return 0
+	}
+	
+	c := (*bytecode.JITClosure)(unsafe.Pointer(closurePtr))
+	return c.GetUpvalue(int(index))
+}
+
+// ClosureSetUpvalueHelper 设置闭包的 upvalue
+// 参数：closurePtr - JITClosure 指针，index - upvalue 索引，value - 值
+func ClosureSetUpvalueHelper(closurePtr uintptr, index int32, value int64) {
+	if closurePtr == 0 {
+		return
+	}
+	
+	c := (*bytecode.JITClosure)(unsafe.Pointer(closurePtr))
+	c.SetUpvalue(int(index), value)
+}
+
+// ClosureCallHelper 调用闭包
+// 参数：closurePtr - JITClosure 指针，args - 参数
+// 返回：返回值
+func ClosureCallHelper(closurePtr uintptr, args ...int64) int64 {
+	if closurePtr == 0 {
+		return 0
+	}
+	
+	c := (*bytecode.JITClosure)(unsafe.Pointer(closurePtr))
+	if c.FuncPtr == 0 {
+		return 0
+	}
+	
+	// 调用闭包函数
+	return callCompiledFunc(c.FuncPtr, args)
+}
+
+// GetClosureNewHelperPtr 获取闭包创建辅助函数指针
+func GetClosureNewHelperPtr() uintptr {
+	return getFuncPtr(ClosureNewHelper)
+}
+
+// GetClosureGetUpvalueHelperPtr 获取闭包 upvalue 读取辅助函数指针
+func GetClosureGetUpvalueHelperPtr() uintptr {
+	return getFuncPtr(ClosureGetUpvalueHelper)
+}
+
+// GetClosureSetUpvalueHelperPtr 获取闭包 upvalue 写入辅助函数指针
+func GetClosureSetUpvalueHelperPtr() uintptr {
+	return getFuncPtr(ClosureSetUpvalueHelper)
+}
+
+// GetClosureCallHelperPtr 获取闭包调用辅助函数指针
+func GetClosureCallHelperPtr() uintptr {
+	return getFuncPtr(ClosureCallHelper)
 }
 
 // ============================================================================

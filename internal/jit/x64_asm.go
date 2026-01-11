@@ -648,6 +648,42 @@ func (a *X64Assembler) Jge(blockID int) {
 }
 
 // ============================================================================
+// 条件移动指令
+// ============================================================================
+
+// Cmovz 条件移动（如果零标志设置）: cmovz dst, src
+// 如果 ZF=1，则 dst = src
+func (a *X64Assembler) Cmovz(dst, src X64Reg) {
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x44) // cmovz/cmove
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// Cmovnz 条件移动（如果零标志未设置）: cmovnz dst, src
+// 如果 ZF=0，则 dst = src
+func (a *X64Assembler) Cmovnz(dst, src X64Reg) {
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x45) // cmovnz/cmovne
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// Cmovl 条件移动（如果小于）: cmovl dst, src
+// 如果 SF!=OF，则 dst = src
+func (a *X64Assembler) Cmovl(dst, src X64Reg) {
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x4C)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// Cmovge 条件移动（如果大于等于）: cmovge dst, src
+// 如果 SF==OF，则 dst = src
+func (a *X64Assembler) Cmovge(dst, src X64Reg) {
+	a.emit(rex(true, dst.IsExtended(), false, src.IsExtended()))
+	a.emit(0x0F, 0x4D)
+	a.emit(modrm(3, dst.LowBits(), src.LowBits()))
+}
+
+// ============================================================================
 // 函数调用指令
 // ============================================================================
 

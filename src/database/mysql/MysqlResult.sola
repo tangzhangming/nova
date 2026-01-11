@@ -3,12 +3,22 @@ namespace sola.database.mysql
 
 /**
  * MySQL 查询结果
+ * 
+ * 封装查询返回的结果集，提供行遍历和值访问。
  */
 public class MysqlResult {
+    /** 列名数组 */
     public dynamic $columnNames;
+    
+    /** 行数据 */
     public dynamic $rowData;
+    
+    /** 受影响的行数 */
     public int $affectedCount;
     
+    /**
+     * 构造函数
+     */
     public function __construct(dynamic $columns, dynamic $rows, int $affected) {
         $this->columnNames = $columns;
         $this->rowData = $rows;
@@ -34,6 +44,13 @@ public class MysqlResult {
      */
     public function columns(): dynamic {
         return $this->columnNames;
+    }
+    
+    /**
+     * 检查结果是否为空
+     */
+    public function isEmpty(): bool {
+        return len($this->rowData) == 0;
     }
     
     /**

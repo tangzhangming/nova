@@ -5,6 +5,8 @@
 ## 目录
 1. [基本概念](#基本概念)
 2. [类型系统](#类型系统)
+   - [定长数组（NativeArray）](#定长数组nativearray)
+   - [SuperArray（万能数组）](#superarray万能数组)
 3. [变量与常量](#变量与常量)
 4. [运算符](#运算符)
 5. [控制结构](#控制结构)
@@ -183,27 +185,148 @@ Sola 有两种完全不同的数组类型，**不能互相赋值**：
 
 > ⚠️ **重要**: `int[]` 和 `SuperArray` 是**完全不同的类型**，不能互相赋值！
 
-#### 类型化数组（推荐）
+#### 定长数组（NativeArray）
 
-类型化数组是静态类型安全的数组，元素类型在编译时确定。
+定长数组是 Sola 的原生数组类型，具有**固定长度**和**固定元素类型**。创建后长度不可变，但元素值可以修改。
+
+##### 创建语法
 
 ```sola
-// 声明和初始化
-int[] $numbers = int{1, 2, 3};
-string[] $names = string{"Alice", "Bob"};
-User[] $users = User{new User(), new User()};
+// 方式1：new + 指定大小（元素为默认值）
+int[] $arr1 = new int[5];           // 5个元素，默认值0
+float[] $arr2 = new float[10];      // 10个元素，默认值0.0
+string[] $arr3 = new string[3];     // 3个元素，默认值""
 
-// 固定大小数组
-int[10] $fixedArray;
+// 方式2：new + 初始化列表
+int[] $arr4 = new int[] { 1, 2, 3, 4, 5 };
+string[] $arr5 = new string[] { "Alice", "Bob", "Charlie" };
 
+// 方式3：Go 风格简写（类型推断）
+$arr6 := int{1, 2, 3};              // 推断为 int[]
+$arr7 := string{"a", "b", "c"};     // 推断为 string[]
+
+// 二维数组
+int[][] $matrix = new int[][] {
+    int{1, 2, 3},
+    int{4, 5, 6},
+    int{7, 8, 9}
+};
+```
+
+##### 数组特性
+
+| 特性 | 说明 |
+|------|------|
+| 定长 | 创建后长度不可变 |
+| 类型化 | 元素类型在编译时确定，所有元素必须是同一类型 |
+| 高性能 | 使用原生内存存储，JIT 可直接操作指针 |
+| 值比较 | 两个数组使用 `==` 比较时，逐元素比较值 |
+| 边界检查 | 访问越界会抛出 `ArrayIndexOutOfBoundsException` |
+
+##### 数组访问
+
+```sola
+int[] $arr = new int[] { 10, 20, 30 };
+
+// 索引访问
+echo $arr[0];       // 输出: 10
+$arr[1] = 25;       // 修改元素
+echo $arr[1];       // 输出: 25
+
+// 获取长度
+echo $arr.length;   // 输出: 3
+
+// 遍历数组
+foreach ($arr as $value) {
+    echo $value;
+}
+
+// 带索引遍历
+foreach ($arr as $index => $value) {
+    echo #"{$index}: {$value}";
+}
+```
+
+##### 数组语法糖方法
+
+定长数组提供丰富的内置方法，通过 `.` 语法糖调用：
+
+```sola
+int[] $arr = new int[] { 3, 1, 4, 1, 5, 9, 2, 6 };
+
+// 查找方法
+$arr.indexOf(4);        // 返回 2（第一次出现的索引）
+$arr.lastIndexOf(1);    // 返回 3（最后一次出现的索引）
+$arr.contains(5);       // 返回 true
+
+// 排序方法（原地修改）
+$arr.sort();            // 升序排序: [1, 1, 2, 3, 4, 5, 6, 9]
+$arr.sortDesc();        // 降序排序: [9, 6, 5, 4, 3, 2, 1, 1]
+$arr.reverse();         // 反转数组
+
+// 切片方法（返回新数组）
+int[] $sub = $arr.slice(2, 5);    // 获取索引2到4的元素
+int[] $merged = $arr.concat($sub); // 连接两个数组
+
+// 拷贝方法
+int[] $copy = $arr.copy();        // 深拷贝
+SuperArray $sa = $arr.toSuperArray(); // 转换为 SuperArray
+
+// 数值方法（仅数值数组可用）
+$arr.sum();             // 求和
+$arr.max();             // 最大值
+$arr.min();             // 最小值
+$arr.average();         // 平均值
+```
+
+##### 数组比较
+
+定长数组支持值比较：
+
+```sola
+int[] $a = new int[] { 1, 2, 3 };
+int[] $b = new int[] { 1, 2, 3 };
+int[] $c = new int[] { 1, 2, 4 };
+
+echo $a == $b;   // true（逐元素比较，值相等）
+echo $a == $c;   // false（第3个元素不同）
+```
+
+##### 数组与 SuperArray 的区别
+
+| 特性 | 定长数组 `T[]` | SuperArray |
+|------|---------------|------------|
+| 长度 | 固定，创建后不可变 | 动态，可增删 |
+| 元素类型 | 单一类型，编译时确定 | 动态类型，可混合 |
+| 键类型 | 仅整数索引 | 整数/字符串混合键 |
+| 性能 | 高（原生内存存储） | 较低（哈希表实现） |
+| 用途 | 已知大小的数据集合 | JSON/外部数据/动态场景 |
+
+```sola
 // ✅ 正确：类型匹配
-int[] $a = int{1, 2, 3};
+int[] $a = new int[] { 1, 2, 3 };
 int[] $b = $a;  // OK
 
 // ❌ 错误：类型不兼容
 SuperArray $arr = [1, 2, 3];
 int[] $c = $arr;  // 编译错误！SuperArray 不能赋给 int[]
+
+// ✅ 正确：显式转换
+int[] $d = new int[] { 1, 2, 3 };
+SuperArray $e = $d.toSuperArray();  // OK
 ```
+
+##### 底层原理（高级）
+
+定长数组使用**类型化原生存储**：
+
+- **内存布局**：连续内存块，每个元素 8 字节
+- **元素存储**：
+  - `int` → 直接存储 `int64`
+  - `float` → 直接存储 `float64`
+  - `bool` → 存储为 `int64`（0/1）
+  - `string`/`object` → 存储指针
+- **JIT 友好**：编译器可直接生成内存访问指令，无需类型拆装箱
 
 #### Map 类型
 ```sola

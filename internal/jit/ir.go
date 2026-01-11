@@ -413,6 +413,7 @@ type IRInstr struct {
 	FieldName    string        // 字段名
 	FieldOffset  int           // 字段偏移（编译时计算）
 	FieldType    ValueType     // 字段类型
+	VTableIndex  int           // 虚表索引（方法调用时使用，-1 表示未知）
 
 	// 数组创建相关字段
 	ArrayLength   int          // 数组长度
@@ -860,11 +861,19 @@ func NewCallMethodInstr(receiver *IRValue, methodName string, dest *IRValue, arg
 	allArgs := make([]*IRValue, 0, len(args)+1)
 	allArgs = append(allArgs, receiver)
 	allArgs = append(allArgs, args...)
-	
+
 	instr := NewInstr(OpCallMethod, dest, allArgs...)
 	instr.CallTarget = methodName
 	instr.CallArgCount = len(args)
 	instr.CallConv = CallConvSola
+	instr.VTableIndex = -1 // 默认未知，运行时解析
+	return instr
+}
+
+// NewCallMethodWithVTableInstr 创建带虚表索引的方法调用指令
+func NewCallMethodWithVTableInstr(receiver *IRValue, methodName string, vtableIndex int, dest *IRValue, args ...*IRValue) *IRInstr {
+	instr := NewCallMethodInstr(receiver, methodName, dest, args...)
+	instr.VTableIndex = vtableIndex
 	return instr
 }
 

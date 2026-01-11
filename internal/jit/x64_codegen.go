@@ -21,6 +21,9 @@ package jit
 
 import (
 	"fmt"
+	"unsafe"
+
+	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
 // ============================================================================
@@ -249,6 +252,32 @@ func (cg *X64CodeGenerator) emitInstr(instr *IRInstr) {
 		cg.emitSetField(instr)
 	case OpLoadVTable:
 		cg.emitLoadVTable(instr)
+	
+	// Map 操作
+	case OpMapGet:
+		cg.emitMapGet(instr)
+	case OpMapSet:
+		cg.emitMapSet(instr)
+	case OpMapHas:
+		cg.emitMapHas(instr)
+	case OpMapLen:
+		cg.emitMapLen(instr)
+	
+	// 迭代器操作
+	case OpIterInit:
+		cg.emitIterInit(instr)
+	case OpIterNext:
+		cg.emitIterNext(instr)
+	case OpIterKey:
+		cg.emitIterKey(instr)
+	case OpIterValue:
+		cg.emitIterValue(instr)
+	
+	// 闭包和 Upvalue 操作
+	case OpLoadUpvalue:
+		cg.emitLoadUpvalue(instr)
+	case OpStoreUpvalue:
+		cg.emitStoreUpvalue(instr)
 	
 	default:
 		// 不支持的操作
@@ -1235,6 +1264,11 @@ func (cg *X64CodeGenerator) emitCallHelper(addr uintptr) {
 //   - 返回值：RAX
 //   - Shadow space：32字节
 //   - 栈对齐：16字节
+//
+// 支持三种调用模式：
+//   1. 直接调用：目标地址已知，生成 call rel32
+//   2. PLT 调用：通过过程链接表间接调用
+//   3. 延迟绑定：生成占位调用，后续修补
 func (cg *X64CodeGenerator) emitCall(instr *IRInstr) {
 	argCount := len(instr.Args)
 	argRegs := []X64Reg{RCX, RDX, R8, R9}
@@ -1272,14 +1306,51 @@ func (cg *X64CodeGenerator) emitCall(instr *IRInstr) {
 		cg.asm.MovMemReg(RSP, offset, src)
 	}
 	
-	// 获取函数地址并调用
-	// 如果是直接调用，使用辅助函数获取地址
-	helperAddr := GetCallHelperPtr()
+	// 获取目标函数地址
+	targetName := instr.CallTarget
+	ft := GetFunctionTable()
 	
-	// 将函数名存储到R10（临时），通过辅助函数解析
-	// 简化实现：通过运行时桥接调用VM函数
-	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
-	cg.asm.Call(RAX)
+	if targetAddr := ft.GetAddress(targetName); targetAddr != 0 {
+		// 直接调用：目标已编译
+		cg.asm.MovRegImm64(RAX, uint64(targetAddr))
+		cg.asm.Call(RAX)
+	} else {
+		// 延迟绑定：通过 PLT 间接调用
+		pltIndex := ft.GetOrCreatePLTSlot(targetName)
+		pltSlotAddr := ft.GetPLTSlotAddr(pltIndex)
+		
+		if pltSlotAddr != 0 {
+			// 通过 PLT 间接调用: call [pltSlotAddr]
+			// 加载 PLT 槽地址
+			cg.asm.MovRegImm64(R10, uint64(pltSlotAddr))
+			// 加载 PLT 槽中的函数地址
+			cg.asm.MovRegMem(RAX, R10, 0)
+			
+			// 检查是否有地址（如果为0则使用 CallHelper）
+			cg.asm.TestRegReg(RAX, RAX)
+			
+			// 使用条件移动：如果 RAX 为 0，则加载 CallHelper 地址
+			// cmovz rax, r11 (如果 ZF=1 则 rax = r11)
+			helperAddr := GetCallHelperWithNamePtr()
+			cg.asm.MovRegImm64(R11, uint64(helperAddr))
+			cg.asm.Cmovz(RAX, R11)
+			
+			// 调用（RAX 现在是目标地址或 CallHelper）
+			cg.asm.Call(RAX)
+		} else {
+			// 无 PLT 槽，直接使用 CallHelper
+			helperAddr := GetCallHelperWithNamePtr()
+			cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+			cg.asm.Call(RAX)
+		}
+		
+		// 记录调用点用于后续修补
+		ft.AddPatchSite(targetName, PatchSite{
+			CodeAddr:   uintptr(cg.asm.Len()),
+			PatchType:  PatchTypePLT,
+			CallerFunc: cg.fn.Name,
+		})
+	}
 	
 	// 恢复栈
 	cg.asm.AddRegImm32(RSP, stackSpace)
@@ -1421,6 +1492,10 @@ func (cg *X64CodeGenerator) emitCallBuiltin(instr *IRInstr) {
 
 // emitCallMethod 生成方法调用指令
 // Args[0] = 接收者, Args[1:] = 参数
+// 
+// 支持两种调用模式:
+// 1. 虚表调用: 如果知道虚表索引，通过虚表间接调用
+// 2. Helper 调用: 否则通过运行时 Helper 解析方法
 func (cg *X64CodeGenerator) emitCallMethod(instr *IRInstr) {
 	if len(instr.Args) == 0 {
 		return
@@ -1440,11 +1515,14 @@ func (cg *X64CodeGenerator) emitCallMethod(instr *IRInstr) {
 	cg.saveCallerSavedRegs()
 	cg.asm.SubRegImm32(RSP, stackSpace)
 	
-	// 接收者作为第一个参数
+	// 接收者作为第一个参数 (RCX)
 	receiver := cg.loadValue(instr.Args[0], RCX)
 	if receiver != RCX {
 		cg.asm.MovRegReg(RCX, receiver)
 	}
+	
+	// 保存接收者到 R10（用于虚表查找）
+	cg.asm.MovRegReg(R10, RCX)
 	
 	// 其余参数
 	for i := 1; i < argCount && i < 4; i++ {
@@ -1460,10 +1538,36 @@ func (cg *X64CodeGenerator) emitCallMethod(instr *IRInstr) {
 		cg.asm.MovMemReg(RSP, offset, src)
 	}
 	
-	// 通过运行时辅助函数调用方法
-	helperAddr := GetMethodCallHelperPtr(instr.CallTarget)
-	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
-	cg.asm.Call(RAX)
+	// 尝试通过虚表调用
+	// 虚表布局: JITObject.VTablePtr (偏移 0) -> VTable[methodIndex]
+	vtableIndex := instr.VTableIndex
+	
+	if vtableIndex >= 0 {
+		// 已知虚表索引，使用虚表调用
+		// 1. 加载虚表指针: mov rax, [r10 + 0] (VTablePtr 在偏移 0)
+		cg.asm.MovRegMem(RAX, R10, 0)
+		
+		// 2. 检查虚表指针是否有效
+		cg.asm.TestRegReg(RAX, RAX)
+		
+		// 3. 加载方法地址: mov rax, [rax + vtableIndex*8]
+		methodOffset := int32(vtableIndex * 8)
+		cg.asm.MovRegMem(RAX, RAX, methodOffset)
+		
+		// 4. 检查方法地址是否有效，如果无效则使用 Helper
+		cg.asm.TestRegReg(RAX, RAX)
+		helperAddr := GetMethodCallHelperPtr(instr.CallTarget)
+		cg.asm.MovRegImm64(R11, uint64(helperAddr))
+		cg.asm.Cmovz(RAX, R11)
+		
+		// 5. 调用
+		cg.asm.Call(RAX)
+	} else {
+		// 未知虚表索引，使用运行时 Helper
+		helperAddr := GetMethodCallHelperPtr(instr.CallTarget)
+		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+		cg.asm.Call(RAX)
+	}
 	
 	cg.asm.AddRegImm32(RSP, stackSpace)
 	cg.restoreCallerSavedRegs()
@@ -1517,26 +1621,39 @@ func (cg *X64CodeGenerator) emitTailCall(instr *IRInstr) {
 // ============================================================================
 
 // emitNewObject 生成创建对象指令
+// 使用 JITObject 布局，支持两种模式:
+// 1. 如果有类 ID，使用 NewObjectWithClassIDHelper（更快）
+// 2. 否则使用 NewObjectHelper（通过类名查找）
 func (cg *X64CodeGenerator) emitNewObject(instr *IRInstr) {
 	if instr.Dest == nil {
 		return
 	}
 	
-	// 调用运行时辅助函数创建对象
-	// NewObjectHelper(className) -> objectPtr
-	helperAddr := GetNewObjectHelperPtr(instr.ClassName)
-	
 	cg.saveCallerSavedRegs()
 	cg.asm.SubRegImm32(RSP, 40)
 	
-	// 类名作为参数（简化：类名已编码在辅助函数地址中）
-	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
-	cg.asm.Call(RAX)
+	// 尝试获取类布局以获取类 ID
+	registry := bytecode.GetClassRegistry()
+	if layout, ok := registry.GetByName(instr.ClassName); ok && layout.IsJITEnabled {
+		// 快速路径：使用类 ID
+		helperAddr := GetNewObjectWithClassIDHelperPtr()
+		cg.asm.MovRegImm64(RCX, uint64(layout.ClassID))
+		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+		cg.asm.Call(RAX)
+	} else {
+		// 慢路径：使用类名
+		helperAddr := GetNewObjectHelperPtr(instr.ClassName)
+		// 将类名指针作为参数
+		classNameAddr := uintptr(unsafe.Pointer(&instr.ClassName))
+		cg.asm.MovRegImm64(RCX, uint64(classNameAddr))
+		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+		cg.asm.Call(RAX)
+	}
 	
 	cg.asm.AddRegImm32(RSP, 40)
 	cg.restoreCallerSavedRegs()
 	
-	// 结果（对象指针）在RAX
+	// 结果（JITObject 指针）在 RAX
 	dst := cg.getReg(instr.Dest.ID)
 	if dst != RegNone && dst != RAX {
 		cg.asm.MovRegReg(dst, RAX)
@@ -1548,6 +1665,13 @@ func (cg *X64CodeGenerator) emitNewObject(instr *IRInstr) {
 }
 
 // emitGetField 生成字段读取指令
+// JITObject 布局:
+//   偏移 0:  VTablePtr (8 bytes)
+//   偏移 8:  ClassID (4 bytes)
+//   偏移 12: Flags (4 bytes)
+//   偏移 16: Fields[0] (8 bytes)
+//   偏移 24: Fields[1] (8 bytes)
+//   ...
 func (cg *X64CodeGenerator) emitGetField(instr *IRInstr) {
 	if instr.Dest == nil || len(instr.Args) == 0 {
 		return
@@ -1567,22 +1691,24 @@ func (cg *X64CodeGenerator) emitGetField(instr *IRInstr) {
 	// 如果有预计算的偏移，直接加载
 	if instr.FieldOffset >= 0 {
 		// 快速路径：直接通过偏移加载
+		// JITObject 字段偏移 = 16 + fieldIndex * 8
 		// mov dst, [rcx + offset]
 		cg.asm.MovRegMem(dst, RCX, int32(instr.FieldOffset))
 	} else {
-		// 慢路径：调用运行时辅助函数
-		cg.saveCallerSavedRegs()
-		cg.asm.SubRegImm32(RSP, 40)
-		
-		helperAddr := GetFieldHelperPtr(instr.FieldName)
-		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
-		cg.asm.Call(RAX)
-		
-		cg.asm.AddRegImm32(RSP, 40)
-		cg.restoreCallerSavedRegs()
-		
-		if dst != RAX {
-			cg.asm.MovRegReg(dst, RAX)
+		// 尝试从类布局获取偏移
+		registry := bytecode.GetClassRegistry()
+		if layout, ok := registry.GetByName(instr.ClassName); ok {
+			fieldOffset := layout.GetFieldOffset(instr.FieldName)
+			if fieldOffset >= 0 {
+				// 找到偏移，直接加载
+				cg.asm.MovRegMem(dst, RCX, int32(fieldOffset))
+			} else {
+				// 慢路径：调用运行时辅助函数
+				cg.emitGetFieldSlow(instr, dst)
+			}
+		} else {
+			// 慢路径
+			cg.emitGetFieldSlow(instr, dst)
 		}
 	}
 	
@@ -1594,19 +1720,41 @@ func (cg *X64CodeGenerator) emitGetField(instr *IRInstr) {
 	}
 }
 
+// emitGetFieldSlow 慢路径字段读取
+func (cg *X64CodeGenerator) emitGetFieldSlow(instr *IRInstr, dst X64Reg) {
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 参数: RCX = objPtr (已设置), RDX = fieldNamePtr
+	fieldNameAddr := uintptr(unsafe.Pointer(&instr.FieldName))
+	cg.asm.MovRegImm64(RDX, uint64(fieldNameAddr))
+	
+	helperAddr := GetFieldByNameHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	if dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	}
+}
+
 // emitSetField 生成字段写入指令
+// JITObject 布局同 emitGetField
 func (cg *X64CodeGenerator) emitSetField(instr *IRInstr) {
 	if len(instr.Args) < 2 {
 		return
 	}
 	
-	// 加载对象指针到RCX
+	// 加载对象指针到 RCX
 	obj := cg.loadValue(instr.Args[0], RCX)
 	if obj != RCX {
 		cg.asm.MovRegReg(RCX, obj)
 	}
 	
-	// 加载值到RDX
+	// 加载值到 RDX
 	value := cg.loadValue(instr.Args[1], RDX)
 	if value != RDX {
 		cg.asm.MovRegReg(RDX, value)
@@ -1618,11 +1766,29 @@ func (cg *X64CodeGenerator) emitSetField(instr *IRInstr) {
 		// mov [rcx + offset], rdx
 		cg.asm.MovMemReg(RCX, int32(instr.FieldOffset), RDX)
 	} else {
+		// 尝试从类布局获取偏移
+		registry := bytecode.GetClassRegistry()
+		if layout, ok := registry.GetByName(instr.ClassName); ok {
+			fieldOffset := layout.GetFieldOffset(instr.FieldName)
+			if fieldOffset >= 0 {
+				// 找到偏移，直接存储
+				cg.asm.MovMemReg(RCX, int32(fieldOffset), RDX)
+				return
+			}
+		}
+		
 		// 慢路径：调用运行时辅助函数
 		cg.saveCallerSavedRegs()
 		cg.asm.SubRegImm32(RSP, 40)
 		
-		helperAddr := GetSetFieldHelperPtr(instr.FieldName)
+		// 保存 RDX（值）到 R8
+		cg.asm.MovRegReg(R8, RDX)
+		
+		// 参数: RCX = objPtr (已设置), RDX = fieldNamePtr, R8 = value
+		fieldNameAddr := uintptr(unsafe.Pointer(&instr.FieldName))
+		cg.asm.MovRegImm64(RDX, uint64(fieldNameAddr))
+		
+		helperAddr := GetSetFieldByNameHelperPtr()
 		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
 		cg.asm.Call(RAX)
 		
@@ -1654,6 +1820,383 @@ func (cg *X64CodeGenerator) emitLoadVTable(instr *IRInstr) {
 		offset := cg.getSpillOffset(slot)
 		cg.asm.MovMemReg(RBP, offset, dst)
 	}
+}
+
+// ============================================================================
+// Map 操作指令生成
+// ============================================================================
+
+// emitMapNew 生成 Map 创建指令
+func (cg *X64CodeGenerator) emitMapNew(instr *IRInstr) {
+	if instr.Dest == nil {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 参数：RCX = capacity (默认 16)
+	capacity := int64(16)
+	if len(instr.Args) > 0 && instr.Args[0].IsConst {
+		capacity = instr.Args[0].ConstVal.AsInt()
+	}
+	cg.asm.MovRegImm64(RCX, uint64(capacity))
+	
+	helperAddr := GetMapNewHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitMapGet 生成 Map 读取指令
+// 栈布局：[map, key] -> [value]
+func (cg *X64CodeGenerator) emitMapGet(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 加载参数：RCX = mapPtr, RDX = key
+	mapVal := cg.loadValue(instr.Args[0], RCX)
+	if mapVal != RCX {
+		cg.asm.MovRegReg(RCX, mapVal)
+	}
+	
+	keyVal := cg.loadValue(instr.Args[1], RDX)
+	if keyVal != RDX {
+		cg.asm.MovRegReg(RDX, keyVal)
+	}
+	
+	helperAddr := GetMapGetHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitMapSet 生成 Map 写入指令
+// 栈布局：[map, key, value] -> []
+func (cg *X64CodeGenerator) emitMapSet(instr *IRInstr) {
+	if len(instr.Args) < 3 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 加载参数：RCX = mapPtr, RDX = key, R8 = value
+	mapVal := cg.loadValue(instr.Args[0], RCX)
+	if mapVal != RCX {
+		cg.asm.MovRegReg(RCX, mapVal)
+	}
+	
+	keyVal := cg.loadValue(instr.Args[1], RDX)
+	if keyVal != RDX {
+		cg.asm.MovRegReg(RDX, keyVal)
+	}
+	
+	value := cg.loadValue(instr.Args[2], R8)
+	if value != R8 {
+		cg.asm.MovRegReg(R8, value)
+	}
+	
+	helperAddr := GetMapSetHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+}
+
+// emitMapHas 生成 Map 存在检查指令
+// 栈布局：[map, key] -> [bool]
+func (cg *X64CodeGenerator) emitMapHas(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 加载参数
+	mapVal := cg.loadValue(instr.Args[0], RCX)
+	if mapVal != RCX {
+		cg.asm.MovRegReg(RCX, mapVal)
+	}
+	
+	keyVal := cg.loadValue(instr.Args[1], RDX)
+	if keyVal != RDX {
+		cg.asm.MovRegReg(RDX, keyVal)
+	}
+	
+	helperAddr := GetMapHasHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	// 结果在 RAX (1 或 0)
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitMapLen 生成 Map 长度指令
+// 栈布局：[map] -> [int]
+func (cg *X64CodeGenerator) emitMapLen(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 1 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	mapVal := cg.loadValue(instr.Args[0], RCX)
+	if mapVal != RCX {
+		cg.asm.MovRegReg(RCX, mapVal)
+	}
+	
+	helperAddr := GetMapLenHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// ============================================================================
+// 迭代器操作指令生成
+// ============================================================================
+
+// emitIterInit 生成迭代器初始化指令
+// 栈布局：[iterable] -> [iterator]
+func (cg *X64CodeGenerator) emitIterInit(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 1 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 参数：RCX = valuePtr
+	val := cg.loadValue(instr.Args[0], RCX)
+	if val != RCX {
+		cg.asm.MovRegReg(RCX, val)
+	}
+	
+	// 调用 IterInitHelper
+	helperAddr := GetIterInitHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	// 结果（迭代器指针）在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitIterNext 生成迭代器下一步指令
+// 栈布局：[iterator] -> [bool, iterator]
+func (cg *X64CodeGenerator) emitIterNext(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 1 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	// 参数：RCX = iteratorPtr
+	iterVal := cg.loadValue(instr.Args[0], RCX)
+	if iterVal != RCX {
+		cg.asm.MovRegReg(RCX, iterVal)
+	}
+	
+	// 保存迭代器指针到 R10（用于后续）
+	cg.asm.MovRegReg(R10, RCX)
+	
+	helperAddr := GetIterNextHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	// 结果（1 或 0）在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitIterKey 生成获取迭代器当前键指令
+// 栈布局：[iterator] -> [key, iterator]
+func (cg *X64CodeGenerator) emitIterKey(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 1 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	iterVal := cg.loadValue(instr.Args[0], RCX)
+	if iterVal != RCX {
+		cg.asm.MovRegReg(RCX, iterVal)
+	}
+	
+	helperAddr := GetIterKeyHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitIterValue 生成获取迭代器当前值指令
+// 栈布局：[iterator] -> [value, iterator]
+func (cg *X64CodeGenerator) emitIterValue(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 1 {
+		return
+	}
+	
+	cg.saveCallerSavedRegs()
+	cg.asm.SubRegImm32(RSP, 40)
+	
+	iterVal := cg.loadValue(instr.Args[0], RCX)
+	if iterVal != RCX {
+		cg.asm.MovRegReg(RCX, iterVal)
+	}
+	
+	helperAddr := GetIterValueHelperPtr()
+	cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+	cg.asm.Call(RAX)
+	
+	cg.asm.AddRegImm32(RSP, 40)
+	cg.restoreCallerSavedRegs()
+	
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// ============================================================================
+// 闭包和 Upvalue 操作指令生成
+// ============================================================================
+
+// emitLoadUpvalue 生成加载 upvalue 指令
+// 闭包指针约定存储在 R15 寄存器
+// JITClosure 布局:
+//   偏移 0:  FuncPtr (8 bytes)
+//   偏移 8:  NumUpvals (4 bytes)
+//   偏移 12: Flags (4 bytes)
+//   偏移 16: Upvalues[0] (8 bytes)
+//   偏移 24: Upvalues[1] (8 bytes)
+//   ...
+func (cg *X64CodeGenerator) emitLoadUpvalue(instr *IRInstr) {
+	if instr.Dest == nil {
+		return
+	}
+	
+	// upvalue 索引存储在 LocalIdx 字段
+	upvalueIndex := instr.LocalIdx
+	
+	// 计算偏移: 16 + index * 8
+	offset := int32(bytecode.JITClosureOffsetUpvalues + upvalueIndex*8)
+	
+	dst := cg.getReg(instr.Dest.ID)
+	if dst == RegNone {
+		dst = RAX
+	}
+	
+	// 从闭包加载 upvalue: mov dst, [R15 + offset]
+	cg.asm.MovRegMem(dst, R15, offset)
+	
+	if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		spillOffset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, spillOffset, dst)
+	}
+}
+
+// emitStoreUpvalue 生成存储 upvalue 指令
+func (cg *X64CodeGenerator) emitStoreUpvalue(instr *IRInstr) {
+	if len(instr.Args) == 0 {
+		return
+	}
+	
+	upvalueIndex := instr.LocalIdx
+	offset := int32(bytecode.JITClosureOffsetUpvalues + upvalueIndex*8)
+	
+	// 加载要存储的值
+	src := cg.loadValue(instr.Args[0], RAX)
+	
+	// 存储到闭包: mov [R15 + offset], src
+	cg.asm.MovMemReg(R15, offset, src)
 }
 
 // ============================================================================
