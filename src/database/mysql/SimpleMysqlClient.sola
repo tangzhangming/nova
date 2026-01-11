@@ -1,0 +1,150 @@
+// Sola 标准库 - MySQL 简单客户端（无连接池）
+namespace sola.database.mysql
+
+use sola.net.tcp.TcpClient;
+use sola.lang.Bytes;
+use sola.database.DatabaseException;
+
+/**
+ * 简单 MySQL 客户端
+ * 
+ * 直接使用单连接，不依赖连接池。
+ * 适合简单场景和测试使用。
+ * 
+ * 使用示例:
+ * ```sola
+ * use sola.database.mysql.SimpleMysqlClient;
+ * 
+ * $client := new SimpleMysqlClient("127.0.0.1", 3306, "root", "root", "mydb");
+ * $result := $client->query("SELECT * FROM users");
+ * $rows := $result->all();
+ * foreach ($rows as $row) {
+ *     echo $row->get("name");
+ * }
+ * $client->close();
+ * ```
+ */
+public class SimpleMysqlClient {
+    
+    private TcpClient $tcp;
+    private MysqlProtocol $protocol;
+    private bool $connected = false;
+    
+    /**
+     * 构造函数
+     * 
+     * @param string $host 数据库主机
+     * @param int $port 数据库端口
+     * @param string $user 用户名
+     * @param string $password 密码
+     * @param string $database 数据库名
+     */
+    public function __construct(
+        string $host,
+        int $port,
+        string $user,
+        string $password,
+        string $database
+    ) {
+        $this->tcp = new TcpClient();
+        $this->tcp->setConnectTimeout(10000);
+        
+        if (!$this->tcp->connect($host, $port)) {
+            throw new DatabaseException("Failed to connect to MySQL: " + $host + ":" + (port as string));
+        }
+        
+        $this->protocol = new MysqlProtocol($this->tcp);
+        $this->protocol->handshake($user, $password, $database);
+        $this->connected = true;
+    }
+    
+    /**
+     * 执行查询
+     * 
+     * @param string $sql SQL 语句
+     * @param string[] $params 参数数组（可选）
+     * @return MysqlResult 查询结果
+     */
+    public function query(string $sql, string[] $params = string{}): MysqlResult {
+        if (!$this->connected) {
+            throw new DatabaseException("Not connected to database");
+        }
+        
+        // 简单参数替换
+        $finalSql := $this->prepareSql($sql, $params);
+        $result := $this->protocol->query($finalSql);
+        return $result;
+    }
+    
+    /**
+     * 执行非查询语句（INSERT/UPDATE/DELETE）
+     * 
+     * @param string $sql SQL 语句
+     * @param string[] $params 参数数组（可选）
+     * @return int 受影响的行数
+     */
+    public function execute(string $sql, string[] $params = string{}): int {
+        if (!$this->connected) {
+            throw new DatabaseException("Not connected to database");
+        }
+        
+        $finalSql := $this->prepareSql($sql, $params);
+        $result := $this->protocol->query($finalSql);
+        $affected := $result->affectedRows();
+        return $affected;
+    }
+    
+    /**
+     * 准备 SQL（简单参数替换）
+     */
+    private function prepareSql(string $sql, string[] $params): string {
+        $paramLen := len($params);
+        if ($paramLen == 0) {
+            return $sql;
+        }
+        
+        $result := $sql;
+        $paramIndex := 0;
+        
+        // 逐个替换 ? 占位符
+        while ($paramIndex < $paramLen) {
+            $pos := native_str_index_of($result, "?");
+            if ($pos < 0) {
+                break;
+            }
+            
+            $escaped := $this->escapeString($params[$paramIndex]);
+            $before := native_str_substring($result, 0, $pos);
+            $after := native_str_substring($result, $pos + 1, len($result));
+            $result = $before + "'" + $escaped + "'" + $after;
+            $paramIndex++;
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * 转义字符串
+     */
+    private function escapeString(string $s): string {
+        // 简单替换单引号和反斜杠
+        $result := native_str_replace($s, "\\", "\\\\");
+        $result = native_str_replace($result, "'", "''");
+        return $result;
+    }
+    
+    /**
+     * 检查是否已连接
+     */
+    public function isConnected(): bool {
+        return $this->connected;
+    }
+    
+    /**
+     * 关闭连接
+     */
+    public function close() {
+        $this->connected = false;
+        // Note: tcp->close() 有 bug，暂时跳过
+    }
+}

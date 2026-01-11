@@ -1,0 +1,48 @@
+// 测试直接返回原生函数结果的问题
+namespace sola.database.mysql
+
+use sola.lang.Bytes;
+
+/**
+ * 测试类 - 用于调试返回值问题
+ */
+public class ReturnTest {
+    
+    public int $connId = -1;
+    
+    // 连接测试
+    public function connect(string $host, int $port): bool {
+        $this->connId = native_tcp_connect_timeout($host, $port, 10000);
+        return $this->connId >= 0;
+    }
+    
+    // 直接返回 native_tcp_read_exact
+    public function readExactDirect(int $len): byte[] {
+        return native_tcp_read_exact($this->connId, $len);
+    }
+    
+    // 通过变量返回
+    public function readExactVar(int $len): byte[] {
+        $result := native_tcp_read_exact($this->connId, $len);
+        return $result;
+    }
+    
+    // 检查是否连接 - 直接返回
+    public function isConnectedDirect(): bool {
+        return native_tcp_is_connected($this->connId);
+    }
+    
+    // 检查是否连接 - 通过变量
+    public function isConnectedVar(): bool {
+        $result := native_tcp_is_connected($this->connId);
+        return $result;
+    }
+    
+    // 关闭
+    public function close(): void {
+        if ($this->connId >= 0) {
+            native_tcp_close($this->connId);
+            $this->connId = -1;
+        }
+    }
+}

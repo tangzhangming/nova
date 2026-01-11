@@ -1,7 +1,7 @@
 // Sola 标准库 - MySQL Protocol 实现
 namespace sola.database.mysql
 
-use sola.lang.{Str, Bytes};
+use sola.lang.Bytes;
 use sola.net.tcp.TcpClient;
 use sola.database.DatabaseException;
 use sola.crypto.Hash;
@@ -27,7 +27,7 @@ public class MysqlProtocol {
     /**
      * 执行握手和认证
      */
-    public function handshake(string $user, string $password, string $database): void {
+    public function handshake(string $user, string $password, string $database) {
         // 读取初始握手包
         $handshake := $this->readPacket();
         if (len($handshake) < 5) {
@@ -185,7 +185,7 @@ public class MysqlProtocol {
     /**
      * 写入一个 MySQL 数据包
      */
-    private function writePacket(byte[] $data): void {
+    private function writePacket(byte[] $data) {
         $length := len($data);
         $packet := Bytes::alloc(4 + $length);
         
@@ -414,14 +414,14 @@ public class MysqlProtocol {
             }
             
             // 读取长度编码字符串
-            $len := $this->readLengthEncodedInt($rowPacket, $pos);
+            $valueLen := $this->readLengthEncodedInt($rowPacket, $pos);
             $lenSize := $this->getLengthEncodedIntSize($rowPacket, $pos);
             $pos = $pos + $lenSize;
             
-            if ($len > 0 && $pos + $len <= len($rowPacket)) {
-                $valueBytes := Bytes::slice($rowPacket, $pos, $len);
+            if ($valueLen > 0 && $pos + $valueLen <= len($rowPacket)) {
+                $valueBytes := Bytes::slice($rowPacket, $pos, $valueLen);
                 push($values, Bytes::toString($valueBytes));
-                $pos = $pos + $len;
+                $pos = $pos + $valueLen;
             } else {
                 push($values, "");
             }
@@ -442,17 +442,17 @@ public class MysqlProtocol {
         
         if ($firstByte < 0xfb) {
             return $firstByte;
-        } else if ($firstByte == 0xfc) {
+        } elseif ($firstByte == 0xfc) {
             if ($pos + 2 > len($data)) {
                 return 0;
             }
             return Bytes::get($data, $pos + 1) | (Bytes::get($data, $pos + 2) << 8);
-        } else if ($firstByte == 0xfd) {
+        } elseif ($firstByte == 0xfd) {
             if ($pos + 3 > len($data)) {
                 return 0;
             }
             return Bytes::get($data, $pos + 1) | (Bytes::get($data, $pos + 2) << 8) | (Bytes::get($data, $pos + 3) << 16);
-        } else if ($firstByte == 0xfe) {
+        } elseif ($firstByte == 0xfe) {
             if ($pos + 8 > len($data)) {
                 return 0;
             }
@@ -473,11 +473,11 @@ public class MysqlProtocol {
         $firstByte := Bytes::get($data, $pos);
         if ($firstByte < 0xfb) {
             return 1;
-        } else if ($firstByte == 0xfc) {
+        } elseif ($firstByte == 0xfc) {
             return 3;
-        } else if ($firstByte == 0xfd) {
+        } elseif ($firstByte == 0xfd) {
             return 4;
-        } else if ($firstByte == 0xfe) {
+        } elseif ($firstByte == 0xfe) {
             return 9;
         }
         
@@ -488,15 +488,15 @@ public class MysqlProtocol {
      * 跳过长度编码字符串
      */
     private function skipLengthEncodedString(byte[] $data, int $pos): int {
-        $len := $this->readLengthEncodedInt($data, $pos);
+        $strLen := $this->readLengthEncodedInt($data, $pos);
         $lenSize := $this->getLengthEncodedIntSize($data, $pos);
-        return $lenSize + $len;
+        return $lenSize + $strLen;
     }
     
     /**
      * 解析 OK 包
      */
-    private function parseOkPacket(byte[] $packet): void {
+    private function parseOkPacket(byte[] $packet) {
         $pos := 1; // 跳过 0x00
         
         $this->affectedRows = $this->readLengthEncodedInt($packet, $pos);
@@ -524,10 +524,10 @@ public class MysqlProtocol {
         
         // 读取错误消息
         if ($pos < len($packet)) {
-            return Bytes::toString(Bytes::slice($packet, $pos));
+            return Bytes::toString(Bytes::slice($packet, $pos, len($packet)));
         }
         
-        return "Error code: " + $errorCode;
+        return "Error code: " + ($errorCode as string);
     }
     
     /**

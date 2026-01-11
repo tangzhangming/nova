@@ -1,0 +1,82 @@
+// 原生 MySQL 测试
+namespace sola.database.mysql
+
+use sola.lang.Bytes;
+
+/**
+ * 原生 MySQL 测试类
+ * 使用原生函数直接测试 MySQL 协议
+ */
+public class NativeTest {
+    
+    /**
+     * 测试连接和基本查询
+     */
+    public static function test(string $host, int $port, string $user, string $password, string $database): bool {
+        // 连接
+        $connId := native_tcp_connect_timeout($host, $port, 10000);
+        if ($connId < 0) {
+            return false;
+        }
+        
+        // 读取握手包头
+        $header := native_tcp_read_exact($connId, 4);
+        $headerLen := len($header);
+        if ($headerLen != 4) {
+            native_tcp_close($connId);
+            return false;
+        }
+        
+        // 解析包长度
+        $b0 := Bytes::get($header, 0);
+        $b1 := Bytes::get($header, 1);
+        $b2 := Bytes::get($header, 2);
+        $payloadLen := $b0 + ($b1 << 8) + ($b2 << 16);
+        
+        // 读取包体
+        $payload := native_tcp_read_exact($connId, $payloadLen);
+        if (len($payload) != $payloadLen) {
+            native_tcp_close($connId);
+            return false;
+        }
+        
+        // 解析协议版本
+        $protocolVersion := Bytes::get($payload, 0);
+        
+        // 成功读取握手包
+        native_tcp_close($connId);
+        return true;
+    }
+    
+    /**
+     * 简单的握手测试
+     */
+    public static function testHandshake(string $host, int $port): string {
+        $connId := native_tcp_connect_timeout($host, $port, 10000);
+        if ($connId < 0) {
+            return "连接失败";
+        }
+        
+        // 读取握手包
+        $header := native_tcp_read_exact($connId, 4);
+        $b0 := Bytes::get($header, 0);
+        $b1 := Bytes::get($header, 1);
+        $b2 := Bytes::get($header, 2);
+        $payloadLen := $b0 + ($b1 << 8) + ($b2 << 16);
+        
+        $payload := native_tcp_read_exact($connId, $payloadLen);
+        
+        // 解析服务器版本
+        $versionStart := 1;
+        $versionEnd := 1;
+        while ($versionEnd < len($payload) && Bytes::get($payload, $versionEnd) != 0) {
+            $versionEnd++;
+        }
+        
+        $versionBytes := Bytes::slice($payload, $versionStart, $versionEnd - $versionStart);
+        $version := Bytes::toString($versionBytes);
+        
+        native_tcp_close($connId);
+        return $version;
+    }
+}

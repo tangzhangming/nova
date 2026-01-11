@@ -1,0 +1,57 @@
+// 测试 MySQL 客户端类
+namespace sola.database.mysql
+
+use sola.net.tcp.TcpClient;
+use sola.lang.Bytes;
+use sola.database.DatabaseException;
+
+public class TestClient {
+    private TcpClient $tcp;
+    private int $seqId = 0;
+    
+    public function __construct(string $host, int $port) {
+        $this->tcp = new TcpClient();
+        $this->tcp->setConnectTimeout(10000);
+        
+        if (!$this->tcp->connect($host, $port)) {
+            throw new DatabaseException("Failed to connect");
+        }
+        
+        // 测试 readPacket
+        $this->testReadPacket();
+    }
+    
+    private function testReadPacket() {
+        echo "在类内部读取包头...\n";
+        $header := $this->tcp->readExact(4);
+        echo "包头长度: ";
+        echo len($header);
+        echo "\n";
+        
+        // 解析包长度
+        $b0 := Bytes::get($header, 0);
+        $b1 := Bytes::get($header, 1);
+        $b2 := Bytes::get($header, 2);
+        $packetLen := $b0 | ($b1 << 8) | ($b2 << 16);
+        echo "包长度: ";
+        echo $packetLen;
+        echo "\n";
+        
+        // 读取序列号 - 赋值给 $this->seqId
+        echo "读取序列号...\n";
+        $this->seqId = Bytes::get($header, 3);
+        echo "序列号: ";
+        echo $this->seqId;
+        echo "\n";
+        
+        // 读取包体
+        $payload := $this->tcp->readExact($packetLen);
+        echo "包体长度: ";
+        echo len($payload);
+        echo "\n";
+    }
+    
+    public function disconnect() {
+        // nothing
+    }
+}

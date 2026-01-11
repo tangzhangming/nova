@@ -254,17 +254,17 @@ public class MysqlRow {
     private string[] $columnNames;
     
     /** 值数组 */
-    private string[] $values;
+    private string[] $cells;
     
     /**
      * 构造函数
      * 
      * @param string[] $columnNames 列名数组
-     * @param string[] $values 值数组
+     * @param string[] $cells 值数组
      */
-    public function __construct(string[] $columnNames, string[] $values) {
+    public function __construct(string[] $columnNames, string[] $cells) {
         $this->columnNames = $columnNames;
-        $this->values = $values;
+        $this->cells = $cells;
     }
     
     /**
@@ -276,7 +276,7 @@ public class MysqlRow {
     public function get(string $columnName): string|null {
         for ($i := 0; $i < len($this->columnNames); $i++) {
             if ($this->columnNames[$i] == $columnName) {
-                return $this->values[$i];
+                return $this->cells[$i];
             }
         }
         return null;
@@ -289,10 +289,10 @@ public class MysqlRow {
      * @return string|null 值，如果索引无效返回 null
      */
     public function getAt(int $index): string|null {
-        if ($index < 0 || $index >= len($this->values)) {
+        if ($index < 0 || $index >= len($this->cells)) {
             return null;
         }
-        return $this->values[$index];
+        return $this->cells[$index];
     }
     
     /**
@@ -309,8 +309,8 @@ public class MysqlRow {
      * 
      * @return string[] 值数组
      */
-    public function values(): string[] {
-        return $this->values;
+    public function getCells(): string[] {
+        return $this->cells;
     }
     
     /**
@@ -321,7 +321,7 @@ public class MysqlRow {
     public function toMap(): map[string]string {
         $result := [];
         for ($i := 0; $i < len($this->columnNames); $i++) {
-            $result[$this->columnNames[$i]] = $this->values[$i];
+            $result[$this->columnNames[$i]] = $this->cells[$i];
         }
         return $result;
     }

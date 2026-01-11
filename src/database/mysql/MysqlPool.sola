@@ -1,4 +1,4 @@
-// Sola 标准�?- MySQL 连接�?
+// Sola 标准库 - MySQL 连接池
 namespace sola.database.mysql
 
 use sola.database.ConnectionPool;

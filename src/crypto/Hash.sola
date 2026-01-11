@@ -256,14 +256,19 @@ class Hash {
      * @return string 哈希结果（十六进制）
      */
     public static function hash(string $algorithm, dynamic $data): string {
-        return switch ($algorithm) {
-            case "md5" => self::md5($data),
-            case "sha1" => self::sha1($data),
-            case "sha256" => self::sha256($data),
-            case "sha384" => self::sha384($data),
-            case "sha512" => self::sha512($data),
-            default => throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM)
-        };
+        if ($algorithm == "md5") {
+            return self::md5($data);
+        } elseif ($algorithm == "sha1") {
+            return self::sha1($data);
+        } elseif ($algorithm == "sha256") {
+            return self::sha256($data);
+        } elseif ($algorithm == "sha384") {
+            return self::sha384($data);
+        } elseif ($algorithm == "sha512") {
+            return self::sha512($data);
+        } else {
+            throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM);
+        }
     }
     
     /**
@@ -272,7 +277,7 @@ class Hash {
      * @return IHasher 哈希器实例
      */
     public static function create(string $algorithm): IHasher {
-        int $handle = native_crypto_hash_create($algorithm);
+        $handle := native_crypto_hash_create($algorithm);
         if ($handle < 0) {
             throw new CryptoException("Unknown hash algorithm: " + $algorithm, CryptoException::INVALID_ALGORITHM);
         }
@@ -286,7 +291,7 @@ class Hash {
      * @return string 哈希结果（十六进制）
      */
     public static function file(string $algorithm, string $filePath): string {
-        string $content = File::read($filePath);
+        $content := File::read($filePath);
         return self::hash($algorithm, $content);
     }
     
@@ -298,7 +303,7 @@ class Hash {
      * @return bool 是否匹配
      */
     public static function verify(string $algorithm, dynamic $data, string $expectedHash): bool {
-        string $actualHash = self::hash($algorithm, $data);
+        $actualHash := self::hash($algorithm, $data);
         return Str::toLower($actualHash) == Str::toLower($expectedHash);
     }
 }

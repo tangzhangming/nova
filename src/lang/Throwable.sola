@@ -7,15 +7,14 @@ namespace sola.lang
 public class Throwable {
     protected string $message = "";
     protected int $code = 0;
-    protected ?Throwable $previous = null;
+    protected dynamic $previous = null;
     protected string[] $stackTrace = [];
     protected string $file = "";
     protected int $line = 0;
 
-    public function __construct(string $message = "", int $code = 0, ?Throwable $previous = null) {
+    public function __construct(string $message = "", int $code = 0) {
         $this->message = $message;
         $this->code = $code;
-        $this->previous = $previous;
     }
 
     /**
@@ -35,8 +34,15 @@ public class Throwable {
     /**
      * 获取导致此异常的前一个异常
      */
-    public function getPrevious(): ?Throwable {
+    public function getPrevious(): dynamic {
         return $this->previous;
+    }
+    
+    /**
+     * 设置前一个异常
+     */
+    public function setPrevious(dynamic $previous) {
+        $this->previous = $previous;
     }
 
     /**
@@ -57,7 +63,7 @@ public class Throwable {
      * 获取堆栈跟踪数组
      * 每个元素是一个格式化的堆栈帧字符串
      */
-    public function getStackTrace(): array {
+    public function getStackTrace(): string[] {
         return $this->stackTrace;
     }
 
@@ -65,14 +71,14 @@ public class Throwable {
      * 获取格式化的堆栈跟踪字符串
      */
     public function getTraceAsString(): string {
-        string $result = "";
-        int $i = 0;
-        foreach ($this->stackTrace as $frame) {
+        $result := "";
+        $trace := $this->stackTrace;
+        $traceLen := len($trace);
+        for ($i := 0; $i < $traceLen; $i++) {
             if ($i > 0) {
                 $result = $result + "\n";
             }
-            $result = $result + "    at " + $frame;
-            $i = $i + 1;
+            $result = $result + "    at " + $trace[$i];
         }
         return $result;
     }
@@ -91,10 +97,11 @@ public class Throwable {
      */
     public function __toString(): string {
         // 格式: ClassName: message
-        string $result = $this->message;
+        $result := $this->message;
         
         // 添加堆栈跟踪
-        if ($this->stackTrace.length > 0) {
+        $trace := $this->stackTrace;
+        if (len($trace) > 0) {
             $result = $result + "\n" + $this->getTraceAsString();
         }
         

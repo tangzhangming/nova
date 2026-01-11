@@ -1,0 +1,28 @@
+// 测试 SHA1 函数
+namespace sola.database.mysql
+
+use sola.lang.Bytes;
+
+public class ShaTest {
+    
+    public static function testSha1() {
+        echo "测试 SHA1...\n";
+        
+        // 测试字符串输入
+        echo "测试字符串输入:\n";
+        $result1 := native_crypto_sha1_bytes("test");
+        echo "结果长度: ";
+        echo len($result1);
+        echo "\n";
+        
+        // 测试 byte[] 输入
+        echo "测试 byte[] 输入:\n";
+        $input := Bytes::fromString("test");
+        $result2 := native_crypto_sha1_bytes($input);
+        echo "结果长度: ";
+        echo len($result2);
+        echo "\n";
+        
+        echo "SHA1 测试完成\n";
+    }
+}

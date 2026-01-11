@@ -1,0 +1,151 @@
+// 测试握手流程
+namespace sola.database.mysql
+
+use sola.net.tcp.TcpClient;
+use sola.lang.Bytes;
+use sola.database.DatabaseException;
+
+public class HandshakeTest {
+    private TcpClient $tcp;
+    private int $seqId = 0;
+    
+    public function __construct(string $host, int $port) {
+        echo "创建 TcpClient...\n";
+        $this->tcp = new TcpClient();
+        $this->tcp->setConnectTimeout(10000);
+        
+        echo "连接...\n";
+        if (!$this->tcp->connect($host, $port)) {
+            throw new DatabaseException("Failed to connect");
+        }
+        echo "连接成功\n";
+        
+        echo "开始握手...\n";
+        $this->testHandshake();
+    }
+    
+    private function testHandshake() {
+        // 步骤 1: 读取握手包
+        echo "步骤1: 读取握手包...\n";
+        $handshake := $this->readPacket();
+        $handshakeLen := len($handshake);
+        echo "握手包长度: ";
+        echo $handshakeLen;
+        echo "\n";
+        
+        if ($handshakeLen < 5) {
+            throw new DatabaseException("Invalid handshake packet");
+        }
+        
+        // 步骤 2: 解析 auth data
+        echo "步骤2: 解析 auth data...\n";
+        $pos := 0;
+        $pos++; // 跳过协议版本
+        
+        // 跳过服务器版本
+        while ($pos < $handshakeLen && Bytes::get($handshake, $pos) != 0) {
+            $pos++;
+        }
+        $pos++;
+        
+        // 跳过连接 ID（4字节）
+        $pos = $pos + 4;
+        
+        // 读取 auth data part 1（8字节）
+        $authData := Bytes::slice($handshake, $pos, $pos + 8);
+        echo "Auth data 长度: ";
+        echo len($authData);
+        echo "\n";
+        
+        // 步骤 3: 计算密码哈希
+        echo "步骤3: 计算密码哈希...\n";
+        $pwdHash := $this->scramblePassword("root", $authData);
+        echo "密码哈希长度: ";
+        echo len($pwdHash);
+        echo "\n";
+        
+        echo "握手测试完成!\n";
+    }
+    
+    private function scramblePassword(string $password, byte[] $authData): byte[] {
+        echo "  scramblePassword 开始...\n";
+        
+        if (len($password) == 0) {
+            return Bytes::alloc(0);
+        }
+        
+        // SHA1(password)
+        echo "  计算 SHA1(password)...\n";
+        $sha1Pwd := native_crypto_sha1_bytes($password);
+        echo "  SHA1(password) 长度: ";
+        echo len($sha1Pwd);
+        echo "\n";
+        
+        // SHA1(SHA1(password))
+        echo "  计算 SHA1(SHA1(password))...\n";
+        $sha1Sha1Pwd := native_crypto_sha1_bytes($sha1Pwd);
+        echo "  SHA1(SHA1(password)) 长度: ";
+        echo len($sha1Sha1Pwd);
+        echo "\n";
+        
+        // 拼接 authData + SHA1(SHA1(password))
+        echo "  拼接数据...\n";
+        $authDataLen := len($authData);
+        $sha1Sha1PwdLen := len($sha1Sha1Pwd);
+        $combined := Bytes::alloc($authDataLen + $sha1Sha1PwdLen);
+        for ($i := 0; $i < $authDataLen; $i++) {
+            Bytes::set($combined, $i, Bytes::get($authData, $i));
+        }
+        for ($i := 0; $i < $sha1Sha1PwdLen; $i++) {
+            Bytes::set($combined, $authDataLen + $i, Bytes::get($sha1Sha1Pwd, $i));
+        }
+        echo "  Combined 长度: ";
+        echo len($combined);
+        echo "\n";
+        
+        // SHA1(authData + SHA1(SHA1(password)))
+        echo "  计算最终 SHA1...\n";
+        $sha1Combined := native_crypto_sha1_bytes($combined);
+        echo "  SHA1(combined) 长度: ";
+        echo len($sha1Combined);
+        echo "\n";
+        
+        // XOR
+        echo "  计算 XOR...\n";
+        $sha1PwdLen := len($sha1Pwd);
+        $sha1CombinedLen := len($sha1Combined);
+        $result := Bytes::alloc(20);
+        for ($i := 0; $i < 20; $i++) {
+            $a := 0;
+            $b := 0;
+            if ($i < $sha1PwdLen) {
+                $a = Bytes::get($sha1Pwd, $i);
+            }
+            if ($i < $sha1CombinedLen) {
+                $b = Bytes::get($sha1Combined, $i);
+            }
+            Bytes::set($result, $i, $a ^ $b);
+        }
+        
+        echo "  scramblePassword 完成\n";
+        return $result;
+    }
+    
+    private function readPacket(): byte[] {
+        $header := $this->tcp->readExact(4);
+        $four := 4;
+        if (len($header) != $four) {
+            return Bytes::alloc(0);
+        }
+        
+        $packetLen := Bytes::get($header, 0) | (Bytes::get($header, 1) << 8) | (Bytes::get($header, 2) << 16);
+        $this->seqId = Bytes::get($header, 3);
+        
+        $zero := 0;
+        if ($packetLen == $zero) {
+            return Bytes::alloc(0);
+        }
+        
+        return $this->tcp->readExact($packetLen);
+    }
+}

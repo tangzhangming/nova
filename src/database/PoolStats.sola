@@ -41,7 +41,7 @@ public class PoolStats {
         if ($this->total == 0) {
             return 0.0;
         }
-        return ($this->active * 1.0) / ($this->total * 1.0);
+        return ($this->active as float) / ($this->total as float);
     }
     
     /**
@@ -50,9 +50,9 @@ public class PoolStats {
      * @return string 统计信息字符串
      */
     public function toString(): string {
-        return "PoolStats{total=" + $this->total + ", active=" + $this->active + 
-               ", idle=" + $this->idle + ", waiting=" + $this->waiting + 
-               ", created=" + $this->created + ", closed=" + $this->closed + "}";
+        return "PoolStats{total=" + ($this->total as string) + ", active=" + ($this->active as string) + 
+               ", idle=" + ($this->idle as string) + ", waiting=" + ($this->waiting as string) + 
+               ", created=" + ($this->created as string) + ", closed=" + ($this->closed as string) + "}";
     }
 }
 

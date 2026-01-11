@@ -1,0 +1,82 @@
+// Sola 标准库 - MySQL 查询结果
+namespace sola.database.mysql
+
+/**
+ * MySQL 查询结果
+ */
+public class MysqlResult {
+    public dynamic $columnNames;
+    public dynamic $rowData;
+    public int $affectedCount;
+    
+    public function __construct(dynamic $columns, dynamic $rows, int $affected) {
+        $this->columnNames = $columns;
+        $this->rowData = $rows;
+        $this->affectedCount = $affected;
+    }
+    
+    /**
+     * 获取行数
+     */
+    public function count(): int {
+        return len($this->rowData);
+    }
+    
+    /**
+     * 获取受影响的行数
+     */
+    public function affectedRows(): int {
+        return $this->affectedCount;
+    }
+    
+    /**
+     * 获取列名数组
+     */
+    public function columns(): dynamic {
+        return $this->columnNames;
+    }
+    
+    /**
+     * 通过列名获取第一行的某列值
+     */
+    public function getValue(string $column): dynamic {
+        $rowCount := len($this->rowData);
+        if ($rowCount == 0) {
+            return null;
+        }
+        $colLen := len($this->columnNames);
+        $firstRow := $this->rowData[0];
+        for ($i := 0; $i < $colLen; $i++) {
+            $col := $this->columnNames[$i] as string;
+            if ($col == $column) {
+                $valLen := len($firstRow);
+                if ($i < $valLen) {
+                    return $firstRow[$i] as string;
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 获取指定行和列的值
+     */
+    public function getValueAt(int $row, string $column): dynamic {
+        $rowCount := len($this->rowData);
+        if ($row < 0 || $row >= $rowCount) {
+            return null;
+        }
+        $colLen := len($this->columnNames);
+        $rowArr := $this->rowData[$row];
+        for ($i := 0; $i < $colLen; $i++) {
+            $col := $this->columnNames[$i] as string;
+            if ($col == $column) {
+                $valLen := len($rowArr);
+                if ($i < $valLen) {
+                    return $rowArr[$i] as string;
+                }
+            }
+        }
+        return null;
+    }
+}

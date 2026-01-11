@@ -1,0 +1,649 @@
+// Sola 标准库 - 简单 MySQL 客户端
+namespace sola.database.mysql
+
+use sola.net.tcp.TcpClient;
+use sola.lang.Bytes;
+use sola.database.mysql.MysqlResult;
+use sola.database.DatabaseException;
+
+/**
+ * 简单 MySQL 客户端
+ * 不依赖复杂的标准库类，直接实现 MySQL 协议。
+ */
+public class SimpleClient {
+    private TcpClient $tcp;
+    private int $seqId = 0;
+    private bool $connected = false;
+    
+    public function __construct(string $host, int $port, string $user, string $password, string $database) {
+        $this->tcp = new TcpClient();
+        $this->tcp->setConnectTimeout(10000);
+        
+        if (!$this->tcp->connect($host, $port)) {
+            throw new DatabaseException("Failed to connect to MySQL");
+        }
+        
+        $this->doHandshake($user, $password, $database);
+        $this->connected = true;
+    }
+    
+    /**
+     * 执行查询
+     */
+    public function query(string $sql, string[] $params = []): MysqlResult {
+        $finalSql := $this->prepare($sql, $params);
+        return $this->executeQuery($finalSql);
+    }
+    
+    /**
+     * 执行语句（INSERT/UPDATE/DELETE）
+     */
+    public function execute(string $sql, string[] $params = []): int {
+        $finalSql := $this->prepare($sql, $params);
+        $result := $this->executeQuery($finalSql);
+        return $result->affectedCount;
+    }
+    
+    /**
+     * 关闭连接
+     */
+    public function disconnect() {
+        $this->connected = false;
+    }
+    
+    // ==================== 私有方法 ====================
+    
+    private function prepare(string $sql, string[] $params): string {
+        $paramLen := len($params);
+        if ($paramLen == 0) {
+            return $sql;
+        }
+        
+        $result := $sql;
+        for ($i := 0; $i < $paramLen; $i++) {
+            $pos := native_str_index_of($result, "?");
+            if ($pos < 0) {
+                break;
+            }
+            
+            $escaped := $this->escape($params[$i]);
+            $before := native_str_substring($result, 0, $pos);
+            $after := native_str_substring($result, $pos + 1, len($result));
+            $result = $before + "'" + $escaped + "'" + $after;
+        }
+        
+        return $result;
+    }
+    
+    private function escape(string $s): string {
+        $result := native_str_replace($s, "\\", "\\\\");
+        $result = native_str_replace($result, "'", "''");
+        return $result;
+    }
+    
+    private function doHandshake(string $user, string $password, string $database) {
+        // 读取握手包
+        $handshake := $this->readPacket();
+        $handshakeLen := len($handshake);
+        if ($handshakeLen < 5) {
+            throw new DatabaseException("Invalid handshake packet");
+        }
+        
+        $pos := 0;
+        
+        // 协议版本 (1 byte)
+        $pos++;
+        
+        // 跳过服务器版本 (null-terminated)
+        while ($pos < $handshakeLen && Bytes::get($handshake, $pos) != 0) {
+            $pos++;
+        }
+        $pos++; // 跳过 null terminator
+        
+        // 连接 ID (4 bytes)
+        $pos = $pos + 4;
+        
+        // auth-plugin-data-part-1 (8 bytes)
+        $authPart1 := Bytes::slice($handshake, $pos, $pos + 8);
+        $pos = $pos + 8;
+        
+        // filler (1 byte)
+        $pos++;
+        
+        // capability_flags_1 (2 bytes)
+        $pos = $pos + 2;
+        
+        // character_set (1 byte)
+        $pos++;
+        
+        // status_flags (2 bytes)
+        $pos = $pos + 2;
+        
+        // capability_flags_2 (2 bytes)
+        $pos = $pos + 2;
+        
+        // auth_plugin_data_len or 0 (1 byte)
+        $authDataLen := Bytes::get($handshake, $pos);
+        $pos++;
+        
+        // reserved (10 bytes)
+        $pos = $pos + 10;
+        
+        // auth-plugin-data-part-2 (at least 12 bytes for MySQL 8+)
+        // Total auth data should be 20 bytes for mysql_native_password
+        // authDataLen includes the null terminator, so actual data is authDataLen - 1
+        $authPart2Len := 12;
+        if ($authDataLen > 8) {
+            // Subtract 1 for the null terminator at the end of auth-plugin-data-part-2
+            $authPart2Len = $authDataLen - 8 - 1;
+            if ($authPart2Len < 0) {
+                $authPart2Len = 0;
+            }
+        }
+        
+        // 组合完整的 auth data (should be exactly 20 bytes)
+        $authData := Bytes::alloc(8 + $authPart2Len);
+        for ($i := 0; $i < 8; $i++) {
+            Bytes::set($authData, $i, Bytes::get($authPart1, $i));
+        }
+        if ($pos + $authPart2Len <= $handshakeLen) {
+            for ($i := 0; $i < $authPart2Len; $i++) {
+                Bytes::set($authData, 8 + $i, Bytes::get($handshake, $pos + $i));
+            }
+        }
+        
+        // 构建认证响应
+        $response := $this->buildAuthPacket($user, $password, $authData, $database);
+        $this->writePacket($response);
+        
+        // 读取响应
+        $authResult := $this->readPacket();
+        $resultLen := len($authResult);
+        if ($resultLen > 0) {
+            $firstByte := Bytes::get($authResult, 0);
+            if ($firstByte == 0xff) {
+                // 解析错误信息
+                $errorMsg := "Authentication failed";
+                if ($resultLen > 9) {
+                    $errorMsg = Bytes::toString(Bytes::slice($authResult, 9, $resultLen));
+                }
+                throw new DatabaseException($errorMsg);
+            } elseif ($firstByte == 0xfe) {
+                // AuthSwitchRequest - 服务器请求切换认证方式
+                // 格式: 0xfe + plugin_name (null-terminated) + auth_data (+ optional null)
+                $switchPos := 1;
+                // 读取新的认证插件名
+                $pluginStart := $switchPos;
+                while ($switchPos < $resultLen && Bytes::get($authResult, $switchPos) != 0) {
+                    $switchPos++;
+                }
+                $newPluginName := Bytes::toString(Bytes::slice($authResult, $pluginStart, $switchPos));
+                $switchPos++; // 跳过 null terminator
+                
+                // 读取新的 auth data
+                $authDataEnd := $resultLen;
+                if ($authDataEnd > $switchPos && Bytes::get($authResult, $authDataEnd - 1) == 0) {
+                    $authDataEnd = $authDataEnd - 1;
+                }
+                $newAuthData := Bytes::slice($authResult, $switchPos, $authDataEnd);
+                
+                // 根据认证插件选择不同的密码哈希方法
+                $switchResponse := Bytes::alloc(0);
+                if ($newPluginName == "mysql_native_password") {
+                    $switchResponse = $this->scramblePassword($password, $newAuthData);
+                } elseif ($newPluginName == "caching_sha2_password") {
+                    $switchResponse = $this->scrambleSha256($password, $newAuthData);
+                } else {
+                    throw new DatabaseException("Unsupported auth plugin: " + $newPluginName);
+                }
+                
+                $this->writePacket($switchResponse);
+                
+                // 读取最终响应
+                $finalResult := $this->readPacket();
+                $finalLen := len($finalResult);
+                
+                if ($finalLen > 0) {
+                    $finalByte := Bytes::get($finalResult, 0);
+                    $errByte := 255;
+                    if ($finalByte == $errByte) {
+                        $errMsg := "Authentication failed";
+                        if ($finalLen > 9) {
+                            $errMsg = Bytes::toString(Bytes::slice($finalResult, 9, $finalLen));
+                        }
+                        throw new DatabaseException($errMsg);
+                    } elseif ($finalByte == 1) {
+                        // caching_sha2_password 可能需要进一步认证
+                        // 0x01 0x03 = fast auth success
+                        // 0x01 0x04 = full auth required (need RSA)
+                        if ($finalLen > 1) {
+                            $authStatus := Bytes::get($finalResult, 1);
+                            
+                            if ($authStatus == 3) {
+                                // Fast auth success, 读取最终 OK
+                                $okResult := $this->readPacket();
+                                $okLen := len($okResult);
+                                if ($okLen > 0) {
+                                    $okByte := Bytes::get($okResult, 0);
+                                    $errCode := 255;
+                                    if ($okByte == $errCode) {
+                                        throw new DatabaseException("Authentication failed after fast auth");
+                                    }
+                                    // 认证成功，直接返回
+                                    return;
+                                }
+                            } elseif ($authStatus == 4) {
+                                // Full auth required - 需要 RSA 加密
+                                // 对于简单实现，我们发送明文密码（仅适用于安全连接）
+                                // 注意：这在非 TLS 连接上不安全
+                                $pwdBytes := Bytes::fromString($password);
+                                $pwdLen := len($pwdBytes);
+                                $pwdPacket := Bytes::alloc($pwdLen + 1);
+                                for ($i := 0; $i < $pwdLen; $i++) {
+                                    Bytes::set($pwdPacket, $i, Bytes::get($pwdBytes, $i));
+                                }
+                                Bytes::set($pwdPacket, $pwdLen, 0); // null terminator
+                                $this->writePacket($pwdPacket);
+                                
+                                $finalOk := $this->readPacket();
+                                $finalOkLen := len($finalOk);
+                                $finalOkFirst := 0;
+                                if ($finalOkLen > 0) {
+                                    $finalOkFirst = Bytes::get($finalOk, 0);
+                                }
+                                if ($finalOkFirst == 255) {
+                                    $errMsg := "Authentication failed (full auth)";
+                                    if (len($finalOk) > 9) {
+                                        $errMsg = Bytes::toString(Bytes::slice($finalOk, 9, len($finalOk)));
+                                    }
+                                    throw new DatabaseException($errMsg);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private function buildAuthPacket(string $user, string $password, byte[] $authData, string $database): byte[] {
+        $userBytes := Bytes::fromString($user);
+        $dbBytes := Bytes::fromString($database);
+        $pluginName := Bytes::fromString("mysql_native_password");
+        
+        // 计算密码哈希
+        $pwdHash := $this->scramblePassword($password, $authData);
+        
+        // 响应长度
+        $userLen := len($userBytes);
+        $dbLen := len($dbBytes);
+        $pwdLen := len($pwdHash);
+        $pluginLen := len($pluginName);
+        // 4(cap) + 4(max_packet) + 1(charset) + 23(reserved) + user + 1(null) + 1(pwdlen) + pwd + db + 1(null) + plugin + 1(null)
+        $totalLen := 4 + 4 + 1 + 23 + $userLen + 1 + 1 + $pwdLen + $dbLen + 1 + $pluginLen + 1;
+        $response := Bytes::alloc($totalLen);
+        $pos := 0;
+        
+        // Capability flags (4 bytes)
+        // CLIENT_LONG_PASSWORD | CLIENT_CONNECT_WITH_DB | CLIENT_PROTOCOL_41 | 
+        // CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH
+        // = 0x1 | 0x8 | 0x200 | 0x8000 | 0x80000 = 0x88209
+        $capLow := 0x8209;  // Lower 16 bits
+        $capHigh := 0x0008; // Upper 16 bits (contains CLIENT_PLUGIN_AUTH)
+        Bytes::set($response, $pos, $capLow & 0xff);
+        Bytes::set($response, $pos + 1, ($capLow >> 8) & 0xff);
+        Bytes::set($response, $pos + 2, $capHigh & 0xff);
+        Bytes::set($response, $pos + 3, ($capHigh >> 8) & 0xff);
+        $pos = $pos + 4;
+        
+        // Max packet size (4 bytes) - 16MB
+        Bytes::set($response, $pos, 0);
+        Bytes::set($response, $pos + 1, 0);
+        Bytes::set($response, $pos + 2, 0);
+        Bytes::set($response, $pos + 3, 1);
+        $pos = $pos + 4;
+        
+        // Charset - utf8mb4 (0x2d = 45) or utf8 (0x21 = 33)
+        Bytes::set($response, $pos, 0x21);
+        $pos++;
+        
+        // Reserved (23 bytes)
+        for ($i := 0; $i < 23; $i++) {
+            Bytes::set($response, $pos + $i, 0);
+        }
+        $pos = $pos + 23;
+        
+        // Username (null-terminated)
+        for ($i := 0; $i < $userLen; $i++) {
+            Bytes::set($response, $pos + $i, Bytes::get($userBytes, $i));
+        }
+        $pos = $pos + $userLen;
+        Bytes::set($response, $pos, 0);
+        $pos++;
+        
+        // Password hash (length-prefixed)
+        Bytes::set($response, $pos, $pwdLen);
+        $pos++;
+        for ($i := 0; $i < $pwdLen; $i++) {
+            Bytes::set($response, $pos + $i, Bytes::get($pwdHash, $i));
+        }
+        $pos = $pos + $pwdLen;
+        
+        // Database (null-terminated)
+        for ($i := 0; $i < $dbLen; $i++) {
+            Bytes::set($response, $pos + $i, Bytes::get($dbBytes, $i));
+        }
+        $pos = $pos + $dbLen;
+        Bytes::set($response, $pos, 0);
+        $pos++;
+        
+        // Auth plugin name (null-terminated)
+        for ($i := 0; $i < $pluginLen; $i++) {
+            Bytes::set($response, $pos + $i, Bytes::get($pluginName, $i));
+        }
+        $pos = $pos + $pluginLen;
+        Bytes::set($response, $pos, 0);
+        
+        return $response;
+    }
+    
+    /**
+     * MySQL native_password 密码加密
+     */
+    private function scramblePassword(string $password, byte[] $authData): byte[] {
+        if (len($password) == 0) {
+            return Bytes::alloc(0);
+        }
+        
+        // SHA1(password)
+        $sha1Pwd := native_crypto_sha1_bytes($password);
+        // SHA1(SHA1(password))
+        $sha1Sha1Pwd := native_crypto_sha1_bytes($sha1Pwd);
+        
+        // 拼接 authData + SHA1(SHA1(password))
+        $authDataLen := len($authData);
+        $sha1Sha1PwdLen := len($sha1Sha1Pwd);
+        $combined := Bytes::alloc($authDataLen + $sha1Sha1PwdLen);
+        for ($i := 0; $i < $authDataLen; $i++) {
+            Bytes::set($combined, $i, Bytes::get($authData, $i));
+        }
+        for ($i := 0; $i < $sha1Sha1PwdLen; $i++) {
+            Bytes::set($combined, $authDataLen + $i, Bytes::get($sha1Sha1Pwd, $i));
+        }
+        
+        // SHA1(authData + SHA1(SHA1(password)))
+        $sha1Combined := native_crypto_sha1_bytes($combined);
+        
+        // XOR
+        $sha1PwdLen := len($sha1Pwd);
+        $sha1CombinedLen := len($sha1Combined);
+        $result := Bytes::alloc(20);
+        for ($i := 0; $i < 20; $i++) {
+            $a := 0;
+            $b := 0;
+            if ($i < $sha1PwdLen) {
+                $a = Bytes::get($sha1Pwd, $i);
+            }
+            if ($i < $sha1CombinedLen) {
+                $b = Bytes::get($sha1Combined, $i);
+            }
+            Bytes::set($result, $i, $a ^ $b);
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * MySQL caching_sha2_password 密码加密
+     * SHA256(password) XOR SHA256(SHA256(SHA256(password)) + authData)
+     */
+    private function scrambleSha256(string $password, byte[] $authData): byte[] {
+        if (len($password) == 0) {
+            return Bytes::alloc(0);
+        }
+        
+        // SHA256(password)
+        $sha256Pwd := native_crypto_sha256_bytes($password);
+        // SHA256(SHA256(password))
+        $sha256Sha256Pwd := native_crypto_sha256_bytes($sha256Pwd);
+        
+        // 拼接 SHA256(SHA256(password)) + authData
+        $sha256Sha256PwdLen := len($sha256Sha256Pwd);
+        $authDataLen := len($authData);
+        $combined := Bytes::alloc($sha256Sha256PwdLen + $authDataLen);
+        for ($i := 0; $i < $sha256Sha256PwdLen; $i++) {
+            Bytes::set($combined, $i, Bytes::get($sha256Sha256Pwd, $i));
+        }
+        for ($i := 0; $i < $authDataLen; $i++) {
+            Bytes::set($combined, $sha256Sha256PwdLen + $i, Bytes::get($authData, $i));
+        }
+        
+        // SHA256(SHA256(SHA256(password)) + authData)
+        $sha256Combined := native_crypto_sha256_bytes($combined);
+        
+        // XOR: SHA256(password) XOR SHA256(SHA256(SHA256(password)) + authData)
+        $sha256PwdLen := len($sha256Pwd);
+        $sha256CombinedLen := len($sha256Combined);
+        $result := Bytes::alloc(32);
+        for ($i := 0; $i < 32; $i++) {
+            $a := 0;
+            $b := 0;
+            if ($i < $sha256PwdLen) {
+                $a = Bytes::get($sha256Pwd, $i);
+            }
+            if ($i < $sha256CombinedLen) {
+                $b = Bytes::get($sha256Combined, $i);
+            }
+            Bytes::set($result, $i, $a ^ $b);
+        }
+        
+        return $result;
+    }
+    
+    private function executeQuery(string $sql): MysqlResult {
+        // 重置序列号（每个新命令从 0 开始）
+        $this->seqId = -1; // writePacket 会先 +1，所以这里设为 -1
+        
+        // 发送 COM_QUERY
+        $sqlBytes := Bytes::fromString($sql);
+        $sqlLen := len($sqlBytes);
+        $packet := Bytes::alloc(1 + $sqlLen);
+        Bytes::set($packet, 0, 3); // COM_QUERY command
+        for ($i := 0; $i < $sqlLen; $i++) {
+            Bytes::set($packet, $i + 1, Bytes::get($sqlBytes, $i));
+        }
+        $this->writePacket($packet);
+        
+        // 读取响应
+        $response := $this->readPacket();
+        $respLen := len($response);
+        if ($respLen == 0) {
+            throw new DatabaseException("Empty response");
+        }
+        
+        $firstByte := Bytes::get($response, 0);
+        
+        // 错误包
+        if ($firstByte == 255) {
+            $errMsg := "Query failed";
+            if ($respLen > 9) {
+                $errMsg = Bytes::toString(Bytes::slice($response, 9, $respLen));
+            }
+            throw new DatabaseException($errMsg);
+        }
+        
+        // OK 包
+        if ($firstByte == 0x00) {
+            $affected := $this->readLenInt($response, 1);
+            return new MysqlResult([], [], $affected);
+        }
+        
+        // 结果集
+        return $this->parseResultSet($response);
+    }
+    
+    private function parseResultSet(byte[] $colCountPacket): MysqlResult {
+        $colCount := Bytes::get($colCountPacket, 0);
+        
+        // 读取列定义
+        $columns := [];
+        for ($i := 0; $i < $colCount; $i++) {
+            $colDef := $this->readPacket();
+            $name := $this->parseColumnName($colDef);
+            $columns[len($columns)] = $name;
+        }
+        
+        // 读取 EOF
+        $this->readPacket();
+        
+        // 读取行数据
+        $rowsData := [];
+        while (true) {
+            $rowPacket := $this->readPacket();
+            $rowLen := len($rowPacket);
+            
+            if ($rowLen == 0) {
+                break;
+            }
+            
+            // EOF 包 (0xfe = 254)
+            $eofMarker := 254;
+            if (Bytes::get($rowPacket, 0) == $eofMarker && $rowLen < 9) {
+                break;
+            }
+            
+            $values := $this->parseRow($rowPacket, $colCount);
+            $rowsData[len($rowsData)] = $values;
+        }
+        
+        return new MysqlResult($columns, $rowsData, len($rowsData));
+    }
+    
+    private function parseColumnName(byte[] $def): string {
+        $pos := 0;
+        $defLen := len($def);
+        
+        // 跳过 catalog, schema, table, org_table
+        for ($i := 0; $i < 4; $i++) {
+            $strLen := $this->readLenInt($def, $pos);
+            $lenSize := $this->getLenIntSize($def, $pos);
+            $pos = $pos + $lenSize + $strLen;
+        }
+        
+        // 读取 name
+        $nameLen := $this->readLenInt($def, $pos);
+        $lenSize := $this->getLenIntSize($def, $pos);
+        $pos = $pos + $lenSize;
+        
+        if ($nameLen > 0 && $pos + $nameLen <= $defLen) {
+            return Bytes::toString(Bytes::slice($def, $pos, $pos + $nameLen));
+        }
+        
+        return "column";
+    }
+    
+    private function parseRow(byte[] $packet, int $colCount): dynamic {
+        $values := [];
+        $pos := 0;
+        $packetLen := len($packet);
+        
+        for ($i := 0; $i < $colCount; $i++) {
+            if ($pos >= $packetLen) {
+                $values[len($values)] = "";
+                continue;
+            }
+            
+            // NULL (0xfb = 251)
+            $nullMarker := 251;
+            $currentByte := Bytes::get($packet, $pos);
+            
+            if ($currentByte == $nullMarker) {
+                $values[len($values)] = "";
+                $pos++;
+                continue;
+            }
+            
+            $valLen := $this->readLenInt($packet, $pos);
+            $lenSize := $this->getLenIntSize($packet, $pos);
+            $pos = $pos + $lenSize;
+            
+            if ($valLen > 0 && $pos + $valLen <= $packetLen) {
+                $strVal := Bytes::toString(Bytes::slice($packet, $pos, $pos + $valLen));
+                $values[len($values)] = $strVal;
+                $pos = $pos + $valLen;
+            } else {
+                $values[len($values)] = "";
+            }
+        }
+        
+        return $values;
+    }
+    
+    private function readPacket(): byte[] {
+        $header := $this->tcp->readExact(4);
+        // 检查是否读取到 4 字节
+        $four := 4;
+        if (len($header) != $four) {
+            return Bytes::alloc(0);
+        }
+        
+        $packetLen := Bytes::get($header, 0) | (Bytes::get($header, 1) << 8) | (Bytes::get($header, 2) << 16);
+        $this->seqId = Bytes::get($header, 3);
+        
+        $zero := 0;
+        if ($packetLen == $zero) {
+            return Bytes::alloc(0);
+        }
+        
+        return $this->tcp->readExact($packetLen);
+    }
+    
+    private function writePacket(byte[] $data) {
+        $dataLen := len($data);
+        $packet := Bytes::alloc(4 + $dataLen);
+        
+        Bytes::set($packet, 0, $dataLen & 0xff);
+        Bytes::set($packet, 1, ($dataLen >> 8) & 0xff);
+        Bytes::set($packet, 2, ($dataLen >> 16) & 0xff);
+        
+        $this->seqId = ($this->seqId + 1) & 0xff;
+        Bytes::set($packet, 3, $this->seqId);
+        
+        for ($i := 0; $i < $dataLen; $i++) {
+            Bytes::set($packet, 4 + $i, Bytes::get($data, $i));
+        }
+        
+        $this->tcp->writeBytes($packet);
+        $this->tcp->flush();
+    }
+    
+    private function readLenInt(byte[] $data, int $pos): int {
+        if ($pos >= len($data)) {
+            return 0;
+        }
+        $first := Bytes::get($data, $pos);
+        if ($first < 0xfb) {
+            return $first;
+        } elseif ($first == 0xfc) {
+            return Bytes::get($data, $pos + 1) | (Bytes::get($data, $pos + 2) << 8);
+        } elseif ($first == 0xfd) {
+            return Bytes::get($data, $pos + 1) | (Bytes::get($data, $pos + 2) << 8) | (Bytes::get($data, $pos + 3) << 16);
+        }
+        return 0;
+    }
+    
+    private function getLenIntSize(byte[] $data, int $pos): int {
+        if ($pos >= len($data)) {
+            return 1;
+        }
+        $first := Bytes::get($data, $pos);
+        if ($first < 0xfb) {
+            return 1;
+        } elseif ($first == 0xfc) {
+            return 3;
+        } elseif ($first == 0xfd) {
+            return 4;
+        }
+        return 1;
+    }
+}

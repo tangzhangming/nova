@@ -1,4 +1,4 @@
-﻿// Sola 标准�?- MySQL 客户端（简�?API�?
+// Sola 标准库 - MySQL 客户端（简洁 API）
 namespace sola.database.mysql
 
 use sola.lang.Str;
@@ -65,12 +65,13 @@ public class MysqlClient {
      * @throws DatabaseException 如果查询失败
      */
     public function query(string $sql, string[] $params = []): MysqlResult {
-        $conn := $this->pool->get();
+        $pool := $this->pool;
+        $conn := $pool->get();
         try {
             $preparedSql := $this->prepareSql($sql, $params);
             return $conn->query($preparedSql);
         } finally {
-            $this->pool->put($conn);
+            $pool->put($conn);
         }
     }
     
@@ -83,12 +84,13 @@ public class MysqlClient {
      * @throws DatabaseException 如果执行失败
      */
     public function execute(string $sql, string[] $params = []): int {
-        $conn := $this->pool->get();
+        $pool := $this->pool;
+        $conn := $pool->get();
         try {
             $preparedSql := $this->prepareSql($sql, $params);
             return $conn->execute($preparedSql);
         } finally {
-            $this->pool->put($conn);
+            $pool->put($conn);
         }
     }
     
@@ -98,11 +100,12 @@ public class MysqlClient {
      * @return int 最后插入的 ID
      */
     public function lastInsertId(): int {
-        $conn := $this->pool->get();
+        $pool := $this->pool;
+        $conn := $pool->get();
         try {
             return $conn->lastInsertId();
         } finally {
-            $this->pool->put($conn);
+            $pool->put($conn);
         }
     }
     
@@ -114,7 +117,8 @@ public class MysqlClient {
      * @throws DatabaseException 如果事务失败
      */
     public function transaction(callable $callback): dynamic {
-        $conn := $this->pool->get();
+        $pool := $this->pool;
+        $conn := $pool->get();
         try {
             $conn->begin();
             try {
@@ -129,7 +133,7 @@ public class MysqlClient {
                 throw $e;
             }
         } finally {
-            $this->pool->put($conn);
+            $pool->put($conn);
         }
     }
     
