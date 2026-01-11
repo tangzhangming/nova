@@ -2507,15 +2507,26 @@ func (p *Parser) parseSelectStmt() *ast.SelectStmt {
 	var cases []*ast.SelectCase
 	var defaultCase *ast.SelectDefaultCase
 
-	for !p.check(token.RBRACE) && !p.isAtEnd() {
+	// BUG FIX: 添加 panicMode 检查防止无限循环
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 		if p.check(token.CASE) {
 			selectCase := p.parseSelectCase()
+			if p.panicMode {
+				p.synchronize()
+				p.panicMode = false
+				continue
+			}
 			cases = append(cases, selectCase)
 		} else if p.check(token.DEFAULT) {
 			if defaultCase != nil {
 				p.error("multiple default cases in select")
 			}
 			defaultCase = p.parseSelectDefaultCase()
+			if p.panicMode {
+				p.synchronize()
+				p.panicMode = false
+				continue
+			}
 		} else {
 			p.error("expected 'case' or 'default' in select")
 			p.synchronize()
@@ -2782,8 +2793,20 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 	var properties []*ast.PropertyDecl
 	var methods []*ast.MethodDecl
 
-	for !p.check(token.RBRACE) && !p.isAtEnd() {
+	// BUG FIX: 添加 panicMode 检查防止无限循环
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 		member := p.parseClassMember()
+		if p.panicMode {
+			// 遇到错误时，尝试恢复到下一个成员或类结束
+			for !p.check(token.RBRACE) && !p.isAtEnd() && !p.checkAny(
+				token.PUBLIC, token.PROTECTED, token.PRIVATE,
+				token.STATIC, token.ABSTRACT, token.FINAL,
+				token.CONST, token.FUNCTION, token.AT) {
+				p.advance()
+			}
+			p.panicMode = false
+			continue
+		}
 		switch m := member.(type) {
 		case *ast.ConstDecl:
 			constants = append(constants, m)
@@ -3196,26 +3219,55 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 func (p *Parser) parseEnum() *ast.EnumDecl {
 	enumToken := p.advance()
 	nameToken := p.consume(token.IDENT, "expected enum name")
+	if p.panicMode {
+		return nil
+	}
 	name := &ast.Identifier{Token: nameToken, Name: nameToken.Literal}
 
 	// 可选的基础类型 (: int 或 : string)
 	var baseType ast.TypeNode
 	if p.match(token.COLON) {
 		baseType = p.parseType()
+		if p.panicMode {
+			return nil
+		}
 	}
 
 	lbrace := p.consume(token.LBRACE, "expected '{'")
+	if p.panicMode {
+		return nil
+	}
 
 	var cases []*ast.EnumCase
 	for !p.check(token.RBRACE) && !p.isAtEnd() {
+		// BUG FIX: 检查 panicMode 防止无限循环
+		// 当 consume 失败时，current 不会前进，如果不检查 panicMode 会导致无限循环
+		if p.panicMode {
+			break
+		}
+		
 		// 解析 case CaseName 或 case CaseName = value
 		p.consume(token.CASE, "expected 'case'")
+		if p.panicMode {
+			// 遇到错误时，跳过当前 token 避免无限循环
+			p.advance()
+			continue
+		}
+		
 		caseNameToken := p.consume(token.IDENT, "expected case name")
+		if p.panicMode {
+			p.advance()
+			continue
+		}
 		caseName := &ast.Identifier{Token: caseNameToken, Name: caseNameToken.Literal}
 
 		var value ast.Expression
 		if p.match(token.ASSIGN) {
 			value = p.parseExpression()
+			if p.panicMode {
+				p.advance()
+				continue
+			}
 		}
 
 		cases = append(cases, &ast.EnumCase{
@@ -3228,6 +3280,9 @@ func (p *Parser) parseEnum() *ast.EnumDecl {
 	}
 
 	rbrace := p.consume(token.RBRACE, "expected '}'")
+	if p.panicMode {
+		return nil
+	}
 
 	return &ast.EnumDecl{
 		EnumToken: enumToken,
@@ -3389,8 +3444,18 @@ func (p *Parser) parseMatchExpr() *ast.MatchExpr {
 	lbrace := p.consume(token.LBRACE, "expected '{' after match expression")
 
 	var cases []*ast.MatchCase
-	for !p.check(token.RBRACE) && !p.isAtEnd() {
+	// BUG FIX: 添加 panicMode 检查防止无限循环
+	for !p.check(token.RBRACE) && !p.isAtEnd() && !p.panicMode {
 		case_ := p.parseMatchCase()
+		if p.panicMode {
+			// 遇到错误时，跳过到下一个逗号或右大括号
+			for !p.check(token.RBRACE) && !p.isAtEnd() && !p.check(token.COMMA) {
+				p.advance()
+			}
+			p.panicMode = false
+			p.match(token.COMMA)
+			continue
+		}
 		if case_ != nil {
 			cases = append(cases, case_)
 		}

@@ -157,12 +157,12 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	// 设置源文件信息
 	c.sourceFile = file.Filename
 	c.function.SourceFile = file.Filename
-	
+
 	// 设置命名空间
 	if file.Namespace != nil {
 		c.currentNamespace = file.Namespace.Name
 	}
-	
+
 	// ========== Phase 1: 符号收集 ==========
 	// 收集所有类、接口、方法签名，用于静态类型检查
 	c.symbolTable.CollectFromFile(file)
@@ -5446,7 +5446,7 @@ func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 		c.error(e.Object.Pos(), i18n.T(i18n.ErrTypeCannotInfer))
 		return "error"
 	}
-	
+
 	// 从泛型类型中提取基类名和类型参数（Box<int> -> Box, [int]）
 	baseType := c.extractBaseTypeName(objType)
 	typeArgs := c.extractTypeArgs(objType)
