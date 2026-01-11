@@ -110,11 +110,16 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 				level = JITWithExceptions
 			}
 		
-		// 函数调用（需要 JITWithCalls 级别）
+		// ⚠️ BUG-002 修复: 函数调用必须禁用 JIT
+		// 
+		// 原因: runtime_helpers.go 中的 CallHelper 是空实现，总是返回 0
+		// 如果允许包含函数调用的函数被 JIT 编译，递归调用会返回错误结果
+		// 例如: fib(10) 返回 40 而不是 55
+		//
+		// 在 CallHelper 被完整实现之前，不要将此改为 JITWithCalls！
+		// 参见: docs/bug.md BUG-002
 		case bytecode.OpCall, bytecode.OpTailCall, bytecode.OpCallMethod, bytecode.OpCallStatic:
-			if level > JITWithCalls {
-				level = JITWithCalls
-			}
+			return JITDisabled
 		
 		// 对象操作（需要 JITWithObjects 级别）
 		case bytecode.OpNewObject, bytecode.OpGetField, bytecode.OpSetField,
