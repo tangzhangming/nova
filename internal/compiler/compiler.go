@@ -393,37 +393,37 @@ func (c *Compiler) foldBinaryExpr(e *ast.BinaryExpr) bytecode.Value {
 	switch e.Operator.Type {
 	case token.PLUS:
 		// 加法：字符串拼接或数值相加
-		if leftVal.Type == bytecode.ValString || rightVal.Type == bytecode.ValString {
+		if leftVal.Type() == bytecode.ValString || rightVal.Type() == bytecode.ValString {
 			return bytecode.NewString(leftVal.String() + rightVal.String())
 		}
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() + rightVal.AsInt())
 		}
-		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+		if leftVal.Type() == bytecode.ValFloat || rightVal.Type() == bytecode.ValFloat {
 			leftFloat := toFloat(leftVal)
 			rightFloat := toFloat(rightVal)
 			return bytecode.NewFloat(leftFloat + rightFloat)
 		}
 	case token.MINUS:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() - rightVal.AsInt())
 		}
-		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+		if leftVal.Type() == bytecode.ValFloat || rightVal.Type() == bytecode.ValFloat {
 			leftFloat := toFloat(leftVal)
 			rightFloat := toFloat(rightVal)
 			return bytecode.NewFloat(leftFloat - rightFloat)
 		}
 	case token.STAR:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() * rightVal.AsInt())
 		}
-		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+		if leftVal.Type() == bytecode.ValFloat || rightVal.Type() == bytecode.ValFloat {
 			leftFloat := toFloat(leftVal)
 			rightFloat := toFloat(rightVal)
 			return bytecode.NewFloat(leftFloat * rightFloat)
 		}
 	case token.SLASH:
-		if leftVal.Type == bytecode.ValFloat || rightVal.Type == bytecode.ValFloat {
+		if leftVal.Type() == bytecode.ValFloat || rightVal.Type() == bytecode.ValFloat {
 			leftFloat := toFloat(leftVal)
 			rightFloat := toFloat(rightVal)
 			if rightFloat == 0 {
@@ -432,7 +432,7 @@ func (c *Compiler) foldBinaryExpr(e *ast.BinaryExpr) bytecode.Value {
 			}
 			return bytecode.NewFloat(leftFloat / rightFloat)
 		}
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			rightInt := rightVal.AsInt()
 			if rightInt == 0 {
 				// 除零错误，不折叠
@@ -442,7 +442,7 @@ func (c *Compiler) foldBinaryExpr(e *ast.BinaryExpr) bytecode.Value {
 			return bytecode.NewInt(leftVal.AsInt() / rightInt)
 		}
 	case token.PERCENT:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			rightInt := rightVal.AsInt()
 			if rightInt == 0 {
 				// 模零错误，不折叠
@@ -463,23 +463,23 @@ func (c *Compiler) foldBinaryExpr(e *ast.BinaryExpr) bytecode.Value {
 	case token.GE:
 		return bytecode.NewBool(compareValues(leftVal, rightVal) >= 0)
 	case token.BIT_AND:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() & rightVal.AsInt())
 		}
 	case token.BIT_OR:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() | rightVal.AsInt())
 		}
 	case token.BIT_XOR:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() ^ rightVal.AsInt())
 		}
 	case token.LEFT_SHIFT:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() << rightVal.AsInt())
 		}
 	case token.RIGHT_SHIFT:
-		if leftVal.Type == bytecode.ValInt && rightVal.Type == bytecode.ValInt {
+		if leftVal.Type() == bytecode.ValInt && rightVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(leftVal.AsInt() >> rightVal.AsInt())
 		}
 	}
@@ -500,10 +500,10 @@ func (c *Compiler) foldUnaryExpr(e *ast.UnaryExpr) bytecode.Value {
 	switch e.Operator.Type {
 	case token.MINUS:
 		// 取负
-		if operandVal.Type == bytecode.ValInt {
+		if operandVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(-operandVal.AsInt())
 		}
-		if operandVal.Type == bytecode.ValFloat {
+		if operandVal.Type() == bytecode.ValFloat {
 			return bytecode.NewFloat(-operandVal.AsFloat())
 		}
 	case token.NOT:
@@ -511,7 +511,7 @@ func (c *Compiler) foldUnaryExpr(e *ast.UnaryExpr) bytecode.Value {
 		return bytecode.NewBool(!operandVal.IsTruthy())
 	case token.BIT_NOT:
 		// 位非
-		if operandVal.Type == bytecode.ValInt {
+		if operandVal.Type() == bytecode.ValInt {
 			return bytecode.NewInt(^operandVal.AsInt())
 		}
 	}
@@ -528,7 +528,7 @@ func isNullLiteral(expr ast.Expression) bool {
 
 // toFloat 将值转换为浮点数
 func toFloat(v bytecode.Value) float64 {
-	switch v.Type {
+	switch v.Type() {
 	case bytecode.ValInt:
 		return float64(v.AsInt())
 	case bytecode.ValFloat:
@@ -540,7 +540,7 @@ func toFloat(v bytecode.Value) float64 {
 
 // compareValues 比较两个值，返回 -1, 0, 1
 func compareValues(a, b bytecode.Value) int {
-	if a.Type == bytecode.ValInt && b.Type == bytecode.ValInt {
+	if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
 		aInt := a.AsInt()
 		bInt := b.AsInt()
 		if aInt < bInt {
@@ -551,7 +551,7 @@ func compareValues(a, b bytecode.Value) int {
 		}
 		return 0
 	}
-	if a.Type == bytecode.ValFloat || b.Type == bytecode.ValFloat {
+	if a.Type() == bytecode.ValFloat || b.Type() == bytecode.ValFloat {
 		aFloat := toFloat(a)
 		bFloat := toFloat(b)
 		if aFloat < bFloat {
@@ -562,7 +562,7 @@ func compareValues(a, b bytecode.Value) int {
 		}
 		return 0
 	}
-	if a.Type == bytecode.ValString && b.Type == bytecode.ValString {
+	if a.Type() == bytecode.ValString && b.Type() == bytecode.ValString {
 		aStr := a.AsString()
 		bStr := b.AsString()
 		if aStr < bStr {
@@ -1040,7 +1040,7 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 	// 死代码消除：检查条件是否为常量
 	if c.isConstExpr(s.Condition) {
 		condVal := c.evaluateConstExpr(s.Condition)
-		if condVal.Type == bytecode.ValBool {
+		if condVal.Type() == bytecode.ValBool {
 			if !condVal.IsTruthy() {
 				// if (false) - 只编译 else 分支
 				if s.Else != nil {
@@ -1097,7 +1097,7 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 		// 死代码消除：检查 elseif 条件是否为常量
 		if c.isConstExpr(elseIf.Condition) {
 			condVal := c.evaluateConstExpr(elseIf.Condition)
-			if condVal.Type == bytecode.ValBool && !condVal.IsTruthy() {
+			if condVal.Type() == bytecode.ValBool && !condVal.IsTruthy() {
 				// elseif (false) - 跳过此分支
 				continue
 			}

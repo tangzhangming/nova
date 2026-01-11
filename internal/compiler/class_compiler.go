@@ -698,7 +698,7 @@ func (c *Compiler) CompileEnum(decl *ast.EnumDecl) *bytecode.Enum {
 		if member.Value != nil {
 			// 有显式值
 			val := c.evaluateConstExpr(member.Value)
-			if val.Type == bytecode.ValInt {
+			if val.Type() == bytecode.ValInt {
 				nextValue = val.AsInt()
 			}
 		}

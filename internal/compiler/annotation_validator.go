@@ -191,25 +191,25 @@ func (v *AnnotationValidator) parseElementTypes(val bytecode.Value) []string {
 	var result []string
 	
 	// 如果是数组
-	if val.Type == bytecode.ValArray {
+	if val.Type() == bytecode.ValArray {
 		arr := val.AsArray()
 		for _, elem := range arr {
-			if elem.Type == bytecode.ValEnum {
+			if elem.Type() == bytecode.ValEnum {
 				ev := elem.AsEnumValue()
 				if ev != nil {
 					result = append(result, ev.CaseName)
 				}
-			} else if elem.Type == bytecode.ValString {
+			} else if elem.Type() == bytecode.ValString {
 				result = append(result, elem.AsString())
 			}
 		}
-	} else if val.Type == bytecode.ValEnum {
+	} else if val.Type() == bytecode.ValEnum {
 		// 单个枚举值
 		ev := val.AsEnumValue()
 		if ev != nil {
 			result = append(result, ev.CaseName)
 		}
-	} else if val.Type == bytecode.ValString {
+	} else if val.Type() == bytecode.ValString {
 		// 字符串形式
 		result = append(result, val.AsString())
 	}

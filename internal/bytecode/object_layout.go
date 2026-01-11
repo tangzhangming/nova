@@ -400,7 +400,7 @@ func FromJITObject(jitObj *JITObject) *Object {
 
 // ValueToInt64 将 Value 转换为 int64（用于 JIT 存储）
 func ValueToInt64(v Value) int64 {
-	switch v.Type {
+	switch v.Type() {
 	case ValInt:
 		return v.AsInt()
 	case ValFloat:
@@ -437,7 +437,7 @@ func Int64ToValue(v int64, vtype ValueType) Value {
 	case ValBool:
 		return NewBool(v != 0)
 	case ValNull:
-		return Value{Type: ValNull}
+		return NullValue
 	case ValString:
 		// 从指针恢复字符串
 		if v == 0 {
@@ -448,12 +448,12 @@ func Int64ToValue(v int64, vtype ValueType) Value {
 	case ValObject:
 		// 从指针恢复对象
 		if v == 0 {
-			return Value{Type: ValNull}
+			return NullValue
 		}
 		obj := (*Object)(unsafe.Pointer(uintptr(v)))
 		return NewObject(obj)
 	default:
-		return Value{Type: ValNull}
+		return NullValue
 	}
 }
 

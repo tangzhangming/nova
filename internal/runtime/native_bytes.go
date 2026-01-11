@@ -34,7 +34,7 @@ func nativeBytesFromString(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesToString 将字节数组转换为字符串
 func nativeBytesToString(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValBytes {
+	if len(args) == 0 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NewString("")
 	}
 	b := args[0].AsBytes()
@@ -56,7 +56,7 @@ func nativeBytesFromHex(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesToHex 将字节数组转换为十六进制字符串
 func nativeBytesToHex(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValBytes {
+	if len(args) == 0 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NewString("")
 	}
 	b := args[0].AsBytes()
@@ -65,7 +65,7 @@ func nativeBytesToHex(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesFromArray 从整数数组创建字节数组
 func nativeBytesFromArray(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValArray {
+	if len(args) == 0 || args[0].Type() != bytecode.ValArray {
 		return bytecode.NewBytes([]byte{})
 	}
 	arr := args[0].AsArray()
@@ -78,7 +78,7 @@ func nativeBytesFromArray(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesToArray 将字节数组转换为整数数组
 func nativeBytesToArray(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValBytes {
+	if len(args) == 0 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NewArray([]bytecode.Value{})
 	}
 	b := args[0].AsBytes()
@@ -91,7 +91,7 @@ func nativeBytesToArray(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesLen 获取字节数组长度
 func nativeBytesLen(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValBytes {
+	if len(args) == 0 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.ZeroValue
 	}
 	return bytecode.NewInt(int64(len(args[0].AsBytes())))
@@ -99,7 +99,7 @@ func nativeBytesLen(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesGet 获取指定索引的字节
 func nativeBytesGet(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValBytes {
+	if len(args) < 2 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.ZeroValue
 	}
 	b := args[0].AsBytes()
@@ -112,7 +112,7 @@ func nativeBytesGet(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesSet 设置指定索引的字节
 func nativeBytesSet(args []bytecode.Value) bytecode.Value {
-	if len(args) < 3 || args[0].Type != bytecode.ValBytes {
+	if len(args) < 3 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NullValue
 	}
 	b := args[0].AsBytes()
@@ -127,7 +127,7 @@ func nativeBytesSet(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesSlice 切片操作
 func nativeBytesSlice(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValBytes {
+	if len(args) < 2 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NewBytes([]byte{})
 	}
 	b := args[0].AsBytes()
@@ -162,7 +162,7 @@ func nativeBytesSlice(args []bytecode.Value) bytecode.Value {
 // nativeBytesConcat 拼接两个字节数组
 func nativeBytesConcat(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
-		if len(args) == 1 && args[0].Type == bytecode.ValBytes {
+		if len(args) == 1 && args[0].Type() == bytecode.ValBytes {
 			// 复制并返回
 			b := args[0].AsBytes()
 			result := make([]byte, len(b))
@@ -171,7 +171,7 @@ func nativeBytesConcat(args []bytecode.Value) bytecode.Value {
 		}
 		return bytecode.NewBytes([]byte{})
 	}
-	if args[0].Type != bytecode.ValBytes || args[1].Type != bytecode.ValBytes {
+	if args[0].Type() != bytecode.ValBytes || args[1].Type() != bytecode.ValBytes {
 		return bytecode.NewBytes([]byte{})
 	}
 	b1 := args[0].AsBytes()
@@ -184,7 +184,7 @@ func nativeBytesConcat(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesCopy 复制字节数组
 func nativeBytesCopy(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValBytes {
+	if len(args) == 0 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NewBytes([]byte{})
 	}
 	b := args[0].AsBytes()
@@ -198,7 +198,7 @@ func nativeBytesEqual(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.FalseValue
 	}
-	if args[0].Type != bytecode.ValBytes || args[1].Type != bytecode.ValBytes {
+	if args[0].Type() != bytecode.ValBytes || args[1].Type() != bytecode.ValBytes {
 		return bytecode.FalseValue
 	}
 	b1 := args[0].AsBytes()
@@ -211,7 +211,7 @@ func nativeBytesCompare(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.ZeroValue
 	}
-	if args[0].Type != bytecode.ValBytes || args[1].Type != bytecode.ValBytes {
+	if args[0].Type() != bytecode.ValBytes || args[1].Type() != bytecode.ValBytes {
 		return bytecode.ZeroValue
 	}
 	b1 := args[0].AsBytes()
@@ -224,7 +224,7 @@ func nativeBytesIndex(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.NewInt(-1)
 	}
-	if args[0].Type != bytecode.ValBytes || args[1].Type != bytecode.ValBytes {
+	if args[0].Type() != bytecode.ValBytes || args[1].Type() != bytecode.ValBytes {
 		return bytecode.NewInt(-1)
 	}
 	b := args[0].AsBytes()
@@ -237,7 +237,7 @@ func nativeBytesContains(args []bytecode.Value) bytecode.Value {
 	if len(args) < 2 {
 		return bytecode.FalseValue
 	}
-	if args[0].Type != bytecode.ValBytes || args[1].Type != bytecode.ValBytes {
+	if args[0].Type() != bytecode.ValBytes || args[1].Type() != bytecode.ValBytes {
 		return bytecode.FalseValue
 	}
 	b := args[0].AsBytes()
@@ -247,7 +247,7 @@ func nativeBytesContains(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesFill 用指定值填充字节数组
 func nativeBytesFill(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValBytes {
+	if len(args) < 2 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NullValue
 	}
 	b := args[0].AsBytes()
@@ -260,7 +260,7 @@ func nativeBytesFill(args []bytecode.Value) bytecode.Value {
 
 // nativeBytesZero 将字节数组清零
 func nativeBytesZero(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValBytes {
+	if len(args) == 0 || args[0].Type() != bytecode.ValBytes {
 		return bytecode.NullValue
 	}
 	b := args[0].AsBytes()

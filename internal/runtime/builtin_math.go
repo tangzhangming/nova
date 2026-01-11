@@ -15,7 +15,7 @@ func nativeMathAbs(args []bytecode.Value) bytecode.Value {
 		return bytecode.ZeroValue
 	}
 	v := args[0]
-	switch v.Type {
+	switch v.Type() {
 	case bytecode.ValInt:
 		n := v.AsInt()
 		if n < 0 {

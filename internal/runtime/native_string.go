@@ -112,7 +112,7 @@ func nativeStrSplit(args []bytecode.Value) bytecode.Value {
 // nativeStrJoin 连接数组
 // 参数：arr, delimiter
 func nativeStrJoin(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValArray {
+	if len(args) < 2 || args[0].Type() != bytecode.ValArray {
 		return bytecode.NewString("")
 	}
 	arr := args[0].AsArray()

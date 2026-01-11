@@ -378,7 +378,7 @@ func PutJITMap(m *JITMap) {
 
 // JITMapFromValue 从传统 Map 创建 JITMap
 func JITMapFromValue(v Value) *JITMap {
-	if v.Type != ValMap {
+	if v.Type() != ValMap {
 		return nil
 	}
 

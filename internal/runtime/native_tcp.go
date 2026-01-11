@@ -204,7 +204,7 @@ func nativeTcpWriteBytes(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewInt(-1)
 	}
 	connID := args[0].AsInt()
-	if args[1].Type != bytecode.ValBytes {
+	if args[1].Type() != bytecode.ValBytes {
 		return bytecode.NewInt(-1)
 	}
 	data := args[1].AsBytes()

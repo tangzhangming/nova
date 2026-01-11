@@ -686,7 +686,7 @@ func (o *Optimizer) strengthReduction() {
 			constIdx := uint16(code[i+1])<<8 | uint16(code[i+2])
 			if constIdx < uint16(len(o.chunk.Constants)) {
 				constVal := o.chunk.Constants[constIdx]
-				if constVal.Type == ValInt {
+				if constVal.Type() == ValInt {
 					val := constVal.AsInt()
 					if i+3 < len(code) && OpCode(code[i+3]) == OpMul {
 						// 检查是否是 2 的幂

@@ -163,8 +163,8 @@ func (s *Serializer) collectChunkStrings(chunk *Chunk) {
 		return
 	}
 	for _, val := range chunk.Constants {
-		if val.Type == ValString {
-			s.addString(val.Data.(string))
+		if val.Type() == ValString {
+			s.addString(val.AsString())
 		}
 	}
 }
@@ -176,8 +176,8 @@ func (s *Serializer) collectAnnotations(annotations []*Annotation) {
 		// 收集参数中的字符串（map 格式）
 		for key, arg := range ann.Args {
 			s.addString(key) // 参数名也需要序列化
-			if arg.Type == ValString {
-				s.addString(arg.Data.(string))
+			if arg.Type() == ValString {
+				s.addString(arg.AsString())
 			}
 		}
 	}
@@ -278,25 +278,25 @@ func (s *Serializer) writeConstants(buf *bytes.Buffer, constants []Value) {
 
 // writeValue 写入值
 func (s *Serializer) writeValue(buf *bytes.Buffer, val Value) {
-	switch val.Type {
+	switch val.Type() {
 	case ValNull:
 		buf.WriteByte(ConstNull)
 	case ValBool:
 		buf.WriteByte(ConstBool)
-		if val.Data.(bool) {
+		if val.AsBool() {
 			buf.WriteByte(1)
 		} else {
 			buf.WriteByte(0)
 		}
 	case ValInt:
 		buf.WriteByte(ConstInt)
-		binary.Write(buf, binary.BigEndian, val.Data.(int64))
+		binary.Write(buf, binary.BigEndian, val.AsInt())
 	case ValFloat:
 		buf.WriteByte(ConstFloat)
-		binary.Write(buf, binary.BigEndian, val.Data.(float64))
+		binary.Write(buf, binary.BigEndian, val.AsFloat())
 	case ValString:
 		buf.WriteByte(ConstString)
-		binary.Write(buf, binary.BigEndian, s.addString(val.Data.(string)))
+		binary.Write(buf, binary.BigEndian, s.addString(val.AsString()))
 	default:
 		// 不支持的类型，写入 null
 		buf.WriteByte(ConstNull)

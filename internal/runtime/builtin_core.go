@@ -25,7 +25,7 @@ func builtinPrint(args []bytecode.Value) bytecode.Value {
 
 func builtinPrintR(args []bytecode.Value) bytecode.Value {
 	for _, arg := range args {
-		fmt.Printf("%v: %s\n", arg.Type, arg.String())
+		fmt.Printf("%v: %s\n", arg.Type(), arg.String())
 	}
 	return bytecode.NullValue
 }
@@ -34,7 +34,7 @@ func builtinTypeof(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.NewString("null")
 	}
-	switch args[0].Type {
+	switch args[0].Type() {
 	case bytecode.ValNull:
 		return bytecode.NewString("null")
 	case bytecode.ValBool:
@@ -68,56 +68,56 @@ func builtinIsNull(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.TrueValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValNull)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValNull)
 }
 
 func builtinIsBool(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValBool)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValBool)
 }
 
 func builtinIsInt(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValInt)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValInt)
 }
 
 func builtinIsFloat(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValFloat)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValFloat)
 }
 
 func builtinIsString(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValString)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValString)
 }
 
 func builtinIsArray(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValArray)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValArray)
 }
 
 func builtinIsMap(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValMap)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValMap)
 }
 
 func builtinIsObject(args []bytecode.Value) bytecode.Value {
 	if len(args) == 0 {
 		return bytecode.FalseValue
 	}
-	return bytecode.NewBool(args[0].Type == bytecode.ValObject)
+	return bytecode.NewBool(args[0].Type() == bytecode.ValObject)
 }
 
 func builtinToInt(args []bytecode.Value) bytecode.Value {
@@ -125,7 +125,7 @@ func builtinToInt(args []bytecode.Value) bytecode.Value {
 		return bytecode.ZeroValue
 	}
 	v := args[0]
-	if v.Type == bytecode.ValString {
+	if v.Type() == bytecode.ValString {
 		s := strings.TrimSpace(v.AsString())
 		n, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
@@ -162,7 +162,7 @@ func builtinLen(args []bytecode.Value) bytecode.Value {
 		return bytecode.ZeroValue
 	}
 	v := args[0]
-	switch v.Type {
+	switch v.Type() {
 	case bytecode.ValString:
 		return bytecode.NewInt(int64(len(v.AsString())))
 	case bytecode.ValArray:

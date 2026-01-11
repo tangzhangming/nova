@@ -280,7 +280,7 @@ func (arr *NativeArray) Set(index int, value Value) {
 		s := value.AsString()
 		arr.SetPtr(index, unsafe.Pointer(&s))
 	case ValObject:
-		if value.Type == ValObject {
+		if value.Type() == ValObject {
 			arr.SetPtr(index, unsafe.Pointer(value.AsObject()))
 		} else {
 			arr.SetPtr(index, nil)
@@ -654,13 +654,13 @@ func NewSuperArray() *SuperArray {
 
 // keyToString 将 key 转换为字符串用于索引
 func (sa *SuperArray) keyToString(key Value) string {
-	switch key.Type {
+	switch key.Type() {
 	case ValInt:
-		return fmt.Sprintf("i:%d", key.Data.(int64))
+		return fmt.Sprintf("i:%d", key.AsInt())
 	case ValString:
-		return fmt.Sprintf("s:%s", key.Data.(string))
+		return fmt.Sprintf("s:%s", key.AsString())
 	default:
-		return fmt.Sprintf("o:%v", key.Data)
+		return fmt.Sprintf("o:%v", key.String())
 	}
 }
 
@@ -689,8 +689,8 @@ func (sa *SuperArray) Set(key Value, value Value) {
 		sa.Index[keyStr] = len(sa.Entries)
 		sa.Entries = append(sa.Entries, SuperArrayEntry{Key: key, Value: value})
 		// 更新 nextInt
-		if key.Type == ValInt {
-			intKey := key.Data.(int64)
+		if key.Type() == ValInt {
+			intKey := key.AsInt()
 			if intKey >= sa.NextInt {
 				sa.NextInt = intKey + 1
 			}
@@ -788,27 +788,23 @@ type Exception struct {
 
 // NewException 创建异常值
 func NewException(typeName, message string, code int64) Value {
-	return Value{
-		Type: ValException,
-		Data: &Exception{
-			Type:    typeName,
-			Message: message,
-			Code:    code,
-		},
+	ex := &Exception{
+		Type:    typeName,
+		Message: message,
+		Code:    code,
 	}
+	return Value{typ: uint8(ValException), ptr: unsafe.Pointer(ex)}
 }
 
 // NewExceptionWithCause 创建带原因的异常值
 func NewExceptionWithCause(typeName, message string, code int64, cause *Exception) Value {
-	return Value{
-		Type: ValException,
-		Data: &Exception{
-			Type:    typeName,
-			Message: message,
-			Code:    code,
-			Cause:   cause,
-		},
+	ex := &Exception{
+		Type:    typeName,
+		Message: message,
+		Code:    code,
+		Cause:   cause,
 	}
+	return Value{typ: uint8(ValException), ptr: unsafe.Pointer(ex)}
 }
 
 // NewExceptionFromObject 从 Sola 对象创建异常值
@@ -825,20 +821,18 @@ func NewExceptionFromObject(obj *Object) Value {
 	if codeVal, ok := obj.Fields["code"]; ok {
 		code = codeVal.AsInt()
 	}
-	if prevVal, ok := obj.Fields["previous"]; ok && prevVal.Type == ValException {
+	if prevVal, ok := obj.Fields["previous"]; ok && prevVal.Type() == ValException {
 		cause = prevVal.AsException()
 	}
 
-	return Value{
-		Type: ValException,
-		Data: &Exception{
-			Type:    obj.Class.Name,
-			Message: message,
-			Code:    code,
-			Cause:   cause,
-			Object:  obj,
-		},
+	ex := &Exception{
+		Type:    obj.Class.Name,
+		Message: message,
+		Code:    code,
+		Cause:   cause,
+		Object:  obj,
 	}
+	return Value{typ: uint8(ValException), ptr: unsafe.Pointer(ex)}
 }
 
 // GetExceptionObject 获取异常关联的 Sola 对象
@@ -945,18 +939,124 @@ func (e *Exception) GetStackTraceAsString() string {
 }
 
 // Value 运行时值
+// 采用 Tagged Union 设计，避免 interface{} 装箱开销
+// 结构大小: 24 字节 (typ: 1 + padding: 7 + num: 8 + ptr: 8)
 type Value struct {
-	Type ValueType
-	Data interface{}
+	typ uint8          // 类型标签
+	_   [7]byte        // 填充对齐
+	num uint64         // int64/float64/bool 直接存这里
+	ptr unsafe.Pointer // string/object/array 等指针
+}
+
+// Type 返回值的类型 (兼容旧 API)
+func (v Value) Type() ValueType {
+	return ValueType(v.typ)
+}
+
+// Data 返回值的数据 (兼容旧 API，用于类型断言)
+// 注意：这是为了向后兼容而保留的，新代码应使用 As*() 方法
+func (v Value) Data() interface{} {
+	switch ValueType(v.typ) {
+	case ValNull:
+		return nil
+	case ValBool:
+		return v.num != 0
+	case ValInt:
+		return int64(v.num)
+	case ValFloat:
+		return math.Float64frombits(v.num)
+	case ValString:
+		if v.ptr == nil {
+			return ""
+		}
+		return *(*string)(v.ptr)
+	case ValArray:
+		if v.ptr == nil {
+			return ([]Value)(nil)
+		}
+		return *(*[]Value)(v.ptr)
+	case ValFixedArray:
+		if v.ptr == nil {
+			return (*FixedArray)(nil)
+		}
+		return (*FixedArray)(v.ptr)
+	case ValNativeArray:
+		if v.ptr == nil {
+			return (*NativeArray)(nil)
+		}
+		return (*NativeArray)(v.ptr)
+	case ValMap:
+		if v.ptr == nil {
+			return (map[Value]Value)(nil)
+		}
+		return *(*map[Value]Value)(v.ptr)
+	case ValSuperArray:
+		if v.ptr == nil {
+			return (*SuperArray)(nil)
+		}
+		return (*SuperArray)(v.ptr)
+	case ValBytes:
+		if v.ptr == nil {
+			return ([]byte)(nil)
+		}
+		return *(*[]byte)(v.ptr)
+	case ValObject:
+		if v.ptr == nil {
+			return (*Object)(nil)
+		}
+		return (*Object)(v.ptr)
+	case ValFunc:
+		if v.ptr == nil {
+			return (*Function)(nil)
+		}
+		return (*Function)(v.ptr)
+	case ValClosure:
+		if v.ptr == nil {
+			return (*Closure)(nil)
+		}
+		return (*Closure)(v.ptr)
+	case ValIterator:
+		if v.ptr == nil {
+			return (*Iterator)(nil)
+		}
+		return (*Iterator)(v.ptr)
+	case ValEnum:
+		if v.ptr == nil {
+			return (*EnumValue)(nil)
+		}
+		return (*EnumValue)(v.ptr)
+	case ValException:
+		if v.ptr == nil {
+			return (*Exception)(nil)
+		}
+		return (*Exception)(v.ptr)
+	case ValStringBuilder:
+		if v.ptr == nil {
+			return (*StringBuilder)(nil)
+		}
+		return (*StringBuilder)(v.ptr)
+	case ValGoroutine:
+		if v.ptr == nil {
+			return (*CoroutineObject)(nil)
+		}
+		return (*CoroutineObject)(v.ptr)
+	case ValChannel:
+		if v.ptr == nil {
+			return nil
+		}
+		return *(*interface{})(v.ptr)
+	default:
+		return nil
+	}
 }
 
 // 预定义常量值
 var (
-	NullValue  = Value{Type: ValNull}
-	TrueValue  = Value{Type: ValBool, Data: true}
-	FalseValue = Value{Type: ValBool, Data: false}
-	ZeroValue  = Value{Type: ValInt, Data: int64(0)}
-	OneValue   = Value{Type: ValInt, Data: int64(1)}
+	NullValue  = Value{typ: uint8(ValNull)}
+	TrueValue  = Value{typ: uint8(ValBool), num: 1}
+	FalseValue = Value{typ: uint8(ValBool), num: 0}
+	ZeroValue  = Value{typ: uint8(ValInt), num: 0}
+	OneValue   = Value{typ: uint8(ValInt), num: 1}
 )
 
 // ============================================================================
@@ -975,19 +1075,22 @@ const (
 var smallIntCache [smallIntCacheSize]Value
 
 // smallFloatCache 常用浮点数缓存
-var smallFloatCache = map[float64]Value{
-	0.0:  {Type: ValFloat, Data: float64(0.0)},
-	1.0:  {Type: ValFloat, Data: float64(1.0)},
-	-1.0: {Type: ValFloat, Data: float64(-1.0)},
-	0.5:  {Type: ValFloat, Data: float64(0.5)},
-	2.0:  {Type: ValFloat, Data: float64(2.0)},
-}
+var smallFloatCache map[float64]Value
 
 func init() {
 	// 初始化小整数缓存
 	for i := 0; i < smallIntCacheSize; i++ {
 		val := int64(i + smallIntCacheMin)
-		smallIntCache[i] = Value{Type: ValInt, Data: val}
+		smallIntCache[i] = Value{typ: uint8(ValInt), num: uint64(val)}
+	}
+	
+	// 初始化浮点数缓存
+	smallFloatCache = map[float64]Value{
+		0.0:  {typ: uint8(ValFloat), num: math.Float64bits(0.0)},
+		1.0:  {typ: uint8(ValFloat), num: math.Float64bits(1.0)},
+		-1.0: {typ: uint8(ValFloat), num: math.Float64bits(-1.0)},
+		0.5:  {typ: uint8(ValFloat), num: math.Float64bits(0.5)},
+		2.0:  {typ: uint8(ValFloat), num: math.Float64bits(2.0)},
 	}
 }
 
@@ -1005,27 +1108,28 @@ func NewBool(b bool) Value {
 }
 
 // NewInt 创建整数值
-// 性能优化：对于小整数 [-128, 255] 使用缓存，避免重复装箱
+// 性能优化：对于小整数 [-128, 255] 使用缓存，无堆分配
 func NewInt(n int64) Value {
 	// 快速路径：检查是否在缓存范围内
 	if n >= smallIntCacheMin && n <= smallIntCacheMax {
 		return smallIntCache[n-smallIntCacheMin]
 	}
-	return Value{Type: ValInt, Data: n}
+	return Value{typ: uint8(ValInt), num: uint64(n)}
 }
 
 // NewFloat 创建浮点数值
-// 性能优化：对于常用浮点数使用缓存
+// 性能优化：直接存 num 字段，无堆分配
 func NewFloat(f float64) Value {
 	// 快速路径：检查常用浮点数
 	if cached, ok := smallFloatCache[f]; ok {
 		return cached
 	}
-	return Value{Type: ValFloat, Data: f}
+	return Value{typ: uint8(ValFloat), num: math.Float64bits(f)}
 }
 
-// emptyStringValue 空字符串的预分配值
-var emptyStringValue = Value{Type: ValString, Data: ""}
+// emptyString 用于空字符串的存储
+var emptyString = ""
+var emptyStringValue = Value{typ: uint8(ValString), ptr: unsafe.Pointer(&emptyString)}
 
 // NewString 创建字符串值
 // 性能优化：空字符串使用预分配值
@@ -1033,7 +1137,9 @@ func NewString(s string) Value {
 	if len(s) == 0 {
 		return emptyStringValue
 	}
-	return Value{Type: ValString, Data: s}
+	// 需要分配一个 string 以获取稳定的指针
+	str := s
+	return Value{typ: uint8(ValString), ptr: unsafe.Pointer(&str)}
 }
 
 // StringBuilder 字符串构建器（用于高效拼接）
@@ -1082,34 +1188,36 @@ func (sb *StringBuilder) Build() string {
 
 // NewStringBuilderValue 创建字符串构建器值
 func NewStringBuilderValue(sb *StringBuilder) Value {
-	return Value{Type: ValStringBuilder, Data: sb}
+	return Value{typ: uint8(ValStringBuilder), ptr: unsafe.Pointer(sb)}
 }
 
 // AsStringBuilder 获取字符串构建器
 func (v Value) AsStringBuilder() *StringBuilder {
-	if v.Type == ValStringBuilder {
-		return v.Data.(*StringBuilder)
+	if v.typ == uint8(ValStringBuilder) && v.ptr != nil {
+		return (*StringBuilder)(v.ptr)
 	}
 	return nil
 }
 
 // NewChannelValue 创建通道值
-// 注意: channel 数据结构在 vm 包中定义，这里只存储接口引用
+// 注意: channel 数据结构在 vm 包中定义，这里存储指针
 func NewChannelValue(ch interface{}) Value {
-	return Value{Type: ValChannel, Data: ch}
+	// 将 interface{} 存储为指针
+	chPtr := ch
+	return Value{typ: uint8(ValChannel), ptr: unsafe.Pointer(&chPtr)}
 }
 
 // AsChannel 获取通道（返回 interface{}，需要在 vm 包中断言）
 func (v Value) AsChannel() interface{} {
-	if v.Type == ValChannel {
-		return v.Data
+	if v.typ == uint8(ValChannel) && v.ptr != nil {
+		return *(*interface{})(v.ptr)
 	}
 	return nil
 }
 
 // IsChannel 检查是否为通道
 func (v Value) IsChannel() bool {
-	return v.Type == ValChannel
+	return v.typ == uint8(ValChannel)
 }
 
 // ============================================================================
@@ -1210,57 +1318,48 @@ func (c *CoroutineObject) AddWaiter(waiterID int64) {
 
 // NewCoroutineValue 创建协程值（OOP 风格）
 func NewCoroutineValue(co *CoroutineObject) Value {
-	return Value{Type: ValGoroutine, Data: co}
+	return Value{typ: uint8(ValGoroutine), ptr: unsafe.Pointer(co)}
 }
 
 // AsCoroutine 获取协程对象
 func (v Value) AsCoroutine() *CoroutineObject {
-	if v.Type == ValGoroutine {
-		if co, ok := v.Data.(*CoroutineObject); ok {
-			return co
-		}
-		// 兼容旧格式（直接存储 ID）
-		if id, ok := v.Data.(int64); ok {
-			return NewCoroutineObject(id)
-		}
+	if v.typ == uint8(ValGoroutine) && v.ptr != nil {
+		return (*CoroutineObject)(v.ptr)
 	}
 	return nil
 }
 
 // AsGoroutineID 获取协程 ID
 func (v Value) AsGoroutineID() int64 {
-	if v.Type == ValGoroutine {
-		if co, ok := v.Data.(*CoroutineObject); ok {
-			return co.ID
-		}
-		if id, ok := v.Data.(int64); ok {
-			return id
-		}
+	if v.typ == uint8(ValGoroutine) && v.ptr != nil {
+		co := (*CoroutineObject)(v.ptr)
+		return co.ID
 	}
 	return -1
 }
 
 // IsGoroutine 检查是否为协程引用
 func (v Value) IsGoroutine() bool {
-	return v.Type == ValGoroutine
+	return v.typ == uint8(ValGoroutine)
 }
 
 // IsCoroutine 检查是否为协程对象（别名）
 func (v Value) IsCoroutine() bool {
-	return v.Type == ValGoroutine
+	return v.typ == uint8(ValGoroutine)
 }
 
 // NewArray 创建数组值
 func NewArray(arr []Value) Value {
-	return Value{Type: ValArray, Data: arr}
+	return Value{typ: uint8(ValArray), ptr: unsafe.Pointer(&arr)}
 }
 
 // NewFixedArray 创建定长数组值
 func NewFixedArray(capacity int) Value {
-	return Value{Type: ValFixedArray, Data: &FixedArray{
+	fa := &FixedArray{
 		Elements: make([]Value, capacity),
 		Capacity: capacity,
-	}}
+	}
+	return Value{typ: uint8(ValFixedArray), ptr: unsafe.Pointer(fa)}
 }
 
 // NewFixedArrayWithElements 创建带初始值的定长数组
@@ -1275,84 +1374,147 @@ func NewFixedArrayWithElements(elements []Value, capacity int) Value {
 	for i := len(elements); i < capacity; i++ {
 		arr.Elements[i] = NullValue
 	}
-	return Value{Type: ValFixedArray, Data: arr}
+	return Value{typ: uint8(ValFixedArray), ptr: unsafe.Pointer(arr)}
 }
 
 // NewNativeArrayValue 创建原生数组值
 func NewNativeArrayValue(arr *NativeArray) Value {
-	return Value{Type: ValNativeArray, Data: arr}
+	return Value{typ: uint8(ValNativeArray), ptr: unsafe.Pointer(arr)}
 }
 
 // NewNativeArrayFromValueSlice 从 Value 切片创建原生数组值
 func NewNativeArrayFromValueSlice(elemType ValueType, values []Value) Value {
-	return Value{Type: ValNativeArray, Data: NewNativeArrayFromValues(elemType, values)}
+	na := NewNativeArrayFromValues(elemType, values)
+	return Value{typ: uint8(ValNativeArray), ptr: unsafe.Pointer(na)}
 }
 
 // NewMap 创建 Map 值
 func NewMap(m map[Value]Value) Value {
-	return Value{Type: ValMap, Data: m}
+	return Value{typ: uint8(ValMap), ptr: unsafe.Pointer(&m)}
 }
 
 // NewSuperArrayValue 创建万能数组值
 func NewSuperArrayValue(sa *SuperArray) Value {
-	return Value{Type: ValSuperArray, Data: sa}
+	return Value{typ: uint8(ValSuperArray), ptr: unsafe.Pointer(sa)}
 }
 
 // NewEmptySuperArray 创建空万能数组值
 func NewEmptySuperArray() Value {
-	return Value{Type: ValSuperArray, Data: NewSuperArray()}
+	sa := NewSuperArray()
+	return Value{typ: uint8(ValSuperArray), ptr: unsafe.Pointer(sa)}
 }
 
 // NewBytes 创建字节数组值
 func NewBytes(b []byte) Value {
-	return Value{Type: ValBytes, Data: b}
+	return Value{typ: uint8(ValBytes), ptr: unsafe.Pointer(&b)}
 }
 
 // NewObject 创建对象值
 func NewObject(obj *Object) Value {
-	return Value{Type: ValObject, Data: obj}
+	return Value{typ: uint8(ValObject), ptr: unsafe.Pointer(obj)}
 }
 
 // NewFunc 创建函数值
 func NewFunc(fn *Function) Value {
-	return Value{Type: ValFunc, Data: fn}
+	return Value{typ: uint8(ValFunc), ptr: unsafe.Pointer(fn)}
 }
 
 // NewClosure 创建闭包值
 func NewClosure(closure *Closure) Value {
-	return Value{Type: ValClosure, Data: closure}
+	return Value{typ: uint8(ValClosure), ptr: unsafe.Pointer(closure)}
 }
 
 // IsNull 检查是否为 null
 func (v Value) IsNull() bool {
-	return v.Type == ValNull
+	return v.typ == uint8(ValNull)
+}
+
+// IsInt 检查是否为整数
+func (v Value) IsInt() bool {
+	return v.typ == uint8(ValInt)
+}
+
+// IsFloat 检查是否为浮点数
+func (v Value) IsFloat() bool {
+	return v.typ == uint8(ValFloat)
+}
+
+// IsBool 检查是否为布尔值
+func (v Value) IsBool() bool {
+	return v.typ == uint8(ValBool)
+}
+
+// IsString 检查是否为字符串
+func (v Value) IsString() bool {
+	return v.typ == uint8(ValString)
+}
+
+// IsObject 检查是否为对象
+func (v Value) IsObject() bool {
+	return v.typ == uint8(ValObject)
+}
+
+// IsArray 检查是否为数组
+func (v Value) IsArray() bool {
+	return v.typ == uint8(ValArray)
+}
+
+// IsFunc 检查是否为函数
+func (v Value) IsFunc() bool {
+	return v.typ == uint8(ValFunc)
+}
+
+// IsClosure 检查是否为闭包
+func (v Value) IsClosure() bool {
+	return v.typ == uint8(ValClosure)
 }
 
 // IsTruthy 检查是否为真值
 func (v Value) IsTruthy() bool {
-	switch v.Type {
+	switch ValueType(v.typ) {
 	case ValNull:
 		return false
 	case ValBool:
-		return v.Data.(bool)
+		return v.num != 0
 	case ValInt:
-		return v.Data.(int64) != 0
+		return int64(v.num) != 0
 	case ValFloat:
-		return v.Data.(float64) != 0
+		return math.Float64frombits(v.num) != 0
 	case ValString:
-		return v.Data.(string) != ""
+		if v.ptr == nil {
+			return false
+		}
+		return *(*string)(v.ptr) != ""
 	case ValArray:
-		return len(v.Data.([]Value)) > 0
+		if v.ptr == nil {
+			return false
+		}
+		return len(*(*[]Value)(v.ptr)) > 0
 	case ValFixedArray:
-		return v.Data.(*FixedArray).Capacity > 0
+		if v.ptr == nil {
+			return false
+		}
+		return (*FixedArray)(v.ptr).Capacity > 0
 	case ValNativeArray:
-		return v.Data.(*NativeArray).Length > 0
+		if v.ptr == nil {
+			return false
+		}
+		return (*NativeArray)(v.ptr).Length > 0
 	case ValMap:
-		return len(v.Data.(map[Value]Value)) > 0
+		if v.ptr == nil {
+			return false
+		}
+		return len(*(*map[Value]Value)(v.ptr)) > 0
 	case ValSuperArray:
-		return v.Data.(*SuperArray).Len() > 0
+		if v.ptr == nil {
+			return false
+		}
+		return (*SuperArray)(v.ptr).Len() > 0
 	case ValBytes:
-		return len(v.Data.([]byte)) > 0
+		if v.ptr == nil {
+			return false
+		}
+		return len(*(*[]byte)(v.ptr)) > 0
 	default:
 		return true
 	}
@@ -1360,21 +1522,22 @@ func (v Value) IsTruthy() bool {
 
 // AsBool 转换为布尔值
 func (v Value) AsBool() bool {
-	if v.Type == ValBool {
-		return v.Data.(bool)
+	if v.typ == uint8(ValBool) {
+		return v.num != 0
 	}
 	return v.IsTruthy()
 }
 
 // AsInt 转换为整数
+// 性能优化：直接从 num 字段读取，无类型断言
 func (v Value) AsInt() int64 {
-	switch v.Type {
+	switch ValueType(v.typ) {
 	case ValInt:
-		return v.Data.(int64)
+		return int64(v.num)
 	case ValFloat:
-		return int64(v.Data.(float64))
+		return int64(math.Float64frombits(v.num))
 	case ValBool:
-		if v.Data.(bool) {
+		if v.num != 0 {
 			return 1
 		}
 		return 0
@@ -1384,12 +1547,13 @@ func (v Value) AsInt() int64 {
 }
 
 // AsFloat 转换为浮点数
+// 性能优化：直接从 num 字段读取，无类型断言
 func (v Value) AsFloat() float64 {
-	switch v.Type {
+	switch ValueType(v.typ) {
 	case ValFloat:
-		return v.Data.(float64)
+		return math.Float64frombits(v.num)
 	case ValInt:
-		return float64(v.Data.(int64))
+		return float64(int64(v.num))
 	default:
 		return 0
 	}
@@ -1397,151 +1561,203 @@ func (v Value) AsFloat() float64 {
 
 // AsString 转换为字符串
 func (v Value) AsString() string {
-	if v.Type == ValString {
-		return v.Data.(string)
+	if v.typ == uint8(ValString) {
+		if v.ptr == nil {
+			return ""
+		}
+		return *(*string)(v.ptr)
 	}
 	return v.String()
 }
 
 // AsArray 获取数组
 func (v Value) AsArray() []Value {
-	if v.Type == ValArray {
-		return v.Data.([]Value)
+	if v.typ == uint8(ValArray) && v.ptr != nil {
+		return *(*[]Value)(v.ptr)
+	}
+	return nil
+}
+
+// AsFunc 获取函数
+func (v Value) AsFunc() *Function {
+	if v.typ == uint8(ValFunc) && v.ptr != nil {
+		return (*Function)(v.ptr)
+	}
+	return nil
+}
+
+// AsClosure 获取闭包
+func (v Value) AsClosure() *Closure {
+	if v.typ == uint8(ValClosure) && v.ptr != nil {
+		return (*Closure)(v.ptr)
 	}
 	return nil
 }
 
 // AsFixedArray 获取定长数组
 func (v Value) AsFixedArray() *FixedArray {
-	if v.Type == ValFixedArray {
-		return v.Data.(*FixedArray)
+	if v.typ == uint8(ValFixedArray) && v.ptr != nil {
+		return (*FixedArray)(v.ptr)
 	}
 	return nil
 }
 
 // AsNativeArray 获取原生数组
 func (v Value) AsNativeArray() *NativeArray {
-	if v.Type == ValNativeArray {
-		return v.Data.(*NativeArray)
+	if v.typ == uint8(ValNativeArray) && v.ptr != nil {
+		return (*NativeArray)(v.ptr)
 	}
 	return nil
 }
 
 // IsNativeArray 检查是否为原生数组
 func (v Value) IsNativeArray() bool {
-	return v.Type == ValNativeArray
+	return v.typ == uint8(ValNativeArray)
 }
 
 // AsMap 获取 Map
 func (v Value) AsMap() map[Value]Value {
-	if v.Type == ValMap {
-		return v.Data.(map[Value]Value)
+	if v.typ == uint8(ValMap) && v.ptr != nil {
+		return *(*map[Value]Value)(v.ptr)
 	}
 	return nil
 }
 
 // AsSuperArray 获取万能数组
 func (v Value) AsSuperArray() *SuperArray {
-	if v.Type == ValSuperArray {
-		return v.Data.(*SuperArray)
+	if v.typ == uint8(ValSuperArray) && v.ptr != nil {
+		return (*SuperArray)(v.ptr)
 	}
 	return nil
 }
 
 // IsSuperArray 检查是否为万能数组
 func (v Value) IsSuperArray() bool {
-	return v.Type == ValSuperArray
+	return v.typ == uint8(ValSuperArray)
 }
 
 // AsBytes 获取字节数组
 func (v Value) AsBytes() []byte {
-	if v.Type == ValBytes {
-		return v.Data.([]byte)
+	if v.typ == uint8(ValBytes) && v.ptr != nil {
+		return *(*[]byte)(v.ptr)
 	}
 	return nil
 }
 
 // IsBytesValue 检查是否为字节数组
 func (v Value) IsBytesValue() bool {
-	return v.Type == ValBytes
+	return v.typ == uint8(ValBytes)
 }
 
 // AsObject 获取对象
 func (v Value) AsObject() *Object {
-	if v.Type == ValObject {
-		return v.Data.(*Object)
+	if v.typ == uint8(ValObject) && v.ptr != nil {
+		return (*Object)(v.ptr)
 	}
 	return nil
 }
 
 // String 返回字符串表示
 func (v Value) String() string {
-	switch v.Type {
+	switch ValueType(v.typ) {
 	case ValNull:
 		return "null"
 	case ValBool:
-		if v.Data.(bool) {
+		if v.num != 0 {
 			return "true"
 		}
 		return "false"
 	case ValInt:
-		return fmt.Sprintf("%d", v.Data.(int64))
+		return fmt.Sprintf("%d", int64(v.num))
 	case ValFloat:
 		// 与 Go 保持一致：直接显示浮点数，包括精度误差
-		// Go 中 float64 变量运算也会显示精度误差，如：
-		//   var d float64 = 3.14; fmt.Println(d + 1.0) // 输出 4.140000000000001
-		// 字面量运算的精度问题由编译器常量折叠解决，不在这里处理
-		return strconv.FormatFloat(v.Data.(float64), 'g', -1, 64)
+		return strconv.FormatFloat(math.Float64frombits(v.num), 'g', -1, 64)
 	case ValString:
-		return v.Data.(string)
+		if v.ptr == nil {
+			return ""
+		}
+		return *(*string)(v.ptr)
 	case ValArray:
-		arr := v.Data.([]Value)
+		if v.ptr == nil {
+			return "[]"
+		}
+		arr := *(*[]Value)(v.ptr)
 		var parts []string
 		for _, elem := range arr {
 			parts = append(parts, elem.String())
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case ValFixedArray:
-		fa := v.Data.(*FixedArray)
+		if v.ptr == nil {
+			return "[](0)"
+		}
+		fa := (*FixedArray)(v.ptr)
 		var parts []string
 		for _, elem := range fa.Elements {
 			parts = append(parts, elem.String())
 		}
 		return fmt.Sprintf("[%s](%d)", strings.Join(parts, ", "), fa.Capacity)
 	case ValNativeArray:
-		na := v.Data.(*NativeArray)
+		if v.ptr == nil {
+			return "[]"
+		}
+		na := (*NativeArray)(v.ptr)
 		return na.String()
 	case ValMap:
-		m := v.Data.(map[Value]Value)
+		if v.ptr == nil {
+			return "[]"
+		}
+		m := *(*map[Value]Value)(v.ptr)
 		var parts []string
 		for k, val := range m {
 			parts = append(parts, k.String()+" => "+val.String())
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case ValSuperArray:
-		sa := v.Data.(*SuperArray)
+		if v.ptr == nil {
+			return "[]"
+		}
+		sa := (*SuperArray)(v.ptr)
 		var parts []string
 		for _, entry := range sa.Entries {
 			parts = append(parts, entry.Key.String()+" => "+entry.Value.String())
 		}
 		return "[" + strings.Join(parts, ", ") + "]"
 	case ValBytes:
-		b := v.Data.([]byte)
+		if v.ptr == nil {
+			return "<bytes len=0>"
+		}
+		b := *(*[]byte)(v.ptr)
 		return fmt.Sprintf("<bytes len=%d>", len(b))
 	case ValObject:
-		obj := v.Data.(*Object)
+		if v.ptr == nil {
+			return "<nil object>"
+		}
+		obj := (*Object)(v.ptr)
 		return fmt.Sprintf("<%s instance>", obj.Class.FullName())
 	case ValFunc:
-		fn := v.Data.(*Function)
+		if v.ptr == nil {
+			return "<nil fn>"
+		}
+		fn := (*Function)(v.ptr)
 		return fmt.Sprintf("<fn %s>", fn.Name)
 	case ValClosure:
-		closure := v.Data.(*Closure)
+		if v.ptr == nil {
+			return "<nil closure>"
+		}
+		closure := (*Closure)(v.ptr)
 		return fmt.Sprintf("<closure %s>", closure.Function.Name)
 	case ValEnum:
-		ev := v.Data.(*EnumValue)
+		if v.ptr == nil {
+			return "<nil enum>"
+		}
+		ev := (*EnumValue)(v.ptr)
 		return fmt.Sprintf("%s::%s", ev.EnumName, ev.CaseName)
 	case ValException:
-		ex := v.Data.(*Exception)
+		if v.ptr == nil {
+			return "<nil exception>"
+		}
+		ex := (*Exception)(v.ptr)
 		// 如果是对象异常，获取最新的 message
 		message := ex.Message
 		if ex.Object != nil {
@@ -1554,13 +1770,11 @@ func (v Value) String() string {
 		}
 		return fmt.Sprintf("%s: %s", ex.Type, message)
 	case ValGoroutine:
-		if co, ok := v.Data.(*CoroutineObject); ok {
-			return fmt.Sprintf("<Coroutine#%d %s>", co.ID, co.Status)
+		if v.ptr == nil {
+			return "<nil Coroutine>"
 		}
-		if id, ok := v.Data.(int64); ok {
-			return fmt.Sprintf("<Coroutine#%d>", id)
-		}
-		return "<Coroutine>"
+		co := (*CoroutineObject)(v.ptr)
+		return fmt.Sprintf("<Coroutine#%d %s>", co.ID, co.Status)
 	case ValChannel:
 		return "<Channel>"
 	default:
@@ -1570,28 +1784,43 @@ func (v Value) String() string {
 
 // Equals 比较两个值是否相等
 func (v Value) Equals(other Value) bool {
-	if v.Type != other.Type {
+	vType := ValueType(v.typ)
+	oType := ValueType(other.typ)
+	
+	if vType != oType {
 		// 允许 int 和 float 比较
-		if (v.Type == ValInt && other.Type == ValFloat) ||
-			(v.Type == ValFloat && other.Type == ValInt) {
+		if (vType == ValInt && oType == ValFloat) ||
+			(vType == ValFloat && oType == ValInt) {
 			return v.AsFloat() == other.AsFloat()
 		}
 		return false
 	}
 
-	switch v.Type {
+	switch vType {
 	case ValNull:
 		return true
 	case ValBool:
-		return v.Data.(bool) == other.Data.(bool)
+		return v.num == other.num
 	case ValInt:
-		return v.Data.(int64) == other.Data.(int64)
+		return v.num == other.num
 	case ValFloat:
-		return v.Data.(float64) == other.Data.(float64)
+		return v.num == other.num
 	case ValString:
-		return v.Data.(string) == other.Data.(string)
+		if v.ptr == nil && other.ptr == nil {
+			return true
+		}
+		if v.ptr == nil || other.ptr == nil {
+			return false
+		}
+		return *(*string)(v.ptr) == *(*string)(other.ptr)
 	case ValArray:
-		a1, a2 := v.Data.([]Value), other.Data.([]Value)
+		if v.ptr == nil && other.ptr == nil {
+			return true
+		}
+		if v.ptr == nil || other.ptr == nil {
+			return false
+		}
+		a1, a2 := *(*[]Value)(v.ptr), *(*[]Value)(other.ptr)
 		if len(a1) != len(a2) {
 			return false
 		}
@@ -1602,10 +1831,13 @@ func (v Value) Equals(other Value) bool {
 		}
 		return true
 	case ValFixedArray:
-		if other.Type != ValFixedArray {
+		if v.ptr == nil && other.ptr == nil {
+			return true
+		}
+		if v.ptr == nil || other.ptr == nil {
 			return false
 		}
-		fa1, fa2 := v.Data.(*FixedArray), other.Data.(*FixedArray)
+		fa1, fa2 := (*FixedArray)(v.ptr), (*FixedArray)(other.ptr)
 		if fa1.Capacity != fa2.Capacity {
 			return false
 		}
@@ -1616,13 +1848,22 @@ func (v Value) Equals(other Value) bool {
 		}
 		return true
 	case ValNativeArray:
-		if other.Type != ValNativeArray {
+		if v.ptr == nil && other.ptr == nil {
+			return true
+		}
+		if v.ptr == nil || other.ptr == nil {
 			return false
 		}
-		na1, na2 := v.Data.(*NativeArray), other.Data.(*NativeArray)
+		na1, na2 := (*NativeArray)(v.ptr), (*NativeArray)(other.ptr)
 		return na1.Equals(na2)
 	case ValBytes:
-		b1, b2 := v.Data.([]byte), other.Data.([]byte)
+		if v.ptr == nil && other.ptr == nil {
+			return true
+		}
+		if v.ptr == nil || other.ptr == nil {
+			return false
+		}
+		b1, b2 := *(*[]byte)(v.ptr), *(*[]byte)(other.ptr)
 		if len(b1) != len(b2) {
 			return false
 		}
@@ -1633,7 +1874,7 @@ func (v Value) Equals(other Value) bool {
 		}
 		return true
 	case ValObject:
-		return v.Data == other.Data // 引用比较
+		return v.ptr == other.ptr // 引用比较
 	default:
 		return false
 	}
@@ -1641,20 +1882,20 @@ func (v Value) Equals(other Value) bool {
 
 // Hash 计算哈希值 (用于 Map key)
 func (v Value) Hash() uint64 {
-	switch v.Type {
+	switch ValueType(v.typ) {
 	case ValNull:
 		return 0
 	case ValBool:
-		if v.Data.(bool) {
-			return 1
-		}
-		return 0
+		return v.num
 	case ValInt:
-		return uint64(v.Data.(int64))
+		return v.num
 	case ValString:
+		if v.ptr == nil {
+			return 0
+		}
 		// FNV-1a hash
 		h := uint64(14695981039346656037)
-		for _, c := range v.Data.(string) {
+		for _, c := range *(*string)(v.ptr) {
 			h ^= uint64(c)
 			h *= 1099511628211
 		}
@@ -1892,7 +2133,7 @@ type Iterator struct {
 // NewIterator 创建迭代器
 func NewIterator(v Value) *Iterator {
 	iter := &Iterator{Index: -1}
-	switch v.Type {
+	switch v.Type() {
 	case ValArray:
 		iter.Type = "array"
 		iter.Array = v.AsArray()
@@ -1962,13 +2203,13 @@ func (it *Iterator) CurrentValue() Value {
 
 // NewIteratorValue 创建迭代器值
 func NewIteratorValue(iter *Iterator) Value {
-	return Value{Type: ValIterator, Data: iter}
+	return Value{typ: uint8(ValIterator), ptr: unsafe.Pointer(iter)}
 }
 
 // AsIterator 获取迭代器
 func (v Value) AsIterator() *Iterator {
-	if v.Type == ValIterator {
-		return v.Data.(*Iterator)
+	if v.typ == uint8(ValIterator) && v.ptr != nil {
+		return (*Iterator)(v.ptr)
 	}
 	return nil
 }
@@ -1996,35 +2237,33 @@ type EnumValue struct {
 
 // NewEnumValue 创建枚举值
 func NewEnumValue(enumName, caseName string, value Value) Value {
-	return Value{
-		Type: ValEnum,
-		Data: &EnumValue{
-			EnumName: enumName,
-			CaseName: caseName,
-			Value:    value,
-		},
+	ev := &EnumValue{
+		EnumName: enumName,
+		CaseName: caseName,
+		Value:    value,
 	}
+	return Value{typ: uint8(ValEnum), ptr: unsafe.Pointer(ev)}
 }
 
 // AsEnumValue 获取枚举值
 func (v Value) AsEnumValue() *EnumValue {
-	if v.Type == ValEnum {
-		return v.Data.(*EnumValue)
+	if v.typ == uint8(ValEnum) && v.ptr != nil {
+		return (*EnumValue)(v.ptr)
 	}
 	return nil
 }
 
 // AsException 获取异常值
 func (v Value) AsException() *Exception {
-	if v.Type == ValException {
-		return v.Data.(*Exception)
+	if v.typ == uint8(ValException) && v.ptr != nil {
+		return (*Exception)(v.ptr)
 	}
 	return nil
 }
 
 // IsException 检查是否是异常值
 func (v Value) IsException() bool {
-	return v.Type == ValException
+	return v.typ == uint8(ValException)
 }
 
 // IsExceptionOfType 检查异常是否是指定类型（包括继承）

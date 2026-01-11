@@ -332,7 +332,7 @@ func JITIterValueInline(it *JITIterator) int64 {
 func JITIteratorFromValue(v Value) *JITIterator {
 	it := NewJITIterator()
 
-	switch v.Type {
+	switch v.Type() {
 	case ValArray:
 		arr := v.AsArray()
 		it.InitFromArray(arr)

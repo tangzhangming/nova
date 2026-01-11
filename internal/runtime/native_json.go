@@ -37,12 +37,12 @@ func nativeJsonEncode(args []bytecode.Value) bytecode.Value {
 	indent := "  "
 
 	if len(args) >= 2 {
-		if b, ok := args[1].Data.(bool); ok {
+		if b, ok := args[1].Data().(bool); ok {
 			pretty = b
 		}
 	}
 	if len(args) >= 3 {
-		if s, ok := args[2].Data.(string); ok {
+		if s, ok := args[2].Data().(string); ok {
 			indent = s
 		}
 	}
@@ -73,7 +73,7 @@ func nativeJsonDecode(args []bytecode.Value) bytecode.Value {
 		return bytecode.Value{Type: ValNull}
 	}
 
-	jsonStr, ok := args[0].Data.(string)
+	jsonStr, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.Value{Type: ValNull}
 	}
@@ -96,7 +96,7 @@ func nativeJsonIsValid(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewBool(false)
 	}
 
-	jsonStr, ok := args[0].Data.(string)
+	jsonStr, ok := args[0].Data().(string)
 	if !ok {
 		return bytecode.NewBool(false)
 	}
@@ -111,7 +111,7 @@ func nativeJsonEncodeObject(args []bytecode.Value) bytecode.Value {
 		return bytecode.NewString("{}")
 	}
 
-	obj, ok := args[0].Data.(*bytecode.Object)
+	obj, ok := args[0].Data().(*bytecode.Object)
 	if !ok {
 		// 如果不是对象，回退到普通编码
 		return nativeJsonEncode(args)
@@ -123,19 +123,19 @@ func nativeJsonEncodeObject(args []bytecode.Value) bytecode.Value {
 
 	// 解析选项
 	if len(args) >= 2 {
-		if opts, ok := args[1].Data.(*bytecode.SuperArray); ok {
+		if opts, ok := args[1].Data().(*bytecode.SuperArray); ok {
 			if v, exists := opts.Get(bytecode.NewString("pretty")); exists {
-				if b, ok := v.Data.(bool); ok {
+				if b, ok := v.Data().(bool); ok {
 					pretty = b
 				}
 			}
 			if v, exists := opts.Get(bytecode.NewString("indent")); exists {
-				if s, ok := v.Data.(string); ok {
+				if s, ok := v.Data().(string); ok {
 					indent = s
 				}
 			}
 			if v, exists := opts.Get(bytecode.NewString("naming")); exists {
-				if n, ok := v.Data.(int64); ok {
+				if n, ok := v.Data().(int64); ok {
 					namingStrategy = int(n)
 				}
 			}
@@ -171,17 +171,17 @@ func solaValueToGo(v bytecode.Value) interface{} {
 	case ValNull:
 		return nil
 	case ValBool:
-		return v.Data.(bool)
+		return v.Data().(bool)
 	case ValInt:
-		return v.Data.(int64)
+		return v.Data().(int64)
 	case ValFloat:
-		return v.Data.(float64)
+		return v.Data().(float64)
 	case ValString:
-		return v.Data.(string)
+		return v.Data().(string)
 	case ValArray, ValSuperArray:
-		return superArrayToGo(v.Data.(*bytecode.SuperArray))
+		return superArrayToGo(v.Data().(*bytecode.SuperArray))
 	case ValObject:
-		return objectToGo(v.Data.(*bytecode.Object))
+		return objectToGo(v.Data().(*bytecode.Object))
 	default:
 		return nil
 	}
@@ -199,11 +199,11 @@ func superArrayToGo(arr *bytecode.SuperArray) interface{} {
 	maxIndex := int64(-1)
 
 	for _, entry := range arr.Entries {
-		if entry.Key.Type != ValInt {
+		if entry.Key.Type() != ValInt {
 			isSequential = false
 			break
 		}
-		idx := entry.Key.Data.(int64)
+		idx := entry.Key.AsInt()
 		if idx > maxIndex {
 			maxIndex = idx
 		}
@@ -219,7 +219,7 @@ func superArrayToGo(arr *bytecode.SuperArray) interface{} {
 			for i := int64(0); i <= maxIndex; i++ {
 				found := false
 			for _, entry := range arr.Entries {
-				if entry.Key.Type == ValInt && entry.Key.Data.(int64) == i {
+				if entry.Key.Type() == ValInt && entry.Key.AsInt() == i {
 					found = true
 					break
 				}
@@ -236,7 +236,7 @@ func superArrayToGo(arr *bytecode.SuperArray) interface{} {
 		// 转换为slice
 		result := make([]interface{}, maxIndex+1)
 		for _, entry := range arr.Entries {
-			idx := entry.Key.Data.(int64)
+			idx := entry.Key.Data().(int64)
 			result[idx] = solaValueToGo(entry.Value)
 		}
 		return result
@@ -293,11 +293,11 @@ func encodeObjectToJson(obj *bytecode.Object, namingStrategy int) map[string]int
 					case "JsonProperty":
 						// 支持位置参数（key="0"）或命名参数（key="name"）
 						if arg, ok := ann.Args["0"]; ok {
-							if s, ok := arg.Data.(string); ok {
+							if s, ok := arg.Data().(string); ok {
 								jsonName = s
 							}
 						} else if arg, ok := ann.Args["name"]; ok {
-							if s, ok := arg.Data.(string); ok {
+							if s, ok := arg.Data().(string); ok {
 								jsonName = s
 							}
 						}
@@ -352,13 +352,13 @@ func isEmptyValue(v bytecode.Value) bool {
 	case ValBool:
 		return false // bool never considered empty
 	case ValInt:
-		return v.Data.(int64) == 0
+		return v.Data().(int64) == 0
 	case ValFloat:
-		return v.Data.(float64) == 0
+		return v.Data().(float64) == 0
 	case ValString:
-		return v.Data.(string) == ""
+		return v.Data().(string) == ""
 	case ValArray, ValSuperArray:
-		if arr, ok := v.Data.(*bytecode.SuperArray); ok {
+		if arr, ok := v.Data().(*bytecode.SuperArray); ok {
 			return arr.Len() == 0
 		}
 		return true
@@ -446,9 +446,9 @@ func toKebabCase(s string) string {
 func valueToString(v bytecode.Value) string {
 	switch v.Type {
 	case ValInt:
-		return fmt.Sprintf("%d", v.Data.(int64))
+		return fmt.Sprintf("%d", v.Data().(int64))
 	case ValString:
-		return v.Data.(string)
+		return v.Data().(string)
 	default:
 		return fmt.Sprintf("%v", v.Data)
 	}

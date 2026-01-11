@@ -10,7 +10,7 @@ import (
 
 // get_class(object) - 获取对象的类名
 func builtinGetClass(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValObject {
+	if len(args) == 0 || args[0].Type() != bytecode.ValObject {
 		return bytecode.NullValue
 	}
 	obj := args[0].AsObject()
@@ -24,9 +24,9 @@ func (r *Runtime) getClassAnnotations(args []bytecode.Value) bytecode.Value {
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.NewArray(nil)
@@ -47,9 +47,9 @@ func (r *Runtime) getMethodAnnotations(args []bytecode.Value) bytecode.Value {
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.NewArray(nil)
@@ -77,9 +77,9 @@ func (r *Runtime) hasAnnotation(args []bytecode.Value) bytecode.Value {
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.FalseValue
@@ -135,14 +135,14 @@ func builtinReflectSetProperty(args []bytecode.Value) bytecode.Value {
 	}
 
 	// 第一个参数必须是对象
-	if args[0].Type != bytecode.ValObject {
+	if args[0].Type() != bytecode.ValObject {
 		return bytecode.FalseValue
 	}
 
 	obj := args[0].AsObject()
 
 	// 第二个参数必须是字符串（属性名）
-	if args[1].Type != bytecode.ValString {
+	if args[1].Type() != bytecode.ValString {
 		return bytecode.FalseValue
 	}
 
@@ -161,14 +161,14 @@ func builtinReflectGetProperty(args []bytecode.Value) bytecode.Value {
 	}
 
 	// 第一个参数必须是对象
-	if args[0].Type != bytecode.ValObject {
+	if args[0].Type() != bytecode.ValObject {
 		return bytecode.NullValue
 	}
 
 	obj := args[0].AsObject()
 
 	// 第二个参数必须是字符串（属性名）
-	if args[1].Type != bytecode.ValString {
+	if args[1].Type() != bytecode.ValString {
 		return bytecode.NullValue
 	}
 
@@ -189,7 +189,7 @@ func (r *Runtime) reflectNewInstance(args []bytecode.Value) bytecode.Value {
 	}
 
 	// 参数必须是字符串（类名）
-	if args[0].Type != bytecode.ValString {
+	if args[0].Type() != bytecode.ValString {
 		return bytecode.NullValue
 	}
 
@@ -221,16 +221,16 @@ func (r *Runtime) reflectGetPropertyAnnotations(args []bytecode.Value) bytecode.
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.NewArray(nil)
 	}
 
 	// 第二个参数必须是字符串（属性名）
-	if args[1].Type != bytecode.ValString {
+	if args[1].Type() != bytecode.ValString {
 		return bytecode.NewArray(nil)
 	}
 
@@ -258,9 +258,9 @@ func (r *Runtime) reflectGetProperties(args []bytecode.Value) bytecode.Value {
 	}
 
 	var class *bytecode.Class
-	if args[0].Type == bytecode.ValObject {
+	if args[0].Type() == bytecode.ValObject {
 		class = args[0].AsObject().Class
-	} else if args[0].Type == bytecode.ValString {
+	} else if args[0].Type() == bytecode.ValString {
 		// 支持通过类名字符串查找
 		className := args[0].AsString()
 		class = r.vm.GetClass(className)
@@ -287,9 +287,9 @@ func (r *Runtime) reflectGetMethods(args []bytecode.Value) bytecode.Value {
 	}
 
 	var class *bytecode.Class
-	if args[0].Type == bytecode.ValObject {
+	if args[0].Type() == bytecode.ValObject {
 		class = args[0].AsObject().Class
-	} else if args[0].Type == bytecode.ValString {
+	} else if args[0].Type() == bytecode.ValString {
 		className := args[0].AsString()
 		class = r.vm.GetClass(className)
 		if class == nil {
@@ -315,9 +315,9 @@ func (r *Runtime) reflectIsAttribute(args []bytecode.Value) bytecode.Value {
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.FalseValue
@@ -341,9 +341,9 @@ func (r *Runtime) reflectGetParent(args []bytecode.Value) bytecode.Value {
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.NewString("")
@@ -364,9 +364,9 @@ func (r *Runtime) reflectGetInterfaces(args []bytecode.Value) bytecode.Value {
 	}
 
 	var className string
-	if args[0].Type == bytecode.ValString {
+	if args[0].Type() == bytecode.ValString {
 		className = args[0].AsString()
-	} else if args[0].Type == bytecode.ValObject {
+	} else if args[0].Type() == bytecode.ValObject {
 		className = args[0].AsObject().Class.Name
 	} else {
 		return bytecode.NewArray(nil)
@@ -387,7 +387,7 @@ func (r *Runtime) reflectGetInterfaces(args []bytecode.Value) bytecode.Value {
 
 // native_reflect_get_class(object) - 获取对象的类名（包装 get_class）
 func builtinReflectGetClass(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValObject {
+	if len(args) == 0 || args[0].Type() != bytecode.ValObject {
 		return bytecode.NewString("")
 	}
 	obj := args[0].AsObject()
