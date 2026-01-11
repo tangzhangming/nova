@@ -2180,6 +2180,19 @@ func (vm *VM) execute() InterpretResult {
 					}
 				}
 				vm.push(fa.Elements[i])
+			case bytecode.ValNativeArray:
+				na := arrVal.AsNativeArray()
+				i := int(idx.AsInt())
+				if i < 0 || i >= na.Len() {
+					if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", i18n.T(i18n.ErrArrayIndexOutOfBounds, i, na.Len())); result == InterpretExceptionHandled {
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					} else {
+						return result
+					}
+				}
+				vm.push(na.Get(i))
 			case bytecode.ValMap:
 				// Map 索引支持
 				m := arrVal.AsMap()
@@ -2236,6 +2249,21 @@ func (vm *VM) execute() InterpretResult {
 				fa.Elements[i] = value
 				// 写屏障
 				vm.gc.WriteBarrierValue(arrVal, value)
+			case bytecode.ValNativeArray:
+				na := arrVal.AsNativeArray()
+				i := int(idx.AsInt())
+				if i < 0 || i >= na.Len() {
+					if result := vm.throwTypedException("ArrayIndexOutOfBoundsException", i18n.T(i18n.ErrArrayIndexOutOfBounds, i, na.Len())); result == InterpretExceptionHandled {
+						frame = &vm.frames[vm.frameCount-1]
+						chunk = frame.Closure.Function.Chunk
+						continue
+					} else {
+						return result
+					}
+				}
+				na.Set(i, value)
+				// 写屏障
+				vm.gc.WriteBarrierValue(arrVal, value)
 			case bytecode.ValMap:
 				// Map 设置
 				m := arrVal.AsMap()
@@ -2260,6 +2288,8 @@ func (vm *VM) execute() InterpretResult {
 				vm.push(bytecode.NewInt(int64(len(arrVal.AsArray()))))
 			case bytecode.ValFixedArray:
 				vm.push(bytecode.NewInt(int64(arrVal.AsFixedArray().Capacity)))
+			case bytecode.ValNativeArray:
+				vm.push(bytecode.NewInt(int64(arrVal.AsNativeArray().Len())))
 			case bytecode.ValSuperArray:
 				vm.push(bytecode.NewInt(int64(arrVal.AsSuperArray().Len())))
 			default:
@@ -2279,6 +2309,10 @@ func (vm *VM) execute() InterpretResult {
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				vm.push(fa.Elements[i])
+			case bytecode.ValNativeArray:
+				na := arrVal.AsNativeArray()
+				i := int(idx.AsInt())
+				vm.push(na.Get(i))
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
@@ -2296,6 +2330,10 @@ func (vm *VM) execute() InterpretResult {
 				fa := arrVal.AsFixedArray()
 				i := int(idx.AsInt())
 				fa.Elements[i] = value
+			case bytecode.ValNativeArray:
+				na := arrVal.AsNativeArray()
+				i := int(idx.AsInt())
+				na.Set(i, value)
 			default:
 				return vm.runtimeError(i18n.T(i18n.ErrSubscriptRequiresArray))
 			}
@@ -2427,10 +2465,104 @@ func (vm *VM) execute() InterpretResult {
 			sa.Set(key, value)
 			vm.push(value)
 
+		// =========================================================================
+		// NativeArray 原生数组操作（类型化存储，JIT 友好）
+		// =========================================================================
+		
+		case bytecode.OpNativeArrayNew:
+			// 创建原生数组，参数：elemType (u8), length (u16)
+			elemType := bytecode.ValueType(chunk.Code[frame.IP])
+			frame.IP++
+			length := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			
+			arr := bytecode.NewNativeArray(elemType, length)
+			vm.push(vm.trackAllocation(bytecode.NewNativeArrayValue(arr)))
+		
+		case bytecode.OpNativeArrayInit:
+			// 用栈上元素初始化数组，参数：elemType (u8), count (u16)
+			elemType := bytecode.ValueType(chunk.Code[frame.IP])
+			frame.IP++
+			count := int(chunk.ReadU16(frame.IP))
+			frame.IP += 2
+			
+			// 从栈上收集元素（按相反顺序弹出，然后反转）
+			values := make([]bytecode.Value, count)
+			for i := count - 1; i >= 0; i-- {
+				values[i] = vm.pop()
+			}
+			
+			arr := bytecode.NewNativeArrayFromValues(elemType, values)
+			vm.push(vm.trackAllocation(bytecode.NewNativeArrayValue(arr)))
+		
+		case bytecode.OpNativeArrayGet:
+			// 获取元素 [stack: arr, idx -> value]
+			idx := vm.pop()
+			arrVal := vm.pop()
+			
+			if arrVal.Type != bytecode.ValNativeArray {
+				return vm.runtimeError("expected native array")
+			}
+			
+			arr := arrVal.AsNativeArray()
+			i := int(idx.AsInt())
+			
+			if i < 0 || i >= arr.Len() {
+				if result := vm.throwTypedException("ArrayIndexOutOfBoundsException",
+					i18n.T(i18n.ErrArrayIndexOutOfBounds, i, arr.Len())); result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				} else {
+					return result
+				}
+			}
+			
+			vm.push(arr.Get(i))
+		
+		case bytecode.OpNativeArraySet:
+			// 设置元素 [stack: arr, idx, value -> ]
+			value := vm.pop()
+			idx := vm.pop()
+			arrVal := vm.pop()
+			
+			if arrVal.Type != bytecode.ValNativeArray {
+				return vm.runtimeError("expected native array")
+			}
+			
+			arr := arrVal.AsNativeArray()
+			i := int(idx.AsInt())
+			
+			if i < 0 || i >= arr.Len() {
+				if result := vm.throwTypedException("ArrayIndexOutOfBoundsException",
+					i18n.T(i18n.ErrArrayIndexOutOfBounds, i, arr.Len())); result == InterpretExceptionHandled {
+					frame = &vm.frames[vm.frameCount-1]
+					chunk = frame.Closure.Function.Chunk
+					continue
+				} else {
+					return result
+				}
+			}
+			
+			arr.Set(i, value)
+			// 写屏障
+			vm.gc.WriteBarrierValue(arrVal, value)
+		
+		case bytecode.OpNativeArrayLen:
+			// 获取长度 [stack: arr -> length]
+			arrVal := vm.pop()
+			
+			if arrVal.Type != bytecode.ValNativeArray {
+				return vm.runtimeError("expected native array")
+			}
+			
+			arr := arrVal.AsNativeArray()
+			vm.push(bytecode.NewInt(int64(arr.Len())))
+
 		// 迭代器操作
 		case bytecode.OpIterInit:
 			v := vm.pop()
-			if v.Type != bytecode.ValArray && v.Type != bytecode.ValFixedArray && v.Type != bytecode.ValMap && v.Type != bytecode.ValSuperArray {
+			if v.Type != bytecode.ValArray && v.Type != bytecode.ValFixedArray && v.Type != bytecode.ValNativeArray && v.Type != bytecode.ValMap && v.Type != bytecode.ValSuperArray {
 				return vm.runtimeError(i18n.T(i18n.ErrForeachRequiresIterable))
 			}
 			iter := bytecode.NewIterator(v)
@@ -4232,6 +4364,11 @@ func (vm *VM) invokeMethod(name string, argCount int, callSiteIP int) InterpretR
 		return vm.invokeSuperArrayMethod(name, argCount)
 	}
 
+	// 处理 NativeArray 内置方法
+	if receiver.Type == bytecode.ValNativeArray {
+		return vm.invokeNativeArrayMethod(name, argCount)
+	}
+
 	if receiver.Type != bytecode.ValObject {
 		return vm.runtimeError(i18n.T(i18n.ErrOnlyObjectsHaveMethods))
 	}
@@ -4492,6 +4629,101 @@ func (vm *VM) invokeSuperArrayMethod(name string, argCount int) InterpretResult 
 
 	default:
 		return vm.runtimeError("SuperArray has no method '%s'", name)
+	}
+
+	vm.push(result)
+	return InterpretOK
+}
+
+// invokeNativeArrayMethod 处理 NativeArray 的内置方法调用
+// NativeArray 是定长、类型化的原生数组，其方法由 VM 直接实现
+func (vm *VM) invokeNativeArrayMethod(name string, argCount int) InterpretResult {
+	// 收集参数（不包括 receiver）
+	args := make([]bytecode.Value, argCount)
+	for i := argCount - 1; i >= 0; i-- {
+		args[i] = vm.pop()
+	}
+	receiver := vm.pop()
+	arr := receiver.AsNativeArray()
+
+	var result bytecode.Value
+
+	switch name {
+	case "len", "length":
+		result = bytecode.NewInt(int64(arr.Len()))
+
+	case "indexOf":
+		if argCount < 1 {
+			return vm.runtimeError("indexOf requires 1 argument")
+		}
+		result = bytecode.NewInt(int64(arr.IndexOf(args[0])))
+
+	case "lastIndexOf":
+		if argCount < 1 {
+			return vm.runtimeError("lastIndexOf requires 1 argument")
+		}
+		result = bytecode.NewInt(int64(arr.LastIndexOf(args[0])))
+
+	case "contains":
+		if argCount < 1 {
+			return vm.runtimeError("contains requires 1 argument")
+		}
+		result = bytecode.NewBool(arr.Contains(args[0]))
+
+	case "reverse":
+		arr.Reverse()
+		result = receiver // return self for chaining
+
+	case "sort":
+		arr.Sort()
+		result = receiver
+
+	case "sortDesc":
+		arr.SortDesc()
+		result = receiver
+
+	case "copy":
+		result = bytecode.NewNativeArrayValue(arr.Copy())
+
+	case "slice":
+		if argCount < 1 {
+			return vm.runtimeError("slice requires at least 1 argument")
+		}
+		start := int(args[0].AsInt())
+		end := arr.Len()
+		if argCount >= 2 {
+			end = int(args[1].AsInt())
+		}
+		result = bytecode.NewNativeArrayValue(arr.Slice(start, end))
+
+	case "concat":
+		if argCount < 1 || args[0].Type != bytecode.ValNativeArray {
+			return vm.runtimeError("concat requires a NativeArray argument")
+		}
+		other := args[0].AsNativeArray()
+		result = bytecode.NewNativeArrayValue(arr.Concat(other))
+
+	case "sum":
+		result = arr.Sum()
+
+	case "max":
+		result = arr.Max()
+
+	case "min":
+		result = arr.Min()
+
+	case "average":
+		result = arr.Average()
+
+	case "toSuperArray":
+		result = bytecode.NewSuperArrayValue(arr.ToSuperArray())
+
+	// 需要闭包参数的方法 - 暂时返回错误提示，后续实现
+	case "find", "findIndex", "findLast", "findLastIndex", "any", "all", "forEach", "map", "filter", "reduce":
+		return vm.runtimeError("NativeArray method '%s' with callback is not yet implemented", name)
+
+	default:
+		return vm.runtimeError("NativeArray has no method '%s'", name)
 	}
 
 	vm.push(result)

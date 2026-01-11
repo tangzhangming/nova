@@ -522,6 +522,8 @@ func (tc *TypeChecker) checkExpression(expr ast.Expression) string {
 		return tc.checkMapLiteral(e)
 	case *ast.NewExpr:
 		return tc.checkNewExpr(e)
+	case *ast.NewArrayExpr:
+		return tc.checkNewArrayExpr(e)
 	case *ast.IsExpr:
 		return "bool"
 	case *ast.TypeCastExpr:
@@ -868,8 +870,30 @@ func (tc *TypeChecker) checkNewExpr(expr *ast.NewExpr) string {
 	for _, arg := range expr.Arguments {
 		tc.checkExpression(arg)
 	}
-	
+
 	return expr.ClassName.Name
+}
+
+// checkNewArrayExpr 检查数组创建表达式
+func (tc *TypeChecker) checkNewArrayExpr(expr *ast.NewArrayExpr) string {
+	// 检查大小表达式
+	if expr.Size != nil {
+		sizeType := tc.checkExpression(expr.Size)
+		if sizeType != "int" && sizeType != "i32" && sizeType != "i64" {
+			tc.addError(expr.Size.Pos(), "E0201", "数组大小必须是整数类型")
+		}
+	}
+	
+	// 检查初始化元素
+	elemTypeName := tc.getTypeName(expr.ElementType)
+	for _, elem := range expr.Elements {
+		elemType := tc.checkExpression(elem)
+		if !tc.isTypeCompatible(elemType, elemTypeName) {
+			tc.addError(elem.Pos(), "E0202", fmt.Sprintf("数组元素类型不匹配: 期望 %s, 得到 %s", elemTypeName, elemType))
+		}
+	}
+	
+	return elemTypeName + "[]"
 }
 
 // checkTernaryExpr 检查三元表达式

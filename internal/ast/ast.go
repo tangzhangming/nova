@@ -740,6 +740,44 @@ func (e *NewExpr) String() string {
 }
 func (e *NewExpr) exprNode() {}
 
+// NewArrayExpr 数组创建表达式
+// 支持以下语法：
+//   - new int[5]              创建指定大小的数组
+//   - new int[] { 1, 2, 3 }   创建并初始化数组
+type NewArrayExpr struct {
+	NewToken    token.Token   // new 关键字
+	ElementType TypeNode      // 元素类型 (int, float, string, etc.)
+	LBracket    token.Token   // [
+	Size        Expression    // 数组大小（可选，与 Elements 互斥）
+	RBracket    token.Token   // ]
+	LBrace      token.Token   // { (可选，仅初始化时有)
+	Elements    []Expression  // 初始化元素（可选）
+	RBrace      token.Token   // } (可选)
+}
+
+func (e *NewArrayExpr) Pos() token.Position { return e.NewToken.Pos }
+func (e *NewArrayExpr) End() token.Position {
+	if e.RBrace.Type != 0 {
+		return e.RBrace.Pos
+	}
+	return e.RBracket.Pos
+}
+func (e *NewArrayExpr) String() string {
+	typeStr := e.ElementType.String()
+	if e.Size != nil {
+		return "new " + typeStr + "[" + e.Size.String() + "]"
+	}
+	if len(e.Elements) > 0 {
+		var elems []string
+		for _, elem := range e.Elements {
+			elems = append(elems, elem.String())
+		}
+		return "new " + typeStr + "[] { " + strings.Join(elems, ", ") + " }"
+	}
+	return "new " + typeStr + "[]"
+}
+func (e *NewArrayExpr) exprNode() {}
+
 // ClosureExpr 闭包表达式
 type ClosureExpr struct {
 	FuncToken  token.Token

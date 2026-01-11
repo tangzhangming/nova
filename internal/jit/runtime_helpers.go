@@ -375,3 +375,168 @@ func GetFieldHelperPtr(fieldName string) uintptr {
 func GetSetFieldHelperPtr(fieldName string) uintptr {
 	return getFuncPtr(SetFieldHelper)
 }
+
+// ============================================================================
+// 字符串操作辅助函数
+// ============================================================================
+
+// StringConcatHelper 字符串拼接
+// 参数：aPtr, bPtr - 指向 bytecode.Value 的指针
+// 返回：新字符串的 Value 指针
+//
+//go:nosplit
+func StringConcatHelper(aPtr, bPtr uintptr) uintptr {
+	if aPtr == 0 || bPtr == 0 {
+		return 0
+	}
+
+	a := (*bytecode.Value)(unsafe.Pointer(aPtr))
+	b := (*bytecode.Value)(unsafe.Pointer(bPtr))
+
+	// 获取字符串内容
+	var aStr, bStr string
+	if a.Type == bytecode.ValString {
+		aStr = a.AsString()
+	} else {
+		aStr = a.String()
+	}
+	if b.Type == bytecode.ValString {
+		bStr = b.AsString()
+	} else {
+		bStr = b.String()
+	}
+
+	// 创建新字符串
+	result := bytecode.NewString(aStr + bStr)
+	return uintptr(unsafe.Pointer(&result))
+}
+
+// StringBuilderNewHelper 创建新的字符串构建器
+// 返回：StringBuilder 的 Value 指针
+//
+//go:nosplit
+func StringBuilderNewHelper() uintptr {
+	sb := bytecode.NewStringBuilder()
+	result := bytecode.NewStringBuilderValue(sb)
+	return uintptr(unsafe.Pointer(&result))
+}
+
+// StringBuilderAddHelper 向字符串构建器添加内容
+// 参数：sbPtr - StringBuilder 的 Value 指针，valPtr - 要添加的值的指针
+// 返回：StringBuilder 的 Value 指针（支持链式调用）
+//
+//go:nosplit
+func StringBuilderAddHelper(sbPtr, valPtr uintptr) uintptr {
+	if sbPtr == 0 || valPtr == 0 {
+		return 0
+	}
+
+	sbVal := (*bytecode.Value)(unsafe.Pointer(sbPtr))
+	val := (*bytecode.Value)(unsafe.Pointer(valPtr))
+
+	sb := sbVal.AsStringBuilder()
+	if sb != nil {
+		sb.AppendValue(*val)
+	}
+
+	return sbPtr
+}
+
+// StringBuilderBuildHelper 构建最终字符串
+// 参数：sbPtr - StringBuilder 的 Value 指针
+// 返回：字符串的 Value 指针
+//
+//go:nosplit
+func StringBuilderBuildHelper(sbPtr uintptr) uintptr {
+	if sbPtr == 0 {
+		return 0
+	}
+
+	sbVal := (*bytecode.Value)(unsafe.Pointer(sbPtr))
+	sb := sbVal.AsStringBuilder()
+	if sb == nil {
+		return 0
+	}
+
+	result := bytecode.NewString(sb.Build())
+	return uintptr(unsafe.Pointer(&result))
+}
+
+// GetStringConcatHelperPtr 获取字符串拼接辅助函数指针
+func GetStringConcatHelperPtr() uintptr {
+	return getFuncPtr(StringConcatHelper)
+}
+
+// GetStringBuilderNewHelperPtr 获取字符串构建器创建辅助函数指针
+func GetStringBuilderNewHelperPtr() uintptr {
+	return getFuncPtr(StringBuilderNewHelper)
+}
+
+// GetStringBuilderAddHelperPtr 获取字符串构建器添加辅助函数指针
+func GetStringBuilderAddHelperPtr() uintptr {
+	return getFuncPtr(StringBuilderAddHelper)
+}
+
+// GetStringBuilderBuildHelperPtr 获取字符串构建器构建辅助函数指针
+func GetStringBuilderBuildHelperPtr() uintptr {
+	return getFuncPtr(StringBuilderBuildHelper)
+}
+
+// ============================================================================
+// 数组创建辅助函数
+// ============================================================================
+
+// NewArrayHelper 创建新数组
+// 参数：length - 数组长度，stackPtr - 栈指针（元素从栈上读取）
+// 返回：数组的 Value 指针
+//
+//go:nosplit
+func NewArrayHelper(length int64, stackBase uintptr) uintptr {
+	if length < 0 {
+		return 0
+	}
+
+	// 从栈上读取元素
+	elements := make([]bytecode.Value, length)
+	for i := int64(0); i < length; i++ {
+		// 每个 Value 大小为 24 字节 (Type + Data)
+		elemPtr := stackBase + uintptr(i)*24
+		elem := (*bytecode.Value)(unsafe.Pointer(elemPtr))
+		elements[i] = *elem
+	}
+
+	result := bytecode.NewArray(elements)
+	return uintptr(unsafe.Pointer(&result))
+}
+
+// NewFixedArrayHelper 创建定长数组
+// 参数：capacity - 容量，length - 初始长度，stackBase - 栈指针
+// 返回：数组的 Value 指针
+//
+//go:nosplit
+func NewFixedArrayHelper(capacity, length int64, stackBase uintptr) uintptr {
+	if capacity < 0 || length < 0 || length > capacity {
+		return 0
+	}
+
+	// 从栈上读取元素
+	elements := make([]bytecode.Value, length)
+	for i := int64(0); i < length; i++ {
+		elemPtr := stackBase + uintptr(i)*24
+		elem := (*bytecode.Value)(unsafe.Pointer(elemPtr))
+		elements[i] = *elem
+	}
+
+	result := bytecode.NewFixedArrayWithElements(elements, int(capacity))
+	return uintptr(unsafe.Pointer(&result))
+}
+
+// GetNewArrayHelperPtr 获取数组创建辅助函数指针
+func GetNewArrayHelperPtr() uintptr {
+	return getFuncPtr(NewArrayHelper)
+}
+
+// GetNewFixedArrayHelperPtr 获取定长数组创建辅助函数指针
+func GetNewFixedArrayHelperPtr() uintptr {
+	return getFuncPtr(NewFixedArrayHelper)
+}

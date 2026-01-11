@@ -2,8 +2,11 @@ package bytecode
 
 import (
 	"fmt"
+	"math"
+	"sort"
 	"strconv"
 	"strings"
+	"unsafe"
 )
 
 // ValueType 值类型
@@ -16,7 +19,8 @@ const (
 	ValFloat
 	ValString
 	ValArray
-	ValFixedArray   // 定长数组
+	ValFixedArray   // 定长数组（旧版，兼容）
+	ValNativeArray  // 原生定长数组（类型化存储，JIT 友好）
 	ValBytes        // 字节数组类型
 	ValMap
 	ValSuperArray   // PHP风格万能数组
@@ -33,10 +37,596 @@ const (
 	ValGoroutine     // 协程引用
 )
 
-// FixedArray 定长数组
+// FixedArray 定长数组（旧版，兼容）
 type FixedArray struct {
 	Elements []Value
 	Capacity int
+}
+
+// ============================================================================
+// NativeArray 原生定长数组（类型化存储，JIT 友好）
+// ============================================================================
+
+// NativeArrayElementSize 元素大小（字节）
+// 所有类型统一 8 字节：int64, float64, 指针
+const NativeArrayElementSize = 8
+
+// NativeArray 原生定长数组
+// 使用类型化原生存储，JIT 可直接通过指针操作内存
+type NativeArray struct {
+	ElementType ValueType      // 元素类型 (ValInt/ValFloat/ValBool/ValString/ValObject)
+	Length      int32          // 数组长度（不可变）
+	Data        unsafe.Pointer // 连续内存块，每元素 8 字节
+}
+
+// NewNativeArray 创建原生数组（元素为默认值）
+func NewNativeArray(elemType ValueType, length int) *NativeArray {
+	if length <= 0 {
+		length = 0
+	}
+	arr := &NativeArray{
+		ElementType: elemType,
+		Length:      int32(length),
+	}
+	if length > 0 {
+		// 分配 length * 8 字节的内存
+		arr.Data = allocateNativeArrayMemory(length)
+		// 填充默认值（全零）
+		arr.fillDefaults()
+	}
+	return arr
+}
+
+// NewNativeArrayFromInts 从 int64 切片创建数组
+func NewNativeArrayFromInts(values []int64) *NativeArray {
+	length := len(values)
+	arr := &NativeArray{
+		ElementType: ValInt,
+		Length:      int32(length),
+	}
+	if length > 0 {
+		arr.Data = allocateNativeArrayMemory(length)
+		for i, v := range values {
+			arr.SetInt(i, v)
+		}
+	}
+	return arr
+}
+
+// NewNativeArrayFromFloats 从 float64 切片创建数组
+func NewNativeArrayFromFloats(values []float64) *NativeArray {
+	length := len(values)
+	arr := &NativeArray{
+		ElementType: ValFloat,
+		Length:      int32(length),
+	}
+	if length > 0 {
+		arr.Data = allocateNativeArrayMemory(length)
+		for i, v := range values {
+			arr.SetFloat(i, v)
+		}
+	}
+	return arr
+}
+
+// NewNativeArrayFromBools 从 bool 切片创建数组
+func NewNativeArrayFromBools(values []bool) *NativeArray {
+	length := len(values)
+	arr := &NativeArray{
+		ElementType: ValBool,
+		Length:      int32(length),
+	}
+	if length > 0 {
+		arr.Data = allocateNativeArrayMemory(length)
+		for i, v := range values {
+			var intVal int64
+			if v {
+				intVal = 1
+			}
+			arr.SetInt(i, intVal)
+		}
+	}
+	return arr
+}
+
+// NewNativeArrayFromValues 从 Value 切片创建数组
+func NewNativeArrayFromValues(elemType ValueType, values []Value) *NativeArray {
+	length := len(values)
+	arr := &NativeArray{
+		ElementType: elemType,
+		Length:      int32(length),
+	}
+	if length > 0 {
+		arr.Data = allocateNativeArrayMemory(length)
+		for i, v := range values {
+			arr.Set(i, v)
+		}
+	}
+	return arr
+}
+
+// allocateNativeArrayMemory 分配原生内存
+func allocateNativeArrayMemory(length int) unsafe.Pointer {
+	// 使用 Go 的 slice 底层数组作为内存存储
+	// 这样可以让 GC 正确管理内存
+	data := make([]int64, length)
+	return unsafe.Pointer(&data[0])
+}
+
+// fillDefaults 填充默认值
+func (arr *NativeArray) fillDefaults() {
+	if arr.Data == nil || arr.Length == 0 {
+		return
+	}
+	// 默认全为 0，int64 切片初始化已经是 0
+	// 无需额外操作
+}
+
+// Len 获取长度
+func (arr *NativeArray) Len() int {
+	return int(arr.Length)
+}
+
+// GetInt 获取整数元素
+func (arr *NativeArray) GetInt(index int) int64 {
+	if index < 0 || index >= int(arr.Length) {
+		return 0
+	}
+	ptr := unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+	return *(*int64)(ptr)
+}
+
+// SetInt 设置整数元素
+func (arr *NativeArray) SetInt(index int, value int64) {
+	if index < 0 || index >= int(arr.Length) {
+		return
+	}
+	ptr := unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+	*(*int64)(ptr) = value
+}
+
+// GetFloat 获取浮点元素
+func (arr *NativeArray) GetFloat(index int) float64 {
+	if index < 0 || index >= int(arr.Length) {
+		return 0
+	}
+	ptr := unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+	return *(*float64)(ptr)
+}
+
+// SetFloat 设置浮点元素
+func (arr *NativeArray) SetFloat(index int, value float64) {
+	if index < 0 || index >= int(arr.Length) {
+		return
+	}
+	ptr := unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+	*(*float64)(ptr) = value
+}
+
+// GetBool 获取布尔元素
+func (arr *NativeArray) GetBool(index int) bool {
+	return arr.GetInt(index) != 0
+}
+
+// SetBool 设置布尔元素
+func (arr *NativeArray) SetBool(index int, value bool) {
+	var intVal int64
+	if value {
+		intVal = 1
+	}
+	arr.SetInt(index, intVal)
+}
+
+// GetPtr 获取指针元素（用于 string/object）
+func (arr *NativeArray) GetPtr(index int) unsafe.Pointer {
+	if index < 0 || index >= int(arr.Length) {
+		return nil
+	}
+	ptr := unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+	return *(*unsafe.Pointer)(ptr)
+}
+
+// SetPtr 设置指针元素
+func (arr *NativeArray) SetPtr(index int, value unsafe.Pointer) {
+	if index < 0 || index >= int(arr.Length) {
+		return
+	}
+	ptr := unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+	*(*unsafe.Pointer)(ptr) = value
+}
+
+// Get 获取元素（通用方法，返回 Value）
+func (arr *NativeArray) Get(index int) Value {
+	if index < 0 || index >= int(arr.Length) {
+		return NullValue
+	}
+	switch arr.ElementType {
+	case ValInt:
+		return NewInt(arr.GetInt(index))
+	case ValFloat:
+		return NewFloat(arr.GetFloat(index))
+	case ValBool:
+		return NewBool(arr.GetBool(index))
+	case ValString:
+		ptr := arr.GetPtr(index)
+		if ptr == nil {
+			return NewString("")
+		}
+		return NewString(*(*string)(ptr))
+	case ValObject:
+		ptr := arr.GetPtr(index)
+		if ptr == nil {
+			return NullValue
+		}
+		return NewObject((*Object)(ptr))
+	default:
+		return NullValue
+	}
+}
+
+// Set 设置元素（通用方法）
+func (arr *NativeArray) Set(index int, value Value) {
+	if index < 0 || index >= int(arr.Length) {
+		return
+	}
+	switch arr.ElementType {
+	case ValInt:
+		arr.SetInt(index, value.AsInt())
+	case ValFloat:
+		arr.SetFloat(index, value.AsFloat())
+	case ValBool:
+		arr.SetBool(index, value.AsBool())
+	case ValString:
+		s := value.AsString()
+		arr.SetPtr(index, unsafe.Pointer(&s))
+	case ValObject:
+		if value.Type == ValObject {
+			arr.SetPtr(index, unsafe.Pointer(value.AsObject()))
+		} else {
+			arr.SetPtr(index, nil)
+		}
+	}
+}
+
+// Copy 深拷贝数组
+func (arr *NativeArray) Copy() *NativeArray {
+	newArr := NewNativeArray(arr.ElementType, int(arr.Length))
+	if arr.Length > 0 && arr.Data != nil {
+		// 复制内存
+		for i := 0; i < int(arr.Length); i++ {
+			switch arr.ElementType {
+			case ValInt, ValBool:
+				newArr.SetInt(i, arr.GetInt(i))
+			case ValFloat:
+				newArr.SetFloat(i, arr.GetFloat(i))
+			case ValString:
+				// 字符串需要深拷贝
+				ptr := arr.GetPtr(i)
+				if ptr != nil {
+					s := *(*string)(ptr)
+					sCopy := s // Go 字符串是不可变的，直接复制引用即可
+					newArr.SetPtr(i, unsafe.Pointer(&sCopy))
+				}
+			case ValObject:
+				// 对象只拷贝引用
+				newArr.SetPtr(i, arr.GetPtr(i))
+			}
+		}
+	}
+	return newArr
+}
+
+// ToValues 转换为 Value 切片
+func (arr *NativeArray) ToValues() []Value {
+	result := make([]Value, arr.Length)
+	for i := 0; i < int(arr.Length); i++ {
+		result[i] = arr.Get(i)
+	}
+	return result
+}
+
+// ToSuperArray 转换为 SuperArray
+func (arr *NativeArray) ToSuperArray() *SuperArray {
+	sa := NewSuperArray()
+	for i := 0; i < int(arr.Length); i++ {
+		sa.Push(arr.Get(i))
+	}
+	return sa
+}
+
+// GetElementPtr 获取元素指针（JIT 使用）
+func (arr *NativeArray) GetElementPtr(index int) unsafe.Pointer {
+	if index < 0 || index >= int(arr.Length) {
+		return nil
+	}
+	return unsafe.Pointer(uintptr(arr.Data) + uintptr(index)*NativeArrayElementSize)
+}
+
+// ============================================================================
+// NativeArray 语法糖方法
+// ============================================================================
+
+// IndexOf 查找元素第一次出现的索引
+func (arr *NativeArray) IndexOf(value Value) int {
+	for i := 0; i < int(arr.Length); i++ {
+		if arr.Get(i).Equals(value) {
+			return i
+		}
+	}
+	return -1
+}
+
+// LastIndexOf 查找元素最后一次出现的索引
+func (arr *NativeArray) LastIndexOf(value Value) int {
+	for i := int(arr.Length) - 1; i >= 0; i-- {
+		if arr.Get(i).Equals(value) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Contains 检查是否包含元素
+func (arr *NativeArray) Contains(value Value) bool {
+	return arr.IndexOf(value) >= 0
+}
+
+// Reverse 原地反转数组
+func (arr *NativeArray) Reverse() {
+	n := int(arr.Length)
+	for i := 0; i < n/2; i++ {
+		j := n - 1 - i
+		// 交换元素
+		switch arr.ElementType {
+		case ValInt, ValBool:
+			a, b := arr.GetInt(i), arr.GetInt(j)
+			arr.SetInt(i, b)
+			arr.SetInt(j, a)
+		case ValFloat:
+			a, b := arr.GetFloat(i), arr.GetFloat(j)
+			arr.SetFloat(i, b)
+			arr.SetFloat(j, a)
+		default:
+			a, b := arr.GetPtr(i), arr.GetPtr(j)
+			arr.SetPtr(i, b)
+			arr.SetPtr(j, a)
+		}
+	}
+}
+
+// Sort 原地升序排序
+func (arr *NativeArray) Sort() {
+	n := int(arr.Length)
+	switch arr.ElementType {
+	case ValInt:
+		// 提取值排序
+		values := make([]int64, n)
+		for i := 0; i < n; i++ {
+			values[i] = arr.GetInt(i)
+		}
+		sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+		for i := 0; i < n; i++ {
+			arr.SetInt(i, values[i])
+		}
+	case ValFloat:
+		values := make([]float64, n)
+		for i := 0; i < n; i++ {
+			values[i] = arr.GetFloat(i)
+		}
+		sort.Float64s(values)
+		for i := 0; i < n; i++ {
+			arr.SetFloat(i, values[i])
+		}
+	case ValString:
+		values := make([]string, n)
+		for i := 0; i < n; i++ {
+			ptr := arr.GetPtr(i)
+			if ptr != nil {
+				values[i] = *(*string)(ptr)
+			}
+		}
+		sort.Strings(values)
+		for i := 0; i < n; i++ {
+			s := values[i]
+			arr.SetPtr(i, unsafe.Pointer(&s))
+		}
+	}
+}
+
+// SortDesc 原地降序排序
+func (arr *NativeArray) SortDesc() {
+	arr.Sort()
+	arr.Reverse()
+}
+
+// Slice 获取切片（返回新数组）
+func (arr *NativeArray) Slice(start, end int) *NativeArray {
+	n := int(arr.Length)
+	if start < 0 {
+		start = 0
+	}
+	if end > n {
+		end = n
+	}
+	if start >= end {
+		return NewNativeArray(arr.ElementType, 0)
+	}
+	
+	length := end - start
+	newArr := NewNativeArray(arr.ElementType, length)
+	for i := 0; i < length; i++ {
+		switch arr.ElementType {
+		case ValInt, ValBool:
+			newArr.SetInt(i, arr.GetInt(start+i))
+		case ValFloat:
+			newArr.SetFloat(i, arr.GetFloat(start+i))
+		default:
+			newArr.SetPtr(i, arr.GetPtr(start+i))
+		}
+	}
+	return newArr
+}
+
+// Concat 连接另一个数组（返回新数组）
+func (arr *NativeArray) Concat(other *NativeArray) *NativeArray {
+	if other == nil || other.Length == 0 {
+		return arr.Copy()
+	}
+	
+	newLength := int(arr.Length) + int(other.Length)
+	newArr := NewNativeArray(arr.ElementType, newLength)
+	
+	// 复制第一个数组
+	for i := 0; i < int(arr.Length); i++ {
+		switch arr.ElementType {
+		case ValInt, ValBool:
+			newArr.SetInt(i, arr.GetInt(i))
+		case ValFloat:
+			newArr.SetFloat(i, arr.GetFloat(i))
+		default:
+			newArr.SetPtr(i, arr.GetPtr(i))
+		}
+	}
+	
+	// 复制第二个数组
+	offset := int(arr.Length)
+	for i := 0; i < int(other.Length); i++ {
+		switch arr.ElementType {
+		case ValInt, ValBool:
+			newArr.SetInt(offset+i, other.GetInt(i))
+		case ValFloat:
+			newArr.SetFloat(offset+i, other.GetFloat(i))
+		default:
+			newArr.SetPtr(offset+i, other.GetPtr(i))
+		}
+	}
+	
+	return newArr
+}
+
+// Sum 求和（数值数组）
+func (arr *NativeArray) Sum() Value {
+	switch arr.ElementType {
+	case ValInt:
+		var sum int64
+		for i := 0; i < int(arr.Length); i++ {
+			sum += arr.GetInt(i)
+		}
+		return NewInt(sum)
+	case ValFloat:
+		var sum float64
+		for i := 0; i < int(arr.Length); i++ {
+			sum += arr.GetFloat(i)
+		}
+		return NewFloat(sum)
+	default:
+		return NewInt(0)
+	}
+}
+
+// Max 最大值
+func (arr *NativeArray) Max() Value {
+	if arr.Length == 0 {
+		return NullValue
+	}
+	switch arr.ElementType {
+	case ValInt:
+		max := arr.GetInt(0)
+		for i := 1; i < int(arr.Length); i++ {
+			if v := arr.GetInt(i); v > max {
+				max = v
+			}
+		}
+		return NewInt(max)
+	case ValFloat:
+		max := arr.GetFloat(0)
+		for i := 1; i < int(arr.Length); i++ {
+			if v := arr.GetFloat(i); v > max {
+				max = v
+			}
+		}
+		return NewFloat(max)
+	default:
+		return NullValue
+	}
+}
+
+// Min 最小值
+func (arr *NativeArray) Min() Value {
+	if arr.Length == 0 {
+		return NullValue
+	}
+	switch arr.ElementType {
+	case ValInt:
+		min := arr.GetInt(0)
+		for i := 1; i < int(arr.Length); i++ {
+			if v := arr.GetInt(i); v < min {
+				min = v
+			}
+		}
+		return NewInt(min)
+	case ValFloat:
+		min := arr.GetFloat(0)
+		for i := 1; i < int(arr.Length); i++ {
+			if v := arr.GetFloat(i); v < min {
+				min = v
+			}
+		}
+		return NewFloat(min)
+	default:
+		return NullValue
+	}
+}
+
+// Average 平均值
+func (arr *NativeArray) Average() Value {
+	if arr.Length == 0 {
+		return NewFloat(math.NaN())
+	}
+	switch arr.ElementType {
+	case ValInt:
+		var sum int64
+		for i := 0; i < int(arr.Length); i++ {
+			sum += arr.GetInt(i)
+		}
+		return NewFloat(float64(sum) / float64(arr.Length))
+	case ValFloat:
+		var sum float64
+		for i := 0; i < int(arr.Length); i++ {
+			sum += arr.GetFloat(i)
+		}
+		return NewFloat(sum / float64(arr.Length))
+	default:
+		return NewFloat(math.NaN())
+	}
+}
+
+// Equals 比较两个数组是否相等
+func (arr *NativeArray) Equals(other *NativeArray) bool {
+	if other == nil {
+		return false
+	}
+	if arr.ElementType != other.ElementType {
+		return false
+	}
+	if arr.Length != other.Length {
+		return false
+	}
+	for i := 0; i < int(arr.Length); i++ {
+		if !arr.Get(i).Equals(other.Get(i)) {
+			return false
+		}
+	}
+	return true
+}
+
+// String 字符串表示
+func (arr *NativeArray) String() string {
+	var parts []string
+	for i := 0; i < int(arr.Length); i++ {
+		parts = append(parts, arr.Get(i).String())
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // SuperArray PHP风格万能数组
@@ -639,6 +1229,16 @@ func NewFixedArrayWithElements(elements []Value, capacity int) Value {
 	return Value{Type: ValFixedArray, Data: arr}
 }
 
+// NewNativeArrayValue 创建原生数组值
+func NewNativeArrayValue(arr *NativeArray) Value {
+	return Value{Type: ValNativeArray, Data: arr}
+}
+
+// NewNativeArrayFromValueSlice 从 Value 切片创建原生数组值
+func NewNativeArrayFromValueSlice(elemType ValueType, values []Value) Value {
+	return Value{Type: ValNativeArray, Data: NewNativeArrayFromValues(elemType, values)}
+}
+
 // NewMap 创建 Map 值
 func NewMap(m map[Value]Value) Value {
 	return Value{Type: ValMap, Data: m}
@@ -696,6 +1296,8 @@ func (v Value) IsTruthy() bool {
 		return len(v.Data.([]Value)) > 0
 	case ValFixedArray:
 		return v.Data.(*FixedArray).Capacity > 0
+	case ValNativeArray:
+		return v.Data.(*NativeArray).Length > 0
 	case ValMap:
 		return len(v.Data.(map[Value]Value)) > 0
 	case ValSuperArray:
@@ -766,6 +1368,19 @@ func (v Value) AsFixedArray() *FixedArray {
 		return v.Data.(*FixedArray)
 	}
 	return nil
+}
+
+// AsNativeArray 获取原生数组
+func (v Value) AsNativeArray() *NativeArray {
+	if v.Type == ValNativeArray {
+		return v.Data.(*NativeArray)
+	}
+	return nil
+}
+
+// IsNativeArray 检查是否为原生数组
+func (v Value) IsNativeArray() bool {
+	return v.Type == ValNativeArray
 }
 
 // AsMap 获取 Map
@@ -844,6 +1459,9 @@ func (v Value) String() string {
 			parts = append(parts, elem.String())
 		}
 		return fmt.Sprintf("[%s](%d)", strings.Join(parts, ", "), fa.Capacity)
+	case ValNativeArray:
+		na := v.Data.(*NativeArray)
+		return na.String()
 	case ValMap:
 		m := v.Data.(map[Value]Value)
 		var parts []string
@@ -948,6 +1566,12 @@ func (v Value) Equals(other Value) bool {
 			}
 		}
 		return true
+	case ValNativeArray:
+		if other.Type != ValNativeArray {
+			return false
+		}
+		na1, na2 := v.Data.(*NativeArray), other.Data.(*NativeArray)
+		return na1.Equals(na2)
 	case ValBytes:
 		b1, b2 := v.Data.([]byte), other.Data.([]byte)
 		if len(b1) != len(b2) {
@@ -1226,6 +1850,9 @@ func NewIterator(v Value) *Iterator {
 	case ValFixedArray:
 		iter.Type = "array"
 		iter.Array = v.AsFixedArray().Elements
+	case ValNativeArray:
+		iter.Type = "array"
+		iter.Array = v.AsNativeArray().ToValues()
 	case ValMap:
 		iter.Type = "map"
 		iter.Map = v.AsMap()

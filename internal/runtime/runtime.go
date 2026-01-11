@@ -453,7 +453,6 @@ func (r *Runtime) registerBuiltins() {
 	// 输出函数
 	r.builtins["print"] = builtinPrint
 	r.builtins["print_r"] = builtinPrintR
-	r.builtins["echo"] = builtinPrint
 
 	// 类型函数
 	r.builtins["typeof"] = builtinTypeof
@@ -471,6 +470,9 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["to_float"] = builtinToFloat
 	r.builtins["to_string"] = builtinToString
 	r.builtins["to_bool"] = builtinToBool
+
+	// 数组/字符串长度函数
+	r.builtins["len"] = builtinLen
 
 	// 反射/注解函数
 	r.builtins["get_class"] = builtinGetClass
@@ -517,18 +519,6 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["native_reflect_get_interfaces"] = func(args []bytecode.Value) bytecode.Value {
 		return r.reflectGetInterfaces(args)
 	}
-
-	// 数组函数
-	r.builtins["len"] = builtinLen
-	r.builtins["push"] = builtinPush
-	r.builtins["pop"] = builtinPop
-	r.builtins["shift"] = builtinShift
-	r.builtins["unshift"] = builtinUnshift
-	r.builtins["slice"] = builtinSlice
-	r.builtins["concat"] = builtinConcat
-	r.builtins["reverse"] = builtinReverse
-	r.builtins["contains"] = builtinContains
-	r.builtins["index_of"] = builtinIndexOf
 
 	// Native 数学函数 (仅供标准库使用)
 	r.builtins["native_math_abs"] = nativeMathAbs

@@ -1,0 +1,256 @@
+/**
+ * Array<T> - 定长数组类型
+ * 
+ * 定长数组是固定大小、固定类型的连续内存存储。
+ * 创建后长度不可变，但元素值可以修改。
+ * 
+ * 创建语法:
+ * ```sola
+ * // 方式1：new + 指定大小（元素为默认值）
+ * int[] $arr1 = new int[5];           // 5个元素，默认值0
+ * 
+ * // 方式2：new + 初始化列表
+ * int[] $arr2 = new int[] { 1, 2, 3 };
+ * 
+ * // 方式3：Go 风格简写
+ * $arr3 := int{1, 2, 3};
+ * 
+ * // 二维数组
+ * int[][] $matrix = new int[][] {
+ *     int{1, 2, 3},
+ *     int{4, 5, 6}
+ * };
+ * ```
+ * 
+ * 特点:
+ * - 定长：创建后长度不可变
+ * - 类型化：元素类型在编译时确定
+ * - 高性能：使用原生内存存储，JIT 可直接操作
+ * - 值比较：两个数组使用 == 比较时，逐元素比较值
+ * 
+ * @template T 元素类型
+ * @since 1.0.0
+ */
+shadow class Array<T> {
+    
+    // ==================== 属性 ====================
+    
+    /**
+     * 数组长度（只读）
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3 };
+     * echo $arr.length;  // 输出: 3
+     * ```
+     */
+    public readonly int $length;
+    
+    // ==================== 查找方法 ====================
+    
+    /**
+     * 查找元素第一次出现的索引
+     * 
+     * @param value 要查找的值
+     * @return 索引，未找到返回 -1
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3, 2, 1 };
+     * echo $arr.indexOf(2);   // 输出: 1
+     * echo $arr.indexOf(5);   // 输出: -1
+     * ```
+     */
+    public function indexOf(T $value): int;
+    
+    /**
+     * 查找元素最后一次出现的索引
+     * 
+     * @param value 要查找的值
+     * @return 索引，未找到返回 -1
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3, 2, 1 };
+     * echo $arr.lastIndexOf(2);  // 输出: 3
+     * ```
+     */
+    public function lastIndexOf(T $value): int;
+    
+    /**
+     * 检查是否包含指定元素
+     * 
+     * @param value 要检查的值
+     * @return 包含返回 true，否则 false
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3 };
+     * echo $arr.contains(2);  // 输出: true
+     * echo $arr.contains(5);  // 输出: false
+     * ```
+     */
+    public function contains(T $value): bool;
+    
+    // ==================== 排序方法 ====================
+    
+    /**
+     * 原地升序排序
+     * 
+     * @return 返回自身，支持链式调用
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 3, 1, 4, 1, 5 };
+     * $arr.sort();
+     * // $arr 现在是 { 1, 1, 3, 4, 5 }
+     * ```
+     */
+    public function sort(): Array<T>;
+    
+    /**
+     * 原地降序排序
+     * 
+     * @return 返回自身，支持链式调用
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 3, 1, 4, 1, 5 };
+     * $arr.sortDesc();
+     * // $arr 现在是 { 5, 4, 3, 1, 1 }
+     * ```
+     */
+    public function sortDesc(): Array<T>;
+    
+    /**
+     * 原地反转数组
+     * 
+     * @return 返回自身，支持链式调用
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3 };
+     * $arr.reverse();
+     * // $arr 现在是 { 3, 2, 1 }
+     * ```
+     */
+    public function reverse(): Array<T>;
+    
+    // ==================== 切片方法 ====================
+    
+    /**
+     * 获取切片（子数组）
+     * 
+     * @param start 起始索引（包含）
+     * @param end 结束索引（不包含）
+     * @return 新数组
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3, 4, 5 };
+     * int[] $sub = $arr.slice(1, 4);
+     * // $sub 是 { 2, 3, 4 }
+     * ```
+     */
+    public function slice(int $start, int $end): Array<T>;
+    
+    /**
+     * 连接另一个数组
+     * 
+     * @param other 要连接的数组
+     * @return 新数组
+     * 
+     * 示例:
+     * ```sola
+     * int[] $a = new int[] { 1, 2 };
+     * int[] $b = new int[] { 3, 4 };
+     * int[] $c = $a.concat($b);
+     * // $c 是 { 1, 2, 3, 4 }
+     * ```
+     */
+    public function concat(Array<T> $other): Array<T>;
+    
+    // ==================== 拷贝方法 ====================
+    
+    /**
+     * 深拷贝数组
+     * 
+     * @return 新数组（与原数组内容相同但独立）
+     * 
+     * 示例:
+     * ```sola
+     * int[] $a = new int[] { 1, 2, 3 };
+     * int[] $b = $a.copy();
+     * $b[0] = 999;
+     * // $a[0] 仍然是 1
+     * ```
+     */
+    public function copy(): Array<T>;
+    
+    /**
+     * 转换为 SuperArray
+     * 
+     * @return SuperArray（PHP 风格万能数组）
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3 };
+     * SuperArray $sa = $arr.toSuperArray();
+     * ```
+     */
+    public function toSuperArray(): SuperArray;
+    
+    // ==================== 数值方法（仅 int[]/float[] 可用） ====================
+    
+    /**
+     * 求和（数值数组）
+     * 
+     * @return 所有元素的和
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3, 4, 5 };
+     * echo $arr.sum();  // 输出: 15
+     * ```
+     */
+    public function sum(): T;
+    
+    /**
+     * 最大值
+     * 
+     * @return 数组中的最大元素，空数组返回 null
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 3, 1, 4, 1, 5 };
+     * echo $arr.max();  // 输出: 5
+     * ```
+     */
+    public function max(): ?T;
+    
+    /**
+     * 最小值
+     * 
+     * @return 数组中的最小元素，空数组返回 null
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 3, 1, 4, 1, 5 };
+     * echo $arr.min();  // 输出: 1
+     * ```
+     */
+    public function min(): ?T;
+    
+    /**
+     * 平均值
+     * 
+     * @return 所有元素的平均值（浮点数）
+     * 
+     * 示例:
+     * ```sola
+     * int[] $arr = new int[] { 1, 2, 3, 4, 5 };
+     * echo $arr.average();  // 输出: 3.0
+     * ```
+     */
+    public function average(): float;
+}

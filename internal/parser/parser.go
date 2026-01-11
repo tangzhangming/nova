@@ -1500,6 +1500,13 @@ func (p *Parser) parseCallArgument(args []ast.Expression, namedArgs []*ast.Named
 
 func (p *Parser) parseNewExpr() ast.Expression {
 	newToken := p.advance()
+	
+	// 检查是否是数组创建语法: new int[5] 或 new int[] { ... }
+	if p.isBasicType(p.peek().Type) {
+		return p.parseNewArrayExpr(newToken)
+	}
+	
+	// 常规对象创建: new ClassName()
 	className := p.consume(token.IDENT, "expected class name after 'new'")
 
 	// 解析泛型类型参数 <T, K>
@@ -1543,6 +1550,135 @@ func (p *Parser) parseNewExpr() ast.Expression {
 		NamedArguments: namedArgs,
 		RParen:         rparen,
 	}
+}
+
+// isBasicType 检查是否为基本类型 token
+func (p *Parser) isBasicType(t token.TokenType) bool {
+	switch t {
+	case token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
+		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
+		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
+		token.BOOL_TYPE, token.STRING_TYPE:
+		return true
+	default:
+		return false
+	}
+}
+
+// parseNewArrayExpr 解析数组创建表达式
+// 支持语法:
+//   - new int[5]              创建指定大小的数组
+//   - new int[] { 1, 2, 3 }   创建并初始化数组
+func (p *Parser) parseNewArrayExpr(newToken token.Token) ast.Expression {
+	// 解析元素类型
+	elementType := p.parseType()
+	
+	// 检查是否直接有 [ 符号（new int[5] 或 new int[] {...}）
+	// 如果 parseType 已经解析了数组类型 (int[])，我们需要特殊处理
+	if arrType, ok := elementType.(*ast.ArrayType); ok {
+		// 已经解析了 int[] 或 int[5] 形式
+		if arrType.Size != nil {
+			// new int[5] - 指定大小
+			return &ast.NewArrayExpr{
+				NewToken:    newToken,
+				ElementType: arrType.ElementType,
+				LBracket:    arrType.LBracket,
+				Size:        arrType.Size,
+				RBracket:    arrType.RBracket,
+			}
+		}
+		
+		// new int[] { ... } - 需要解析初始化列表
+		if p.check(token.LBRACE) {
+			lbrace := p.advance()
+			var elements []ast.Expression
+			
+			if !p.check(token.RBRACE) {
+				elements = append(elements, p.parseExpression())
+				for p.match(token.COMMA) {
+					if p.check(token.RBRACE) {
+						break // 允许尾逗号
+					}
+					elements = append(elements, p.parseExpression())
+				}
+			}
+			
+			rbrace := p.consume(token.RBRACE, "expected '}' after array initializer")
+			
+			return &ast.NewArrayExpr{
+				NewToken:    newToken,
+				ElementType: arrType.ElementType,
+				LBracket:    arrType.LBracket,
+				RBracket:    arrType.RBracket,
+				LBrace:      lbrace,
+				Elements:    elements,
+				RBrace:      rbrace,
+			}
+		}
+		
+		// new int[] 没有初始化列表 - 错误
+		p.error("expected '{' after 'new " + arrType.ElementType.String() + "[]'")
+		return nil
+	}
+	
+	// 如果 parseType 只解析了基本类型（没有 []），检查是否有 [
+	if p.check(token.LBRACKET) {
+		lbracket := p.advance()
+		
+		// 检查是否有大小
+		var size ast.Expression
+		if !p.check(token.RBRACKET) {
+			size = p.parseExpression()
+		}
+		
+		rbracket := p.consume(token.RBRACKET, "expected ']'")
+		
+		if size != nil {
+			// new int[5] - 指定大小
+			return &ast.NewArrayExpr{
+				NewToken:    newToken,
+				ElementType: elementType,
+				LBracket:    lbracket,
+				Size:        size,
+				RBracket:    rbracket,
+			}
+		}
+		
+		// new int[] { ... } - 需要解析初始化列表
+		if p.check(token.LBRACE) {
+			lbrace := p.advance()
+			var elements []ast.Expression
+			
+			if !p.check(token.RBRACE) {
+				elements = append(elements, p.parseExpression())
+				for p.match(token.COMMA) {
+					if p.check(token.RBRACE) {
+						break // 允许尾逗号
+					}
+					elements = append(elements, p.parseExpression())
+				}
+			}
+			
+			rbraceEnd := p.consume(token.RBRACE, "expected '}' after array initializer")
+			
+			return &ast.NewArrayExpr{
+				NewToken:    newToken,
+				ElementType: elementType,
+				LBracket:    lbracket,
+				RBracket:    rbracket,
+				LBrace:      lbrace,
+				Elements:    elements,
+				RBrace:      rbraceEnd,
+			}
+		}
+		
+		// new int[] 没有初始化列表 - 错误
+		p.error("expected '{' after 'new " + elementType.String() + "[]'")
+		return nil
+	}
+	
+	p.error("expected '[' after type in array creation")
+	return nil
 }
 
 func (p *Parser) parseClosureExpr() ast.Expression {

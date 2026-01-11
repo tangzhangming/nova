@@ -640,6 +640,9 @@ func (c *Compiler) computeExprSignature(expr ast.Expression) string {
 	case *ast.NewExpr:
 		// new 表达式有副作用
 		return ""
+	case *ast.NewArrayExpr:
+		// 数组创建有副作用
+		return ""
 	case *ast.ThisExpr:
 		// $this 可能变化，不缓存
 		return ""
@@ -666,6 +669,8 @@ func (c *Compiler) hasSideEffect(expr ast.Expression) bool {
 	case *ast.CallExpr:
 		return true // 保守估计，函数调用可能有副作用
 	case *ast.NewExpr:
+		return true
+	case *ast.NewArrayExpr:
 		return true
 	case *ast.UnaryExpr:
 		// 自增/自减有副作用
@@ -2462,6 +2467,9 @@ func (c *Compiler) compileExpr(expr ast.Expression) {
 	case *ast.NewExpr:
 		c.compileNewExpr(e)
 
+	case *ast.NewArrayExpr:
+		c.compileNewArrayExpr(e)
+
 	case *ast.ClosureExpr:
 		c.compileClosureExpr(e)
 
@@ -4054,6 +4062,72 @@ func (c *Compiler) resolveNewExprNamedArguments(e *ast.NewExpr) []ast.Expression
 	return result[:actualLen]
 }
 
+// compileNewArrayExpr 编译数组创建表达式
+// 支持语法:
+//   - new int[5]              创建指定大小的数组
+//   - new int[] { 1, 2, 3 }   创建并初始化数组
+func (c *Compiler) compileNewArrayExpr(e *ast.NewArrayExpr) {
+	// 获取元素类型
+	elemType := c.getValueTypeFromTypeNode(e.ElementType)
+	
+	if e.Size != nil {
+		// new int[5] - 创建指定大小的数组
+		// 先编译 size 表达式
+		c.compileExpr(e.Size)
+		
+		// 如果 size 是常量，直接使用
+		if intLit, ok := e.Size.(*ast.IntegerLiteral); ok {
+			// 使用 OpNativeArrayNew 指令
+			// 参数: elemType (u8), length (u16)
+			c.emit(bytecode.OpNativeArrayNew)
+			c.currentChunk().WriteU8(uint8(elemType), c.currentLine)
+			c.currentChunk().WriteU16(uint16(intLit.Value), c.currentLine)
+			c.emit(bytecode.OpSwap) // 交换栈顶，弹出 size
+			c.emit(bytecode.OpPop)  // 弹出 size
+		} else {
+			// 运行时确定大小 - 需要使用栈上的值
+			// 但目前 OpNativeArrayNew 只支持常量大小
+			// 我们可以先支持常量大小，运行时大小需要新指令
+			c.error(e.Pos(), i18n.T(i18n.ErrArraySizeNotConst))
+		}
+	} else if len(e.Elements) > 0 {
+		// new int[] { 1, 2, 3 } - 用初始化列表创建数组
+		// 先编译所有元素表达式
+		for _, elem := range e.Elements {
+			c.compileExpr(elem)
+		}
+		
+		// 使用 OpNativeArrayInit 指令
+		// 参数: elemType (u8), count (u16)
+		c.emit(bytecode.OpNativeArrayInit)
+		c.currentChunk().WriteU8(uint8(elemType), c.currentLine)
+		c.currentChunk().WriteU16(uint16(len(e.Elements)), c.currentLine)
+	} else {
+		// 空数组
+		c.emit(bytecode.OpNativeArrayNew)
+		c.currentChunk().WriteU8(uint8(elemType), c.currentLine)
+		c.currentChunk().WriteU16(0, c.currentLine)
+	}
+}
+
+// getValueTypeFromTypeNode 从类型节点获取 ValueType
+func (c *Compiler) getValueTypeFromTypeNode(typeNode ast.TypeNode) bytecode.ValueType {
+	typeName := c.getTypeName(typeNode)
+	switch typeName {
+	case "int", "i8", "i16", "i32", "i64", "uint", "u8", "u16", "u32", "u64":
+		return bytecode.ValInt
+	case "float", "f32", "f64":
+		return bytecode.ValFloat
+	case "bool":
+		return bytecode.ValBool
+	case "string":
+		return bytecode.ValString
+	default:
+		// 对象类型
+		return bytecode.ValObject
+	}
+}
+
 // checkConstructorArgTypes 检查构造函数参数类型
 // 静态类型系统：严格检查所有参数类型
 func (c *Compiler) checkConstructorArgTypes(e *ast.NewExpr) {
@@ -4914,6 +4988,10 @@ func (c *Compiler) inferExprType(expr ast.Expression) string {
 		}
 		// 增强泛型推断：尝试从构造函数参数推断泛型类型参数
 		return c.inferGenericNewExpr(e)
+	case *ast.NewArrayExpr:
+		// 数组创建表达式的类型是元素类型[]
+		elemTypeName := c.getTypeName(e.ElementType)
+		return elemTypeName + "[]"
 	case *ast.TernaryExpr:
 		// 三元表达式：两个分支类型应该相同
 		thenType := c.inferExprType(e.Then)

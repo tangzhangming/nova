@@ -211,6 +211,18 @@ func (cg *X64CodeGenerator) emitInstr(instr *IRInstr) {
 		cg.emitArrayGet(instr)
 	case OpArraySet:
 		cg.emitArraySet(instr)
+	case OpNewArray:
+		cg.emitNewArray(instr)
+	case OpNewFixedArray:
+		cg.emitNewFixedArray(instr)
+	case OpStringConcat:
+		cg.emitStringConcat(instr)
+	case OpStringBuilderNew:
+		cg.emitStringBuilderNew(instr)
+	case OpStringBuilderAdd:
+		cg.emitStringBuilderAdd(instr)
+	case OpStringBuilderBuild:
+		cg.emitStringBuilderBuild(instr)
 	case OpPhi:
 		// Phi 节点在代码生成阶段已经通过寄存器分配处理，不需要额外代码
 	case OpNop:
@@ -954,6 +966,236 @@ func (cg *X64CodeGenerator) emitArraySet(instr *IRInstr) {
 	cg.emitCallHelper(helperAddr)
 	
 	// 结果在 RAX（成功标志），可以忽略
+}
+
+// ============================================================================
+// 数组创建指令生成
+// ============================================================================
+
+// emitNewArray 生成创建数组操作
+// 调用 NewArrayHelper(length, stackPtr) -> arrayPtr
+func (cg *X64CodeGenerator) emitNewArray(instr *IRInstr) {
+	if instr.Dest == nil {
+		return
+	}
+
+	// 准备参数
+	// RCX = 数组长度
+	cg.asm.MovRegImm64(RCX, uint64(instr.ArrayLength))
+
+	// RDX = 元素数组的起始地址（在栈上）
+	// 由于元素已经在 Args 中，我们需要将它们放到一个连续的内存区域
+	// 简化实现：对于小数组，直接在栈上分配空间
+	if len(instr.Args) > 0 {
+		// 在栈上分配空间存放元素
+		stackSpace := int32(len(instr.Args) * 24) // 每个 Value 24 字节
+		cg.asm.SubRegImm32(RSP, stackSpace)
+		
+		// 将元素复制到栈上
+		for i, arg := range instr.Args {
+			offset := int32(i * 24)
+			src := cg.loadValue(arg, RAX)
+			cg.asm.MovMemReg(RSP, offset, src)
+		}
+		
+		cg.asm.MovRegReg(RDX, RSP)
+	} else {
+		cg.asm.XorRegReg(RDX, RDX) // NULL
+	}
+
+	// 调用 NewArrayHelper
+	helperAddr := GetNewArrayHelperPtr()
+	cg.emitCallHelper(helperAddr)
+
+	// 恢复栈
+	if len(instr.Args) > 0 {
+		stackSpace := int32(len(instr.Args) * 24)
+		cg.asm.AddRegImm32(RSP, stackSpace)
+	}
+
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitNewFixedArray 生成创建定长数组操作
+// 调用 NewFixedArrayHelper(capacity, length, stackPtr) -> arrayPtr
+func (cg *X64CodeGenerator) emitNewFixedArray(instr *IRInstr) {
+	if instr.Dest == nil {
+		return
+	}
+
+	// RCX = 容量
+	cg.asm.MovRegImm64(RCX, uint64(instr.ArrayCapacity))
+	
+	// RDX = 初始长度
+	cg.asm.MovRegImm64(RDX, uint64(instr.ArrayLength))
+
+	// R8 = 元素数组的起始地址
+	if len(instr.Args) > 0 {
+		stackSpace := int32(len(instr.Args) * 24)
+		cg.asm.SubRegImm32(RSP, stackSpace)
+		
+		for i, arg := range instr.Args {
+			offset := int32(i * 24)
+			src := cg.loadValue(arg, RAX)
+			cg.asm.MovMemReg(RSP, offset, src)
+		}
+		
+		cg.asm.MovRegReg(R8, RSP)
+	} else {
+		cg.asm.XorRegReg(R8, R8)
+	}
+
+	// 调用 NewFixedArrayHelper
+	helperAddr := GetNewFixedArrayHelperPtr()
+	cg.emitCallHelper(helperAddr)
+
+	// 恢复栈
+	if len(instr.Args) > 0 {
+		stackSpace := int32(len(instr.Args) * 24)
+		cg.asm.AddRegImm32(RSP, stackSpace)
+	}
+
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// ============================================================================
+// 字符串操作指令生成
+// ============================================================================
+
+// emitStringConcat 生成字符串拼接操作
+// 调用 StringConcatHelper(aPtr, bPtr) -> resultPtr
+func (cg *X64CodeGenerator) emitStringConcat(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 2 {
+		return
+	}
+
+	// 加载左操作数到 RCX
+	left := cg.loadValue(instr.Args[0], RCX)
+	if left != RCX {
+		cg.asm.MovRegReg(RCX, left)
+	}
+
+	// 加载右操作数到 RDX
+	right := cg.loadValue(instr.Args[1], RDX)
+	if right != RDX {
+		cg.asm.MovRegReg(RDX, right)
+	}
+
+	// 调用 StringConcatHelper
+	helperAddr := GetStringConcatHelperPtr()
+	cg.emitCallHelper(helperAddr)
+
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitStringBuilderNew 生成创建字符串构建器操作
+// 调用 StringBuilderNewHelper() -> sbPtr
+func (cg *X64CodeGenerator) emitStringBuilderNew(instr *IRInstr) {
+	if instr.Dest == nil {
+		return
+	}
+
+	// 调用 StringBuilderNewHelper（无参数）
+	helperAddr := GetStringBuilderNewHelperPtr()
+	cg.emitCallHelper(helperAddr)
+
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
+}
+
+// emitStringBuilderAdd 生成向构建器添加内容操作
+// 调用 StringBuilderAddHelper(sbPtr, valPtr) -> sbPtr
+func (cg *X64CodeGenerator) emitStringBuilderAdd(instr *IRInstr) {
+	if len(instr.Args) < 2 {
+		return
+	}
+
+	// 加载 StringBuilder 到 RCX
+	sb := cg.loadValue(instr.Args[0], RCX)
+	if sb != RCX {
+		cg.asm.MovRegReg(RCX, sb)
+	}
+
+	// 加载要添加的值到 RDX
+	val := cg.loadValue(instr.Args[1], RDX)
+	if val != RDX {
+		cg.asm.MovRegReg(RDX, val)
+	}
+
+	// 调用 StringBuilderAddHelper
+	helperAddr := GetStringBuilderAddHelperPtr()
+	cg.emitCallHelper(helperAddr)
+
+	// 结果在 RAX（返回 sb 自身）
+	if instr.Dest != nil {
+		dst := cg.getReg(instr.Dest.ID)
+		if dst != RegNone && dst != RAX {
+			cg.asm.MovRegReg(dst, RAX)
+		} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+			slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+			offset := cg.getSpillOffset(slot)
+			cg.asm.MovMemReg(RBP, offset, RAX)
+		}
+	}
+}
+
+// emitStringBuilderBuild 生成构建最终字符串操作
+// 调用 StringBuilderBuildHelper(sbPtr) -> stringPtr
+func (cg *X64CodeGenerator) emitStringBuilderBuild(instr *IRInstr) {
+	if instr.Dest == nil || len(instr.Args) < 1 {
+		return
+	}
+
+	// 加载 StringBuilder 到 RCX
+	sb := cg.loadValue(instr.Args[0], RCX)
+	if sb != RCX {
+		cg.asm.MovRegReg(RCX, sb)
+	}
+
+	// 调用 StringBuilderBuildHelper
+	helperAddr := GetStringBuilderBuildHelperPtr()
+	cg.emitCallHelper(helperAddr)
+
+	// 结果在 RAX
+	dst := cg.getReg(instr.Dest.ID)
+	if dst != RegNone && dst != RAX {
+		cg.asm.MovRegReg(dst, RAX)
+	} else if cg.alloc.IsSpilled(instr.Dest.ID) {
+		slot := cg.alloc.GetSpillSlot(instr.Dest.ID)
+		offset := cg.getSpillOffset(slot)
+		cg.asm.MovMemReg(RBP, offset, RAX)
+	}
 }
 
 // emitCallHelper 生成调用运行时辅助函数的代码

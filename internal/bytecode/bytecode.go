@@ -110,6 +110,13 @@ const (
 	OpSuperArrayGet // 获取万能数组元素 [stack: arr, key -> value]
 	OpSuperArraySet // 设置万能数组元素 [stack: arr, key, value -> arr]
 
+	// NativeArray 原生数组操作（类型化存储，JIT 友好）
+	OpNativeArrayNew  // 创建原生数组 (elemType: u8, length: u16) [stack: -> arr]
+	OpNativeArrayInit // 用栈上元素初始化数组 (elemType: u8, count: u16) [stack: v1, v2, ... -> arr]
+	OpNativeArrayGet  // 获取元素 [stack: arr, idx -> value]
+	OpNativeArraySet  // 设置元素 [stack: arr, idx, value -> ]
+	OpNativeArrayLen  // 获取长度 [stack: arr -> length]
+
 	// 迭代器操作
 	OpIterInit  // 初始化迭代器
 	OpIterNext  // 获取下一个元素 (返回 true/false)
@@ -271,6 +278,11 @@ var opNames = map[OpCode]string{
 	OpSuperArrayNew:  "SUPER_ARRAY_NEW",
 	OpSuperArrayGet:  "SUPER_ARRAY_GET",
 	OpSuperArraySet:  "SUPER_ARRAY_SET",
+	OpNativeArrayNew:  "NATIVE_ARRAY_NEW",
+	OpNativeArrayInit: "NATIVE_ARRAY_INIT",
+	OpNativeArrayGet:  "NATIVE_ARRAY_GET",
+	OpNativeArraySet:  "NATIVE_ARRAY_SET",
+	OpNativeArrayLen:  "NATIVE_ARRAY_LEN",
 	OpIterInit:       "ITER_INIT",
 	OpIterNext:    "ITER_NEXT",
 	OpIterKey:     "ITER_KEY",

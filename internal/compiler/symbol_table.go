@@ -449,6 +449,35 @@ func (st *SymbolTable) registerBuiltinTypeMethods() {
 	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "remove", ParamTypes: []string{"dynamic"}, ReturnType: "bool"})
 	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "clear", ParamTypes: []string{}, ReturnType: "void"})
 	st.RegisterMethod(&MethodSignature{ClassName: "SuperArray", MethodName: "copy", ParamTypes: []string{}, ReturnType: "SuperArray"})
+
+	// NativeArray 原生数组方法（使用 "Array" 作为类型名，通用于所有 T[]）
+	// 属性
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "length", ParamTypes: []string{}, ReturnType: "int"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "len", ParamTypes: []string{}, ReturnType: "int"})
+	
+	// 查找方法
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "indexOf", ParamTypes: []string{"dynamic"}, ReturnType: "int"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "lastIndexOf", ParamTypes: []string{"dynamic"}, ReturnType: "int"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "contains", ParamTypes: []string{"dynamic"}, ReturnType: "bool"})
+	
+	// 排序方法
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "sort", ParamTypes: []string{}, ReturnType: "Array"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "sortDesc", ParamTypes: []string{}, ReturnType: "Array"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "reverse", ParamTypes: []string{}, ReturnType: "Array"})
+	
+	// 切片方法
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "slice", ParamTypes: []string{"int", "int"}, ReturnType: "Array"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "concat", ParamTypes: []string{"Array"}, ReturnType: "Array"})
+	
+	// 拷贝方法
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "copy", ParamTypes: []string{}, ReturnType: "Array"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "toSuperArray", ParamTypes: []string{}, ReturnType: "SuperArray"})
+	
+	// 数值方法
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "sum", ParamTypes: []string{}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "max", ParamTypes: []string{}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "min", ParamTypes: []string{}, ReturnType: "dynamic"})
+	st.RegisterMethod(&MethodSignature{ClassName: "Array", MethodName: "average", ParamTypes: []string{}, ReturnType: "float"})
 }
 
 // RegisterFunction 注册函数签名

@@ -83,12 +83,13 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 		op := bytecode.OpCode(code[ip])
 		
 		switch op {
-		// 完全不支持的操作
-		case bytecode.OpNewArray, // 创建数组需要复杂的内存分配
-			bytecode.OpNewMap,
-			bytecode.OpConcat, bytecode.OpStringBuilderNew, bytecode.OpStringBuilderAdd, bytecode.OpStringBuilderBuild,
+		// 完全不支持的操作（需要复杂的运行时支持）
+		case bytecode.OpNewMap,
 			bytecode.OpSuperArrayNew, bytecode.OpSuperArrayGet, bytecode.OpSuperArraySet:
 			return JITDisabled
+		
+		// 数组创建和字符串操作（已通过 Runtime Helper 支持）
+		// OpNewArray, OpNewFixedArray, OpConcat, OpStringBuilder* 现在可以 JIT
 		
 		// Map 和迭代器操作（需要运行时支持，降级到 JITWithCalls）
 		case bytecode.OpMapGet, bytecode.OpMapSet, bytecode.OpMapHas, bytecode.OpMapLen,

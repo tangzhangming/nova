@@ -331,7 +331,15 @@ func (uc *UninitializedChecker) collectExprUsedVars(expr ast.Expression, result 
 		for _, arg := range e.Arguments {
 			uc.collectExprUsedVars(arg, result)
 		}
-		
+
+	case *ast.NewArrayExpr:
+		if e.Size != nil {
+			uc.collectExprUsedVars(e.Size, result)
+		}
+		for _, elem := range e.Elements {
+			uc.collectExprUsedVars(elem, result)
+		}
+
 	case *ast.TernaryExpr:
 		uc.collectExprUsedVars(e.Condition, result)
 		uc.collectExprUsedVars(e.Then, result)

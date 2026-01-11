@@ -137,7 +137,15 @@ func (bb *BasicBlock) collectUsedVars(expr ast.Expression) {
 		for _, arg := range e.Arguments {
 			bb.collectUsedVars(arg)
 		}
-		
+
+	case *ast.NewArrayExpr:
+		if e.Size != nil {
+			bb.collectUsedVars(e.Size)
+		}
+		for _, elem := range e.Elements {
+			bb.collectUsedVars(elem)
+		}
+
 	case *ast.TernaryExpr:
 		bb.collectUsedVars(e.Condition)
 		bb.collectUsedVars(e.Then)

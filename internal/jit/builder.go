@@ -388,6 +388,29 @@ func (b *IRBuilder) convertInstruction(op bytecode.OpCode, ip int, line int) err
 	case bytecode.OpArraySet:
 		b.emitArraySet(line)
 
+	// 数组创建
+	case bytecode.OpNewArray:
+		length := int(b.chunk.ReadU16(ip + 1))
+		b.emitNewArray(length, line)
+
+	case bytecode.OpNewFixedArray:
+		capacity := int(b.chunk.ReadU16(ip + 1))
+		initLength := int(b.chunk.ReadU16(ip + 3))
+		b.emitNewFixedArray(capacity, initLength, line)
+
+	// 字符串操作
+	case bytecode.OpConcat:
+		b.emitStringConcat(line)
+
+	case bytecode.OpStringBuilderNew:
+		b.emitStringBuilderNew(line)
+
+	case bytecode.OpStringBuilderAdd:
+		b.emitStringBuilderAdd(line)
+
+	case bytecode.OpStringBuilderBuild:
+		b.emitStringBuilderBuild(line)
+
 	// Map 操作
 	case bytecode.OpMapGet:
 		b.emitMapGet(line)
@@ -1299,5 +1322,102 @@ func (b *IRBuilder) emitIterValue(line int) {
 	
 	// 将迭代器重新压回栈
 	b.push(iterator)
+	b.push(dest)
+}
+
+// ============================================================================
+// 字符串操作
+// ============================================================================
+
+// emitStringConcat 生成字符串拼接指令
+// 栈布局：[a, b] -> [result]
+func (b *IRBuilder) emitStringConcat(line int) {
+	right := b.pop()
+	left := b.pop()
+	
+	dest := b.fn.NewValue(TypeString)
+	instr := NewInstr(OpStringConcat, dest, left, right)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitStringBuilderNew 生成创建字符串构建器指令
+// 栈布局：[] -> [sb]
+func (b *IRBuilder) emitStringBuilderNew(line int) {
+	dest := b.fn.NewValue(TypePtr) // StringBuilder 作为指针类型
+	instr := NewInstr(OpStringBuilderNew, dest)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitStringBuilderAdd 生成向构建器添加内容指令
+// 栈布局：[sb, value] -> [sb]
+func (b *IRBuilder) emitStringBuilderAdd(line int) {
+	value := b.pop()
+	sb := b.pop()
+	
+	// 返回 StringBuilder 自身，支持链式调用
+	instr := NewInstr(OpStringBuilderAdd, sb, sb, value)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(sb)
+}
+
+// emitStringBuilderBuild 生成构建最终字符串指令
+// 栈布局：[sb] -> [string]
+func (b *IRBuilder) emitStringBuilderBuild(line int) {
+	sb := b.pop()
+	
+	dest := b.fn.NewValue(TypeString)
+	instr := NewInstr(OpStringBuilderBuild, dest, sb)
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// ============================================================================
+// 数组创建操作
+// ============================================================================
+
+// emitNewArray 生成创建数组指令
+// 栈布局：[elem0, elem1, ..., elemN-1] -> [array]
+func (b *IRBuilder) emitNewArray(length int, line int) {
+	// 收集栈上的元素
+	elements := make([]*IRValue, length)
+	for i := length - 1; i >= 0; i-- {
+		elements[i] = b.pop()
+	}
+	
+	dest := b.fn.NewValue(TypeArray)
+	instr := NewInstr(OpNewArray, dest, elements...)
+	instr.ArrayLength = length
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
+	b.push(dest)
+}
+
+// emitNewFixedArray 生成创建定长数组指令
+// 栈布局：[elem0, elem1, ..., elemN-1] -> [array]
+func (b *IRBuilder) emitNewFixedArray(capacity, initLength int, line int) {
+	// 收集栈上的元素
+	elements := make([]*IRValue, initLength)
+	for i := initLength - 1; i >= 0; i-- {
+		elements[i] = b.pop()
+	}
+	
+	dest := b.fn.NewValue(TypeArray)
+	instr := NewInstr(OpNewFixedArray, dest, elements...)
+	instr.ArrayLength = initLength
+	instr.ArrayCapacity = capacity
+	instr.Line = line
+	b.current.AddInstr(instr)
+	
 	b.push(dest)
 }

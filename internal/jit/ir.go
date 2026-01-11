@@ -159,6 +159,14 @@ const (
 	OpArraySet         // 数组设元素
 	OpArrayLen         // 数组长度
 	OpArrayBoundsCheck // 数组边界检查（可被优化消除）
+	OpNewArray         // 创建数组
+	OpNewFixedArray    // 创建定长数组
+
+	// 字符串操作
+	OpStringConcat       // 字符串拼接
+	OpStringBuilderNew   // 创建字符串构建器
+	OpStringBuilderAdd   // 向构建器添加内容
+	OpStringBuilderBuild // 构建最终字符串
 
 	// 标记指令
 	OpNop // 空操作（占位符，优化后可能产生）
@@ -237,11 +245,17 @@ var opcodeNames = map[Opcode]string{
 	OpIntToFloat:  "i2f",
 	OpFloatToInt:  "f2i",
 	OpBoolToInt:   "b2i",
-	OpArrayGet:         "aget",
-	OpArraySet:         "aset",
-	OpArrayLen:         "alen",
-	OpArrayBoundsCheck: "boundscheck",
-	OpNop:               "nop",
+	OpArrayGet:           "aget",
+	OpArraySet:           "aset",
+	OpArrayLen:           "alen",
+	OpArrayBoundsCheck:   "boundscheck",
+	OpNewArray:           "newarray",
+	OpNewFixedArray:      "newfixedarray",
+	OpStringConcat:       "strconcat",
+	OpStringBuilderNew:   "sb.new",
+	OpStringBuilderAdd:   "sb.add",
+	OpStringBuilderBuild: "sb.build",
+	OpNop:                "nop",
 	OpExceptionFallback: "exception.fallback",
 	OpVarArgsArray:      "varargs.array",
 	OpVarArgsLen:        "varargs.len",
@@ -382,24 +396,28 @@ type IRInstr struct {
 	Dest   *IRValue   // 目标值（可能为 nil）
 	Args   []*IRValue // 操作数列表
 	Block  *IRBlock   // 所属基本块
-	
+
 	// 额外信息
 	LocalIdx int        // 局部变量索引（用于 load/store）
 	Targets  []*IRBlock // 跳转目标（用于 branch）
-	
+
 	// 函数调用相关字段
 	CallTarget   string        // 调用目标（函数名或符号）
 	CallArgCount int           // 调用参数数量
 	CallConv     CallConvType  // 调用约定
 	CallFunc     *IRFunc       // 被调用的IR函数（用于内联）
 	IsVarArgs    bool          // 是否可变参数
-	
+
 	// 对象操作相关字段
 	ClassName    string        // 类名
 	FieldName    string        // 字段名
 	FieldOffset  int           // 字段偏移（编译时计算）
 	FieldType    ValueType     // 字段类型
-	
+
+	// 数组创建相关字段
+	ArrayLength   int          // 数组长度
+	ArrayCapacity int          // 数组容量（用于定长数组）
+
 	// 调试信息
 	Line     int        // 源代码行号
 }

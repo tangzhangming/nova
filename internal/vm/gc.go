@@ -1254,6 +1254,8 @@ func (gc *GC) getTypeName(v bytecode.Value) string {
 		return "array"
 	case bytecode.ValFixedArray:
 		return "fixed_array"
+	case bytecode.ValNativeArray:
+		return "native_array"
 	case bytecode.ValMap:
 		return "map"
 	case bytecode.ValObject:
@@ -1290,6 +1292,8 @@ func (gc *GC) valueTypeName(t bytecode.ValueType) string {
 		return "array"
 	case bytecode.ValFixedArray:
 		return "fixed_array"
+	case bytecode.ValNativeArray:
+		return "native_array"
 	case bytecode.ValMap:
 		return "map"
 	case bytecode.ValObject:
@@ -1515,6 +1519,20 @@ func (gc *GC) getValueChildren(v bytecode.Value) []GCObject {
 			}
 		}
 
+	case bytecode.ValNativeArray:
+		na := v.AsNativeArray()
+		if na != nil {
+			// 对于引用类型元素，需要追踪
+			if na.ElementType == bytecode.ValString || na.ElementType == bytecode.ValObject {
+				for i := 0; i < na.Len(); i++ {
+					elem := na.Get(i)
+					if w := gc.TrackValue(elem); w != nil {
+						children = append(children, w)
+					}
+				}
+			}
+		}
+
 	case bytecode.ValMap:
 		m := v.AsMap()
 		for k, val := range m {
@@ -1559,6 +1577,8 @@ func (gc *GC) keyOf(v bytecode.Value) uintptr {
 		return reflect.ValueOf(v.AsArray()).Pointer()
 	case bytecode.ValFixedArray:
 		return reflect.ValueOf(v.AsFixedArray()).Pointer()
+	case bytecode.ValNativeArray:
+		return reflect.ValueOf(v.AsNativeArray()).Pointer()
 	case bytecode.ValMap:
 		return reflect.ValueOf(v.AsMap()).Pointer()
 	case bytecode.ValObject:
@@ -1577,7 +1597,7 @@ func (gc *GC) keyOf(v bytecode.Value) uintptr {
 // isHeapValue 判断值是否是堆分配的（需要 GC 管理）
 func isHeapValue(v bytecode.Value) bool {
 	switch v.Type {
-	case bytecode.ValArray, bytecode.ValFixedArray, bytecode.ValMap,
+	case bytecode.ValArray, bytecode.ValFixedArray, bytecode.ValNativeArray, bytecode.ValMap,
 		bytecode.ValObject, bytecode.ValClosure, bytecode.ValFunc:
 		return true
 	default:
