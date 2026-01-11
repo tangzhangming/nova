@@ -116,12 +116,12 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 				level = JITWithExceptions
 			}
 		
-		// 函数调用 - 暂时禁用 JIT
-		// 函数调用的 JIT 实现需要复杂的 VM 交互机制，
-		// 包括正确的帧管理和返回值传递。
-		// 目前先禁用，让包含函数调用的代码走解释器。
+		// 函数调用 - 降级到 JITWithCalls 级别
+		// 支持通过 Runtime Helper 进行函数调用
 		case bytecode.OpCall, bytecode.OpTailCall, bytecode.OpCallMethod, bytecode.OpCallStatic:
-			return JITDisabled
+			if level > JITWithCalls {
+				level = JITWithCalls
+			}
 		
 		// 对象操作（需要 JITWithObjects 级别）
 		case bytecode.OpNewObject, bytecode.OpGetField, bytecode.OpSetField,

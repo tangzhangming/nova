@@ -200,11 +200,4 @@ func (a *Arena) Stats() ArenaStats {
 	return stats
 }
 
-// max 返回两个整数中的较大值
-// Go 1.21+ 有内置 max，这里为了兼容性自己实现
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
+// 注意：Go 1.21+ 已内置 max 函数，无需自定义

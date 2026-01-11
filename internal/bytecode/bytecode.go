@@ -3,6 +3,8 @@ package bytecode
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
+	"sync"
 )
 
 // OpCode 操作码类型
@@ -363,13 +365,55 @@ type Chunk struct {
 	Lines     []int      // 行号信息 (用于错误报告)
 }
 
+// ============================================================================
+// Chunk 对象池
+// ============================================================================
+// 使用 sync.Pool 复用 Chunk 对象，减少内存分配和 GC 压力
+// 特别适合编译大量小函数/方法时的场景
+
+var chunkPool = sync.Pool{
+	New: func() interface{} {
+		return &Chunk{
+			Code:      make([]byte, 0, 256),
+			Constants: make([]Value, 0, 64),
+			Lines:     make([]int, 0, 256),
+		}
+	},
+}
+
 // NewChunk 创建新的字节码块
+// 优化：从对象池获取，避免频繁分配
 func NewChunk() *Chunk {
-	return &Chunk{
-		Code:      make([]byte, 0, 256),
-		Constants: make([]Value, 0, 64),
-		Lines:     make([]int, 0, 256),
+	chunk := chunkPool.Get().(*Chunk)
+	// 确保切片是空的但保留容量
+	chunk.Code = chunk.Code[:0]
+	chunk.Constants = chunk.Constants[:0]
+	chunk.Lines = chunk.Lines[:0]
+	return chunk
+}
+
+// Release 将 Chunk 归还到对象池
+// 调用者在确定不再使用 Chunk 时应调用此方法
+// 注意：归还后不应再访问该 Chunk
+func (c *Chunk) Release() {
+	if c == nil {
+		return
 	}
+	// 清空切片但保留底层数组
+	c.Code = c.Code[:0]
+	c.Constants = c.Constants[:0]
+	c.Lines = c.Lines[:0]
+	chunkPool.Put(c)
+}
+
+// Clone 深拷贝 Chunk
+// 用于需要保留 Chunk 副本的场景
+func (c *Chunk) Clone() *Chunk {
+	clone := NewChunk()
+	clone.Code = append(clone.Code, c.Code...)
+	clone.Constants = append(clone.Constants, c.Constants...)
+	clone.Lines = append(clone.Lines, c.Lines...)
+	return clone
 }
 
 // Write 写入一个字节
@@ -431,26 +475,32 @@ func (c *Chunk) PatchJump(offset int) {
 }
 
 // Disassemble 反汇编字节码
+// 优化：使用 strings.Builder 避免字符串拼接开销
 func (c *Chunk) Disassemble(name string) string {
-	var result string
-	result += fmt.Sprintf("=== %s ===\n", name)
+	var sb strings.Builder
+	// 预估大小：每条指令约 30 字节输出
+	sb.Grow(len(c.Code) * 30)
+	
+	sb.WriteString("=== ")
+	sb.WriteString(name)
+	sb.WriteString(" ===\n")
 	
 	offset := 0
 	for offset < len(c.Code) {
-		offset = c.disassembleInstruction(&result, offset)
+		offset = c.disassembleInstruction(&sb, offset)
 	}
 	
-	return result
+	return sb.String()
 }
 
-func (c *Chunk) disassembleInstruction(result *string, offset int) int {
-	*result += fmt.Sprintf("%04d ", offset)
+func (c *Chunk) disassembleInstruction(sb *strings.Builder, offset int) int {
+	fmt.Fprintf(sb, "%04d ", offset)
 	
 	// 显示行号
 	if offset > 0 && c.Lines[offset] == c.Lines[offset-1] {
-		*result += "   | "
+		sb.WriteString("   | ")
 	} else {
-		*result += fmt.Sprintf("%4d ", c.Lines[offset])
+		fmt.Fprintf(sb, "%4d ", c.Lines[offset])
 	}
 	
 	op := OpCode(c.Code[offset])
@@ -459,62 +509,62 @@ func (c *Chunk) disassembleInstruction(result *string, offset int) int {
 	case OpPush, OpLoadLocal, OpStoreLocal, OpLoadGlobal, OpStoreGlobal,
 		OpNewObject, OpGetField, OpSetField, OpNewArray, OpNewFixedArray, OpNewMap,
 		OpCheckType, OpCast, OpCastSafe, OpSuperArrayNew:
-		return c.constantInstruction(result, op, offset)
+		return c.constantInstruction(sb, op, offset)
 	case OpJump, OpJumpIfFalse, OpJumpIfTrue:
-		return c.jumpInstruction(result, op, 1, offset)
+		return c.jumpInstruction(sb, op, 1, offset)
 	case OpLoop:
-		return c.jumpInstruction(result, op, -1, offset)
+		return c.jumpInstruction(sb, op, -1, offset)
 	case OpCall, OpTailCall:
-		return c.byteInstruction(result, op, offset)
+		return c.byteInstruction(sb, op, offset)
 	case OpCallMethod, OpCallStatic:
-		return c.invokeInstruction(result, op, offset)
+		return c.invokeInstruction(sb, op, offset)
 	case OpEnterTry:
-		return c.enterTryInstruction(result, offset)
+		return c.enterTryInstruction(sb, offset)
 	case OpEnterCatch:
-		return c.constantInstruction(result, op, offset)
+		return c.constantInstruction(sb, op, offset)
 	case OpClosure:
-		return c.constantInstruction(result, op, offset)
+		return c.constantInstruction(sb, op, offset)
 	default:
-		*result += fmt.Sprintf("%s\n", op)
+		fmt.Fprintf(sb, "%s\n", op)
 		return offset + 1
 	}
 }
 
-func (c *Chunk) constantInstruction(result *string, op OpCode, offset int) int {
+func (c *Chunk) constantInstruction(sb *strings.Builder, op OpCode, offset int) int {
 	constant := c.ReadU16(offset + 1)
-	*result += fmt.Sprintf("%-16s %4d '", op, constant)
+	fmt.Fprintf(sb, "%-16s %4d '", op, constant)
 	if int(constant) < len(c.Constants) {
-		*result += c.Constants[constant].String()
+		sb.WriteString(c.Constants[constant].String())
 	}
-	*result += "'\n"
+	sb.WriteString("'\n")
 	return offset + 3
 }
 
-func (c *Chunk) jumpInstruction(result *string, op OpCode, sign int, offset int) int {
+func (c *Chunk) jumpInstruction(sb *strings.Builder, op OpCode, sign int, offset int) int {
 	jump := c.ReadI16(offset + 1)
 	target := offset + 3 + int(jump)*sign
-	*result += fmt.Sprintf("%-16s %4d -> %d\n", op, jump, target)
+	fmt.Fprintf(sb, "%-16s %4d -> %d\n", op, jump, target)
 	return offset + 3
 }
 
-func (c *Chunk) byteInstruction(result *string, op OpCode, offset int) int {
+func (c *Chunk) byteInstruction(sb *strings.Builder, op OpCode, offset int) int {
 	slot := c.Code[offset+1]
-	*result += fmt.Sprintf("%-16s %4d\n", op, slot)
+	fmt.Fprintf(sb, "%-16s %4d\n", op, slot)
 	return offset + 2
 }
 
-func (c *Chunk) invokeInstruction(result *string, op OpCode, offset int) int {
+func (c *Chunk) invokeInstruction(sb *strings.Builder, op OpCode, offset int) int {
 	nameIdx := c.ReadU16(offset + 1)
 	argCount := c.Code[offset+3]
-	*result += fmt.Sprintf("%-16s %4d (%d args)\n", op, nameIdx, argCount)
+	fmt.Fprintf(sb, "%-16s %4d (%d args)\n", op, nameIdx, argCount)
 	return offset + 4
 }
 
-func (c *Chunk) enterTryInstruction(result *string, offset int) int {
+func (c *Chunk) enterTryInstruction(sb *strings.Builder, offset int) int {
 	catchCount := c.Code[offset+1]
 	finallyOffset := c.ReadI16(offset + 2)
 	
-	*result += fmt.Sprintf("ENTER_TRY       catches=%d, finally=%d\n", catchCount, finallyOffset)
+	fmt.Fprintf(sb, "ENTER_TRY       catches=%d, finally=%d\n", catchCount, finallyOffset)
 	
 	// 读取每个 catch 处理器信息
 	pos := offset + 4
@@ -525,7 +575,7 @@ func (c *Chunk) enterTryInstruction(result *string, offset int) int {
 		if int(typeIdx) < len(c.Constants) {
 			typeName = c.Constants[typeIdx].AsString()
 		}
-		*result += fmt.Sprintf("    catch[%d]: type='%s' offset=%d\n", i, typeName, catchOffset)
+		fmt.Fprintf(sb, "    catch[%d]: type='%s' offset=%d\n", i, typeName, catchOffset)
 		pos += 4
 	}
 	

@@ -435,9 +435,7 @@ func (c *ChunkWithDebug) DisassembleWithDebug(name string) string {
 			
 		default:
 			// 使用原有的反汇编逻辑
-			var instrStr string
-			offset = c.Chunk.disassembleInstruction(&instrStr, offset)
-			result.WriteString(instrStr)
+			offset = c.Chunk.disassembleInstruction(&result, offset)
 		}
 		
 		_ = col // 可以用于更详细的调试信息

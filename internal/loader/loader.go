@@ -151,6 +151,11 @@ type Loader struct {
 	// dependencies 存储已解析的依赖包信息
 	// 键是包的命名空间，用于快速匹配导入路径
 	dependencies map[string]*DependencyInfo
+
+	// pathCache 路径规范化缓存
+	// 优化：避免重复调用 filepath.Abs 和 strings.ToLower
+	// 键是原始路径，值是规范化后的路径
+	pathCache map[string]string
 }
 
 // New 创建一个新的包加载器。
@@ -188,6 +193,7 @@ func New(entryFile string) (*Loader, error) {
 		libDir:       libDir,
 		loadedFiles:  make(map[string]bool),
 		dependencies: make(map[string]*DependencyInfo),
+		pathCache:    make(map[string]string, 64), // 预分配常用容量
 	}
 
 	// 尝试加载项目配置
@@ -535,7 +541,7 @@ func (l *Loader) LoadFile(path string) (string, error) {
 // 用于避免重复加载同一文件，防止循环依赖导致的无限循环。
 // 路径会被规范化后存储，确保不同写法的路径能正确匹配。
 func (l *Loader) MarkLoaded(path string) {
-	normalizedPath := normalizePath(path)
+	normalizedPath := l.normalizePath(path)
 	l.loadedFiles[normalizedPath] = true
 }
 
@@ -543,7 +549,7 @@ func (l *Loader) MarkLoaded(path string) {
 //
 // 返回 true 表示文件已被加载过，不需要再次加载。
 func (l *Loader) IsLoaded(path string) bool {
-	normalizedPath := normalizePath(path)
+	normalizedPath := l.normalizePath(path)
 	return l.loadedFiles[normalizedPath]
 }
 
@@ -553,7 +559,14 @@ func (l *Loader) IsLoaded(path string) bool {
 //  1. 转换为绝对路径
 //  2. 清理路径（解析 . 和 ..）
 //  3. 转换为小写（Windows 文件系统不区分大小写）
-func normalizePath(path string) string {
+//
+// 优化：使用缓存避免重复计算，filepath.Abs 和 strings.ToLower 在高频调用时开销较大
+func (l *Loader) normalizePath(path string) string {
+	// 快速路径：检查缓存
+	if cached, ok := l.pathCache[path]; ok {
+		return cached
+	}
+
 	// 获取绝对路径
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -564,7 +577,11 @@ func normalizePath(path string) string {
 	cleanPath := filepath.Clean(absPath)
 
 	// 转换为小写（Windows 文件系统不区分大小写）
-	return strings.ToLower(cleanPath)
+	normalized := strings.ToLower(cleanPath)
+
+	// 存入缓存
+	l.pathCache[path] = normalized
+	return normalized
 }
 
 // ============================================================================

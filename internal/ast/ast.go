@@ -110,15 +110,21 @@ func (t *FuncType) End() token.Position {
 	return t.FuncToken.Pos
 }
 func (t *FuncType) String() string {
-	var params []string
-	for _, p := range t.Params {
-		params = append(params, p.String())
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteString("func(")
+	for i, p := range t.Params {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(p.String())
 	}
-	result := "func(" + strings.Join(params, ", ") + ")"
+	sb.WriteByte(')')
 	if t.ReturnType != nil {
-		result += ": " + t.ReturnType.String()
+		sb.WriteString(": ")
+		sb.WriteString(t.ReturnType.String())
 	}
-	return result
+	return sb.String()
 }
 func (t *FuncType) typeNode() {}
 
@@ -132,11 +138,17 @@ type TupleType struct {
 func (t *TupleType) Pos() token.Position { return t.LParen.Pos }
 func (t *TupleType) End() token.Position { return t.RParen.Pos }
 func (t *TupleType) String() string {
-	var types []string
-	for _, typ := range t.Types {
-		types = append(types, typ.String())
+	var sb strings.Builder
+	sb.Grow(32)
+	sb.WriteByte('(')
+	for i, typ := range t.Types {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(typ.String())
 	}
-	return "(" + strings.Join(types, ", ") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }
 func (t *TupleType) typeNode() {}
 
@@ -158,11 +170,15 @@ type UnionType struct {
 func (t *UnionType) Pos() token.Position { return t.Types[0].Pos() }
 func (t *UnionType) End() token.Position { return t.Types[len(t.Types)-1].End() }
 func (t *UnionType) String() string {
-	var parts []string
-	for _, typ := range t.Types {
-		parts = append(parts, typ.String())
+	var sb strings.Builder
+	sb.Grow(32)
+	for i, typ := range t.Types {
+		if i > 0 {
+			sb.WriteString(" | ")
+		}
+		sb.WriteString(typ.String())
 	}
-	return strings.Join(parts, " | ")
+	return sb.String()
 }
 func (t *UnionType) typeNode() {}
 
@@ -194,18 +210,23 @@ func (t *TypeParameter) End() token.Position {
 	return t.Name.End()
 }
 func (t *TypeParameter) String() string {
-	result := t.Name.String()
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteString(t.Name.String())
 	if t.Constraint != nil {
-		result += " extends " + t.Constraint.String()
+		sb.WriteString(" extends ")
+		sb.WriteString(t.Constraint.String())
 	}
 	if len(t.ImplementsTypes) > 0 {
-		var ifaces []string
-		for _, iface := range t.ImplementsTypes {
-			ifaces = append(ifaces, iface.String())
+		sb.WriteString(" implements ")
+		for i, iface := range t.ImplementsTypes {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(iface.String())
 		}
-		result += " implements " + strings.Join(ifaces, ", ")
 	}
-	return result
+	return sb.String()
 }
 func (t *TypeParameter) typeNode() {}
 
@@ -220,11 +241,18 @@ type GenericType struct {
 func (t *GenericType) Pos() token.Position { return t.BaseType.Pos() }
 func (t *GenericType) End() token.Position { return t.RAngle.Pos }
 func (t *GenericType) String() string {
-	var args []string
-	for _, arg := range t.TypeArgs {
-		args = append(args, arg.String())
+	var sb strings.Builder
+	sb.Grow(48)
+	sb.WriteString(t.BaseType.String())
+	sb.WriteByte('<')
+	for i, arg := range t.TypeArgs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
 	}
-	return t.BaseType.String() + "<" + strings.Join(args, ", ") + ">"
+	sb.WriteByte('>')
+	return sb.String()
 }
 func (t *GenericType) typeNode() {}
 
@@ -350,15 +378,20 @@ func (e *ArrayLiteral) Pos() token.Position {
 }
 func (e *ArrayLiteral) End() token.Position { return e.RBrace.Pos }
 func (e *ArrayLiteral) String() string {
-	var elems []string
-	for _, elem := range e.Elements {
-		elems = append(elems, elem.String())
-	}
-	typeStr := ""
+	var sb strings.Builder
+	sb.Grow(64)
 	if e.ElementType != nil {
-		typeStr = e.ElementType.String()
+		sb.WriteString(e.ElementType.String())
 	}
-	return typeStr + "{" + strings.Join(elems, ", ") + "}"
+	sb.WriteByte('{')
+	for i, elem := range e.Elements {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(elem.String())
+	}
+	sb.WriteByte('}')
+	return sb.String()
 }
 func (e *ArrayLiteral) exprNode() {}
 
@@ -386,15 +419,25 @@ func (e *MapLiteral) Pos() token.Position {
 }
 func (e *MapLiteral) End() token.Position { return e.RBrace.Pos }
 func (e *MapLiteral) String() string {
-	var pairs []string
-	for _, p := range e.Pairs {
-		pairs = append(pairs, p.Key.String()+": "+p.Value.String())
-	}
-	typeStr := ""
+	var sb strings.Builder
+	sb.Grow(64)
 	if e.KeyType != nil && e.ValueType != nil {
-		typeStr = "map[" + e.KeyType.String() + "]" + e.ValueType.String()
+		sb.WriteString("map[")
+		sb.WriteString(e.KeyType.String())
+		sb.WriteByte(']')
+		sb.WriteString(e.ValueType.String())
 	}
-	return typeStr + "{" + strings.Join(pairs, ", ") + "}"
+	sb.WriteByte('{')
+	for i, p := range e.Pairs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(p.Key.String())
+		sb.WriteString(": ")
+		sb.WriteString(p.Value.String())
+	}
+	sb.WriteByte('}')
+	return sb.String()
 }
 func (e *MapLiteral) exprNode() {}
 
@@ -415,15 +458,21 @@ type SuperArrayElement struct {
 func (e *SuperArrayLiteral) Pos() token.Position { return e.LBracket.Pos }
 func (e *SuperArrayLiteral) End() token.Position { return e.RBracket.Pos }
 func (e *SuperArrayLiteral) String() string {
-	var elems []string
-	for _, elem := range e.Elements {
-		if elem.Key != nil {
-			elems = append(elems, elem.Key.String()+" => "+elem.Value.String())
-		} else {
-			elems = append(elems, elem.Value.String())
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteByte('[')
+	for i, elem := range e.Elements {
+		if i > 0 {
+			sb.WriteString(", ")
 		}
+		if elem.Key != nil {
+			sb.WriteString(elem.Key.String())
+			sb.WriteString(" => ")
+		}
+		sb.WriteString(elem.Value.String())
 	}
-	return "[" + strings.Join(elems, ", ") + "]"
+	sb.WriteByte(']')
+	return sb.String()
 }
 func (e *SuperArrayLiteral) exprNode() {}
 
@@ -542,14 +591,27 @@ type CallExpr struct {
 func (e *CallExpr) Pos() token.Position { return e.Function.Pos() }
 func (e *CallExpr) End() token.Position { return e.RParen.Pos }
 func (e *CallExpr) String() string {
-	var args []string
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteString(e.Function.String())
+	sb.WriteByte('(')
+	argCount := 0
 	for _, arg := range e.Arguments {
-		args = append(args, arg.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
+		argCount++
 	}
 	for _, na := range e.NamedArguments {
-		args = append(args, na.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(na.String())
+		argCount++
 	}
-	return e.Function.String() + "(" + strings.Join(args, ", ") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }
 func (e *CallExpr) exprNode() {}
 
@@ -596,14 +658,29 @@ type MethodCall struct {
 func (e *MethodCall) Pos() token.Position { return e.Object.Pos() }
 func (e *MethodCall) End() token.Position { return e.RParen.Pos }
 func (e *MethodCall) String() string {
-	var args []string
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteString(e.Object.String())
+	sb.WriteString("->")
+	sb.WriteString(e.Method.String())
+	sb.WriteByte('(')
+	argCount := 0
 	for _, arg := range e.Arguments {
-		args = append(args, arg.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
+		argCount++
 	}
 	for _, na := range e.NamedArguments {
-		args = append(args, na.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(na.String())
+		argCount++
 	}
-	return e.Object.String() + "->" + e.Method.String() + "(" + strings.Join(args, ", ") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }
 func (e *MethodCall) exprNode() {}
 
@@ -635,14 +712,29 @@ type SafeMethodCall struct {
 func (e *SafeMethodCall) Pos() token.Position { return e.Object.Pos() }
 func (e *SafeMethodCall) End() token.Position { return e.RParen.Pos }
 func (e *SafeMethodCall) String() string {
-	var args []string
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteString(e.Object.String())
+	sb.WriteString("?.")
+	sb.WriteString(e.Method.String())
+	sb.WriteByte('(')
+	argCount := 0
 	for _, arg := range e.Arguments {
-		args = append(args, arg.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
+		argCount++
 	}
 	for _, na := range e.NamedArguments {
-		args = append(args, na.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(na.String())
+		argCount++
 	}
-	return e.Object.String() + "?." + e.Method.String() + "(" + strings.Join(args, ", ") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }
 func (e *SafeMethodCall) exprNode() {}
 
@@ -721,22 +813,38 @@ type NewExpr struct {
 func (e *NewExpr) Pos() token.Position { return e.NewToken.Pos }
 func (e *NewExpr) End() token.Position { return e.RParen.Pos }
 func (e *NewExpr) String() string {
-	var args []string
+	var sb strings.Builder
+	sb.Grow(64)
+	sb.WriteString("new ")
+	sb.WriteString(e.ClassName.String())
+	if len(e.TypeArgs) > 0 {
+		sb.WriteByte('<')
+		for i, ta := range e.TypeArgs {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(ta.String())
+		}
+		sb.WriteByte('>')
+	}
+	sb.WriteByte('(')
+	argCount := 0
 	for _, arg := range e.Arguments {
-		args = append(args, arg.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
+		argCount++
 	}
 	for _, na := range e.NamedArguments {
-		args = append(args, na.String())
-	}
-	typeArgsStr := ""
-	if len(e.TypeArgs) > 0 {
-		var typeArgStrs []string
-		for _, ta := range e.TypeArgs {
-			typeArgStrs = append(typeArgStrs, ta.String())
+		if argCount > 0 {
+			sb.WriteString(", ")
 		}
-		typeArgsStr = "<" + strings.Join(typeArgStrs, ", ") + ">"
+		sb.WriteString(na.String())
+		argCount++
 	}
-	return "new " + e.ClassName.String() + typeArgsStr + "(" + strings.Join(args, ", ") + ")"
+	sb.WriteByte(')')
+	return sb.String()
 }
 func (e *NewExpr) exprNode() {}
 
@@ -768,11 +876,19 @@ func (e *NewArrayExpr) String() string {
 		return "new " + typeStr + "[" + e.Size.String() + "]"
 	}
 	if len(e.Elements) > 0 {
-		var elems []string
-		for _, elem := range e.Elements {
-			elems = append(elems, elem.String())
+		var sb strings.Builder
+		sb.Grow(64)
+		sb.WriteString("new ")
+		sb.WriteString(typeStr)
+		sb.WriteString("[] { ")
+		for i, elem := range e.Elements {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(elem.String())
 		}
-		return "new " + typeStr + "[] { " + strings.Join(elems, ", ") + " }"
+		sb.WriteString(" }")
+		return sb.String()
 	}
 	return "new " + typeStr + "[]"
 }
@@ -899,11 +1015,20 @@ type MultiVarDeclStmt struct {
 func (s *MultiVarDeclStmt) Pos() token.Position { return s.Names[0].Pos() }
 func (s *MultiVarDeclStmt) End() token.Position { return s.Semicolon.Pos }
 func (s *MultiVarDeclStmt) String() string {
-	var names []string
-	for _, n := range s.Names {
-		names = append(names, n.String())
+	var sb strings.Builder
+	sb.Grow(64)
+	for i, n := range s.Names {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(n.String())
 	}
-	return strings.Join(names, ", ") + " " + s.Operator.Literal + " " + s.Value.String() + ";"
+	sb.WriteByte(' ')
+	sb.WriteString(s.Operator.Literal)
+	sb.WriteByte(' ')
+	sb.WriteString(s.Value.String())
+	sb.WriteByte(';')
+	return sb.String()
 }
 func (s *MultiVarDeclStmt) stmtNode() {}
 
@@ -917,11 +1042,17 @@ type BlockStmt struct {
 func (s *BlockStmt) Pos() token.Position { return s.LBrace.Pos }
 func (s *BlockStmt) End() token.Position { return s.RBrace.Pos }
 func (s *BlockStmt) String() string {
-	var stmts []string
-	for _, stmt := range s.Statements {
-		stmts = append(stmts, stmt.String())
+	var sb strings.Builder
+	sb.Grow(128)
+	sb.WriteString("{ ")
+	for i, stmt := range s.Statements {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(stmt.String())
 	}
-	return "{ " + strings.Join(stmts, " ") + " }"
+	sb.WriteString(" }")
+	return sb.String()
 }
 func (s *BlockStmt) stmtNode() {}
 
@@ -1099,11 +1230,17 @@ func (s *ReturnStmt) String() string {
 	if len(s.Values) == 0 {
 		return "return;"
 	}
-	var vals []string
-	for _, v := range s.Values {
-		vals = append(vals, v.String())
+	var sb strings.Builder
+	sb.Grow(32)
+	sb.WriteString("return ")
+	for i, v := range s.Values {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(v.String())
 	}
-	return "return " + strings.Join(vals, ", ") + ";"
+	sb.WriteByte(';')
+	return sb.String()
 }
 func (s *ReturnStmt) stmtNode() {}
 

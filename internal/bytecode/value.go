@@ -959,6 +959,38 @@ var (
 	OneValue   = Value{Type: ValInt, Data: int64(1)}
 )
 
+// ============================================================================
+// 小整数缓存优化
+// ============================================================================
+// 缓存常用的小整数值，避免重复装箱
+// 范围: [-128, 255]，覆盖大多数循环计数器和数组索引
+
+const (
+	smallIntCacheMin = -128
+	smallIntCacheMax = 255
+	smallIntCacheSize = smallIntCacheMax - smallIntCacheMin + 1
+)
+
+// smallIntCache 预分配的小整数 Value 缓存
+var smallIntCache [smallIntCacheSize]Value
+
+// smallFloatCache 常用浮点数缓存
+var smallFloatCache = map[float64]Value{
+	0.0:  {Type: ValFloat, Data: float64(0.0)},
+	1.0:  {Type: ValFloat, Data: float64(1.0)},
+	-1.0: {Type: ValFloat, Data: float64(-1.0)},
+	0.5:  {Type: ValFloat, Data: float64(0.5)},
+	2.0:  {Type: ValFloat, Data: float64(2.0)},
+}
+
+func init() {
+	// 初始化小整数缓存
+	for i := 0; i < smallIntCacheSize; i++ {
+		val := int64(i + smallIntCacheMin)
+		smallIntCache[i] = Value{Type: ValInt, Data: val}
+	}
+}
+
 // NewNull 创建 null 值
 func NewNull() Value {
 	return NullValue
@@ -973,17 +1005,34 @@ func NewBool(b bool) Value {
 }
 
 // NewInt 创建整数值
+// 性能优化：对于小整数 [-128, 255] 使用缓存，避免重复装箱
 func NewInt(n int64) Value {
+	// 快速路径：检查是否在缓存范围内
+	if n >= smallIntCacheMin && n <= smallIntCacheMax {
+		return smallIntCache[n-smallIntCacheMin]
+	}
 	return Value{Type: ValInt, Data: n}
 }
 
 // NewFloat 创建浮点数值
+// 性能优化：对于常用浮点数使用缓存
 func NewFloat(f float64) Value {
+	// 快速路径：检查常用浮点数
+	if cached, ok := smallFloatCache[f]; ok {
+		return cached
+	}
 	return Value{Type: ValFloat, Data: f}
 }
 
+// emptyStringValue 空字符串的预分配值
+var emptyStringValue = Value{Type: ValString, Data: ""}
+
 // NewString 创建字符串值
+// 性能优化：空字符串使用预分配值
 func NewString(s string) Value {
+	if len(s) == 0 {
+		return emptyStringValue
+	}
 	return Value{Type: ValString, Data: s}
 }
 

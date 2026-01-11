@@ -259,6 +259,23 @@ func (p *Parser) error(message string) {
 	})
 }
 
+// shouldRecover 检查是否需要从错误中恢复
+// 如果处于 panic 模式，执行同步并返回 true
+// 优化：减少重复的 panicMode 检查代码
+func (p *Parser) shouldRecover() bool {
+	if p.panicMode {
+		p.synchronize()
+		return true
+	}
+	return false
+}
+
+// inPanicMode 检查是否处于 panic 模式
+// 用于简化条件判断
+func (p *Parser) inPanicMode() bool {
+	return p.panicMode
+}
+
 func (p *Parser) synchronize() {
 	p.advance()
 
@@ -1878,7 +1895,28 @@ func (p *Parser) isTypeStart() bool {
 }
 
 // isGenericTypeStart 检查是否是泛型类型的开始（如 Box<int> $var）
+// 优化：添加快速路径检查，减少完整扫描次数
 func (p *Parser) isGenericTypeStart() bool {
+	// 快速边界检查
+	if p.current+3 >= len(p.tokens) {
+		return false
+	}
+	
+	// 快速路径：检查第三个 token 是否可能是类型相关的
+	// 泛型类型参数通常以 IDENT 或基本类型开始
+	thirdTok := p.tokens[p.current+2]
+	switch thirdTok.Type {
+	case token.IDENT,
+		token.INT_TYPE, token.I8_TYPE, token.I16_TYPE, token.I32_TYPE, token.I64_TYPE,
+		token.UINT_TYPE, token.U8_TYPE, token.BYTE_TYPE, token.U16_TYPE, token.U32_TYPE, token.U64_TYPE,
+		token.FLOAT_TYPE, token.F32_TYPE, token.F64_TYPE,
+		token.BOOL_TYPE, token.STRING_TYPE, token.QUESTION:
+		// 可能是泛型，继续完整检查
+	default:
+		// 第三个 token 不是类型相关的，快速返回 false
+		return false
+	}
+	
 	// 从当前位置开始，查找匹配的 >
 	depth := 0
 	i := 2 // 跳过 IDENT 和 <
