@@ -189,6 +189,16 @@ func (p *Parser) match(types ...token.TokenType) bool {
 	return false
 }
 
+// matchContextKeyword 检查当前 token 是否是指定的上下文关键字
+// 上下文关键字在词法分析时被识别为 IDENT，只在特定上下文中作为关键字处理
+func (p *Parser) matchContextKeyword(keyword string) bool {
+	if p.check(token.IDENT) && p.peek().Literal == keyword {
+		p.advance()
+		return true
+	}
+	return false
+}
+
 func (p *Parser) consume(t token.TokenType, message string) token.Token {
 	if p.check(t) {
 		return p.advance()
@@ -2770,8 +2780,9 @@ func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibi
 	}
 
 	// where 子句 - 支持多重约束
+	// BUG FIX: where 现在是上下文关键字，使用 matchContextKeyword 而不是 match(token.WHERE)
 	var whereClause []*ast.TypeParameter
-	if p.match(token.WHERE) {
+	if p.matchContextKeyword("where") {
 		whereParam := p.parseTypeParameter()
 		if whereParam != nil {
 			whereClause = append(whereClause, whereParam)
@@ -3136,8 +3147,9 @@ func (p *Parser) parseInterface(annotations []*ast.Annotation, visibility ast.Vi
 	}
 
 	// where 子句 - 支持多重约束
+	// BUG FIX: where 现在是上下文关键字，使用 matchContextKeyword 而不是 match(token.WHERE)
 	var whereClause []*ast.TypeParameter
-	if p.match(token.WHERE) {
+	if p.matchContextKeyword("where") {
 		whereParam := p.parseTypeParameter()
 		if whereParam != nil {
 			whereClause = append(whereClause, whereParam)

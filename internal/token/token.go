@@ -204,7 +204,6 @@ const (
 	USE       // use
 	MAP       // map
 	ECHO      // echo
-	WHERE     // where (泛型约束)
 	TYPE      // type (类型别名)
 	keyword_end // 关键字结束标记（不是实际 token）
 
@@ -214,6 +213,7 @@ const (
 	GET       // get (属性访问器)
 	SET       // set (属性访问器)
 	VALUE     // value (setter参数)
+	WHERE     // where (泛型约束) - 仅在泛型声明上下文中作为关键字
 )
 
 // ============================================================================
@@ -472,10 +472,10 @@ var keywords = map[string]TokenType{
 	"use":       USE,
 	"map":       MAP,
 	"echo":      ECHO,
-	"where":     WHERE,
 	"type":      TYPE,
-	// 注意：get、set、value 是上下文关键字，不在这里注册
-	// 它们在词法分析时被识别为 IDENT，在解析属性访问器时特殊处理
+	// 注意：get、set、value、where 是上下文关键字，不在这里注册
+	// 它们在词法分析时被识别为 IDENT，在解析时特殊处理
+	// where 仅在泛型声明上下文中作为关键字
 }
 
 // ============================================================================
@@ -589,8 +589,8 @@ func LookupIdent(ident string) TokenType {
 		}
 
 	case 5:
-		// 五字符关键字：while, break, catch, throw, class, const, final, float, false, match, where
-		// 注意：value 是上下文关键字，不在这里匹配
+		// 五字符关键字：while, break, catch, throw, class, const, final, float, false, match
+		// 注意：value、where 是上下文关键字，不在这里匹配
 		switch ident {
 		case "while":
 			return WHILE
@@ -612,8 +612,6 @@ func LookupIdent(ident string) TokenType {
 			return FALSE
 		case "match":
 			return MATCH
-		case "where":
-			return WHERE
 		}
 
 	case 6:

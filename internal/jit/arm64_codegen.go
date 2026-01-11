@@ -789,11 +789,17 @@ func (cg *ARM64CodeGenerator) emitArraySet(instr *IRInstr) {
 // - 参数: X0-X7
 // - 返回值: X0, X1
 // - 调用者保存: X0-X18
+// BUG FIX: 添加调用者保存寄存器的保存/恢复，防止复杂调用链中寄存器被破坏导致崩溃
 func (cg *ARM64CodeGenerator) emitCallHelper(addr uintptr) {
-	// 保存返回地址（如果需要）
+	// 保存调用者保存的寄存器
+	cg.saveCallerSavedRegs()
+	
 	// 将地址加载到 X9（临时寄存器）并调用
 	cg.asm.MovRegImm64(X9, uint64(addr))
 	cg.asm.Blr(X9)
+	
+	// 恢复调用者保存的寄存器
+	cg.restoreCallerSavedRegs()
 }
 
 // ============================================================================

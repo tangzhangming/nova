@@ -143,6 +143,17 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["isset"] = &FunctionSignature{Name: "isset", ParamTypes: []string{"dynamic"}, ReturnType: "bool"}
 	st.Functions["empty"] = &FunctionSignature{Name: "empty", ParamTypes: []string{"dynamic"}, ReturnType: "bool"}
 	st.Functions["unset"] = &FunctionSignature{Name: "unset", ParamTypes: []string{"dynamic"}, ReturnType: "void"}
+	
+	// 数组操作函数
+	st.Functions["push"] = &FunctionSignature{Name: "push", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "dynamic", IsVariadic: true}
+	st.Functions["pop"] = &FunctionSignature{Name: "pop", ParamTypes: []string{"dynamic"}, ReturnType: "dynamic"}
+	st.Functions["shift"] = &FunctionSignature{Name: "shift", ParamTypes: []string{"dynamic"}, ReturnType: "dynamic"}
+	st.Functions["unshift"] = &FunctionSignature{Name: "unshift", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "dynamic", IsVariadic: true}
+	st.Functions["slice"] = &FunctionSignature{Name: "slice", ParamTypes: []string{"dynamic", "int", "int"}, ReturnType: "dynamic", MinArity: 2}
+	st.Functions["concat"] = &FunctionSignature{Name: "concat", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "dynamic"}
+	st.Functions["reverse"] = &FunctionSignature{Name: "reverse", ParamTypes: []string{"dynamic"}, ReturnType: "dynamic"}
+	st.Functions["contains"] = &FunctionSignature{Name: "contains", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "bool"}
+	st.Functions["index_of"] = &FunctionSignature{Name: "index_of", ParamTypes: []string{"dynamic", "dynamic"}, ReturnType: "int"}
 	st.Functions["var_dump"] = &FunctionSignature{Name: "var_dump", ParamTypes: []string{"dynamic"}, ReturnType: "void"}
 	st.Functions["die"] = &FunctionSignature{Name: "die", ParamTypes: []string{"string"}, ReturnType: "void", MinArity: 0}
 	st.Functions["exit"] = &FunctionSignature{Name: "exit", ParamTypes: []string{"int"}, ReturnType: "void", MinArity: 0}

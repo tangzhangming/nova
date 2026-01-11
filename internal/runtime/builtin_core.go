@@ -179,45 +179,110 @@ func builtinLen(args []bytecode.Value) bytecode.Value {
 }
 
 func builtinPush(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValArray {
+	if len(args) < 2 {
 		return bytecode.NullValue
 	}
-	arr := args[0].AsArray()
-	arr = append(arr, args[1:]...)
-	return bytecode.NewArray(arr)
+	
+	switch args[0].Type {
+	case bytecode.ValArray:
+		// 普通数组
+		arr := args[0].AsArray()
+		arr = append(arr, args[1:]...)
+		return bytecode.NewArray(arr)
+	case bytecode.ValSuperArray:
+		// SuperArray（PHP风格万能数组）
+		sa := args[0].AsSuperArray()
+		for _, val := range args[1:] {
+			sa.Push(val)
+		}
+		return bytecode.NewSuperArrayValue(sa)
+	default:
+		return bytecode.NullValue
+	}
 }
 
 func builtinPop(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValArray {
+	if len(args) == 0 {
 		return bytecode.NullValue
 	}
-	arr := args[0].AsArray()
-	if len(arr) == 0 {
+	
+	switch args[0].Type {
+	case bytecode.ValArray:
+		arr := args[0].AsArray()
+		if len(arr) == 0 {
+			return bytecode.NullValue
+		}
+		return arr[len(arr)-1]
+	case bytecode.ValSuperArray:
+		sa := args[0].AsSuperArray()
+		if sa.Len() == 0 {
+			return bytecode.NullValue
+		}
+		// 返回最后一个元素
+		entries := sa.Entries
+		return entries[len(entries)-1].Value
+	default:
 		return bytecode.NullValue
 	}
-	return arr[len(arr)-1]
 }
 
 func builtinShift(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 || args[0].Type != bytecode.ValArray {
+	if len(args) == 0 {
 		return bytecode.NullValue
 	}
-	arr := args[0].AsArray()
-	if len(arr) == 0 {
+	
+	switch args[0].Type {
+	case bytecode.ValArray:
+		arr := args[0].AsArray()
+		if len(arr) == 0 {
+			return bytecode.NullValue
+		}
+		return arr[0]
+	case bytecode.ValSuperArray:
+		sa := args[0].AsSuperArray()
+		if sa.Len() == 0 {
+			return bytecode.NullValue
+		}
+		// 返回第一个元素
+		return sa.Entries[0].Value
+	default:
 		return bytecode.NullValue
 	}
-	return arr[0]
 }
 
 func builtinUnshift(args []bytecode.Value) bytecode.Value {
-	if len(args) < 2 || args[0].Type != bytecode.ValArray {
+	if len(args) < 2 {
 		return bytecode.NullValue
 	}
-	arr := args[0].AsArray()
-	newArr := make([]bytecode.Value, len(args)-1+len(arr))
-	copy(newArr, args[1:])
-	copy(newArr[len(args)-1:], arr)
-	return bytecode.NewArray(newArr)
+	
+	switch args[0].Type {
+	case bytecode.ValArray:
+		arr := args[0].AsArray()
+		newArr := make([]bytecode.Value, len(args)-1+len(arr))
+		copy(newArr, args[1:])
+		copy(newArr[len(args)-1:], arr)
+		return bytecode.NewArray(newArr)
+	case bytecode.ValSuperArray:
+		// 对于 SuperArray，在开头插入元素需要重建
+		sa := args[0].AsSuperArray()
+		newSa := bytecode.NewSuperArray()
+		// 先添加新元素
+		for i, val := range args[1:] {
+			newSa.Set(bytecode.NewInt(int64(i)), val)
+		}
+		// 再添加原有元素，索引偏移
+		offset := int64(len(args) - 1)
+		for _, entry := range sa.Entries {
+			if entry.Key.Type == bytecode.ValInt {
+				newSa.Set(bytecode.NewInt(entry.Key.AsInt()+offset), entry.Value)
+			} else {
+				newSa.Set(entry.Key, entry.Value)
+			}
+		}
+		return bytecode.NewSuperArrayValue(newSa)
+	default:
+		return bytecode.NullValue
+	}
 }
 
 func builtinSlice(args []bytecode.Value) bytecode.Value {

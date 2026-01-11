@@ -961,9 +961,15 @@ func (cg *X64CodeGenerator) emitArraySet(instr *IRInstr) {
 // - 参数: RCX, RDX, R8, R9
 // - 返回值: RAX
 // - 需要 32 字节 shadow space
+// BUG FIX: 添加调用者保存寄存器的保存/恢复，防止复杂调用链中寄存器被破坏导致崩溃
 func (cg *X64CodeGenerator) emitCallHelper(addr uintptr) {
+	// 保存调用者保存的寄存器（R10, R11）
+	cg.saveCallerSavedRegs()
+	
 	// 分配 shadow space (32 字节) + 对齐
-	// 确保栈 16 字节对齐
+	// 注意：saveCallerSavedRegs 会 push 2 个寄存器 (16 字节)
+	// 加上返回地址 (8 字节)，当前栈偏移 24 字节
+	// 需要分配 40 字节使总偏移为 64 (16 的倍数)
 	cg.asm.SubRegImm32(RSP, 40) // 32 shadow + 8 对齐
 	
 	// 将地址加载到 RAX 并调用
@@ -972,6 +978,9 @@ func (cg *X64CodeGenerator) emitCallHelper(addr uintptr) {
 	
 	// 恢复栈
 	cg.asm.AddRegImm32(RSP, 40)
+	
+	// 恢复调用者保存的寄存器
+	cg.restoreCallerSavedRegs()
 }
 
 // ============================================================================

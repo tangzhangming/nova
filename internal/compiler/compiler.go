@@ -813,8 +813,15 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 	
 	switch s := stmt.(type) {
 	case *ast.ExprStmt:
-		c.compileExpr(s.Expr)
-		c.emit(bytecode.OpPop)
+		// BUG FIX: 特殊处理 push/unshift 等数组修改函数
+		// 当 push($arr, $val) 作为语句调用时，自动转换为 $arr = push($arr, $val)
+		// 这样数组会被原地修改
+		if c.isArrayMutatorCall(s.Expr) {
+			c.compileArrayMutatorStmt(s.Expr)
+		} else {
+			c.compileExpr(s.Expr)
+			c.emit(bytecode.OpPop)
+		}
 
 	case *ast.VarDeclStmt:
 		c.compileVarDecl(s)
@@ -1075,7 +1082,11 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 	// 恢复类型
 	c.restoreTypes(savedTypes)
 
-	elseJump := c.emitJump(bytecode.OpJump)
+	// BUG FIX: 使用切片收集所有需要跳转到 if 语句末尾的位置
+	// 原来的代码在 elseif 循环中覆盖 elseJump，导致前面的跳转没有被 patch
+	// 0xFFFF 占位符中的 0xFF 被当作操作码执行
+	var endJumps []int
+	endJumps = append(endJumps, c.emitJump(bytecode.OpJump))
 
 	// 修补 then 跳转
 	c.patchJump(thenJump)
@@ -1107,7 +1118,8 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 		// 恢复类型
 		c.restoreTypes(savedElseIfTypes)
 		
-		elseJump = c.emitJump(bytecode.OpJump)
+		// 收集跳转位置而不是覆盖
+		endJumps = append(endJumps, c.emitJump(bytecode.OpJump))
 		c.patchJump(nextJump)
 		c.emit(bytecode.OpPop)
 	}
@@ -1123,7 +1135,10 @@ func (c *Compiler) compileIfStmt(s *ast.IfStmt) {
 		c.restoreTypes(savedElseTypes)
 	}
 
-	c.patchJump(elseJump)
+	// patch 所有跳转到 if 语句末尾的位置
+	for _, jump := range endJumps {
+		c.patchJump(jump)
+	}
 }
 
 // TypeNarrowing 表示一个类型收窄
@@ -2227,6 +2242,72 @@ func (c *Compiler) compileTryStmt(s *ast.TryStmt) {
 		c.currentChunk().Code[enterTryPos+1] = 0xFF
 		c.currentChunk().Code[enterTryPos+2] = 0xFF
 	}
+}
+
+// ============================================================================
+// 数组修改函数特殊处理
+// ============================================================================
+
+// arrayMutators 定义需要原地修改数组的内置函数
+var arrayMutators = map[string]bool{
+	"push":    true,
+	"unshift": true,
+	"pop":     true, // pop 虽然不改变长度方式，但语义上是修改数组
+	"shift":   true,
+}
+
+// isArrayMutatorCall 检查表达式是否是数组修改函数调用
+// 例如: push($arr, $val), unshift($arr, $val)
+func (c *Compiler) isArrayMutatorCall(expr ast.Expression) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	
+	// 检查是否是标识符调用（内置函数）
+	ident, ok := call.Function.(*ast.Identifier)
+	if !ok {
+		return false
+	}
+	
+	// 检查是否是数组修改函数
+	if !arrayMutators[ident.Name] {
+		return false
+	}
+	
+	// 第一个参数必须是变量
+	if len(call.Arguments) == 0 {
+		return false
+	}
+	_, isVar := call.Arguments[0].(*ast.Variable)
+	return isVar
+}
+
+// compileArrayMutatorStmt 编译数组修改函数语句
+// 将 push($arr, $val) 转换为 $arr = push($arr, $val)
+func (c *Compiler) compileArrayMutatorStmt(expr ast.Expression) {
+	call := expr.(*ast.CallExpr)
+	variable := call.Arguments[0].(*ast.Variable)
+	
+	// 编译函数调用（结果在栈顶）
+	c.compileExpr(expr)
+	
+	// 将结果赋给原变量
+	name := variable.Name
+	
+	// 查找变量位置并存储
+	// OpStoreLocal/OpStoreGlobal 使用 peek，值仍在栈上
+	if local := c.resolveLocal(name); local != -1 {
+		// 局部变量
+		c.emitU16(bytecode.OpStoreLocal, uint16(local))
+	} else {
+		// 全局变量
+		idx := c.makeConstant(bytecode.NewString(name))
+		c.emitU16(bytecode.OpStoreGlobal, idx)
+	}
+	
+	// 弹出栈顶的值（作为语句不需要返回值）
+	c.emit(bytecode.OpPop)
 }
 
 // ============================================================================
