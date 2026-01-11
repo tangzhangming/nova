@@ -1,0 +1,15 @@
+namespace sola.annotation
+
+/**
+ * 注解可应用的目标元素类型
+ * 用于 @Target 元注解中指定注解的使用位置
+ */
+public enum ElementType {
+    CLASS,       // 类
+    INTERFACE,   // 接口
+    METHOD,      // 方法
+    PROPERTY,    // 属性
+    PARAMETER,   // 方法参数
+    CONSTRUCTOR, // 构造函数
+    ALL          // 所有位置（默认）
+}

@@ -1,0 +1,18 @@
+namespace sola.annotation
+
+/**
+ * @Attribute 元注解
+ * 标记一个类为注解类，只有标记了 @Attribute 的类才能作为注解使用
+ * 
+ * @Attribute 本身也是注解（自举）
+ * 
+ * 示例:
+ * ```
+ * @Attribute
+ * public class Entity {
+ * }
+ * ```
+ */
+@Attribute
+public class Attribute {
+}

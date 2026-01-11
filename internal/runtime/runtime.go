@@ -497,6 +497,27 @@ func (r *Runtime) registerBuiltins() {
 		return r.reflectGetProperties(args)
 	}
 
+	// 新增的反射 API 函数
+	r.builtins["native_reflect_get_class"] = builtinReflectGetClass
+	r.builtins["native_reflect_get_class_annotations"] = func(args []bytecode.Value) bytecode.Value {
+		return r.getClassAnnotations(args)
+	}
+	r.builtins["native_reflect_get_method_annotations"] = func(args []bytecode.Value) bytecode.Value {
+		return r.getMethodAnnotations(args)
+	}
+	r.builtins["native_reflect_get_methods"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectGetMethods(args)
+	}
+	r.builtins["native_reflect_is_attribute"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectIsAttribute(args)
+	}
+	r.builtins["native_reflect_get_parent"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectGetParent(args)
+	}
+	r.builtins["native_reflect_get_interfaces"] = func(args []bytecode.Value) bytecode.Value {
+		return r.reflectGetInterfaces(args)
+	}
+
 	// 数组函数
 	r.builtins["len"] = builtinLen
 	r.builtins["push"] = builtinPush

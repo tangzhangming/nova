@@ -152,6 +152,14 @@ func (p *Parser) check(t token.TokenType) bool {
 	return p.peek().Type == t
 }
 
+// checkNext 检查下一个 token（当前位置+1）的类型
+func (p *Parser) checkNext(t token.TokenType) bool {
+	if p.current+1 >= len(p.tokens) {
+		return false
+	}
+	return p.tokens[p.current+1].Type == t
+}
+
 // checkIdent 检查当前 token 是否是指定名称的标识符
 // 用于匹配上下文关键字（如 get、set、value）
 func (p *Parser) checkIdent(name string) bool {
@@ -2652,25 +2660,66 @@ func (p *Parser) parseAnnotation() *ast.Annotation {
 
 	var lparen, rparen token.Token
 	var args []ast.Expression
+	var namedArgs map[string]ast.Expression
 
 	if p.check(token.LPAREN) {
 		lparen = p.advance()
 		if !p.check(token.RPAREN) {
-			args = append(args, p.parseExpression())
-			for p.match(token.COMMA) {
-				args = append(args, p.parseExpression())
-			}
+			// 解析注解参数（支持位置参数和命名参数）
+			args, namedArgs = p.parseAnnotationArgs()
 		}
 		rparen = p.consume(token.RPAREN, "expected ')'")
 	}
 
 	return &ast.Annotation{
-		AtToken: atToken,
-		Name:    name,
-		LParen:  lparen,
-		Args:    args,
-		RParen:  rparen,
+		AtToken:   atToken,
+		Name:      name,
+		LParen:    lparen,
+		Args:      args,
+		NamedArgs: namedArgs,
+		RParen:    rparen,
 	}
+}
+
+// parseAnnotationArgs 解析注解参数（支持位置参数和命名参数）
+// 支持三种格式：
+// - 位置参数: @Table("users")
+// - 命名参数: @Column(name = "id", nullable = false)
+// - 混合使用: @Column("id", nullable = false) - 位置参数必须在前
+func (p *Parser) parseAnnotationArgs() ([]ast.Expression, map[string]ast.Expression) {
+	var args []ast.Expression
+	var namedArgs map[string]ast.Expression
+	inNamedArgs := false // 一旦遇到命名参数，后续必须都是命名参数
+
+	for {
+		// 检查是否是命名参数: IDENT = expr
+		if p.check(token.IDENT) && p.checkNext(token.ASSIGN) {
+			// 命名参数
+			if namedArgs == nil {
+				namedArgs = make(map[string]ast.Expression)
+			}
+			inNamedArgs = true
+
+			nameToken := p.advance() // 消耗参数名
+			p.advance()              // 消耗 =
+			value := p.parseExpression()
+			namedArgs[nameToken.Literal] = value
+		} else {
+			// 位置参数
+			if inNamedArgs {
+				p.error("positional argument cannot follow named argument")
+				break
+			}
+			args = append(args, p.parseExpression())
+		}
+
+		// 检查是否有更多参数
+		if !p.match(token.COMMA) {
+			break
+		}
+	}
+
+	return args, namedArgs
 }
 
 func (p *Parser) parseClass(annotations []*ast.Annotation, visibility ast.Visibility, isAbstract, isFinal bool) *ast.ClassDecl {

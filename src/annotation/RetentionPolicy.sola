@@ -1,0 +1,11 @@
+namespace sola.annotation
+
+/**
+ * 注解的保留策略
+ * 指定注解在编译和运行时的可见性
+ */
+public enum RetentionPolicy {
+    SOURCE,     // 仅源码，编译后丢弃
+    COMPILE,    // 编译期可用，运行时不可见
+    RUNTIME     // 运行时可用（默认）
+}

@@ -407,6 +407,12 @@ func (st *SymbolTable) registerBuiltinFunctions() {
 	st.Functions["native_reflect_get_property"] = &FunctionSignature{Name: "native_reflect_get_property", ParamTypes: []string{"unknown", "string"}, ReturnType: "dynamic"}
 	st.Functions["native_reflect_new_instance"] = &FunctionSignature{Name: "native_reflect_new_instance", ParamTypes: []string{"string"}, ReturnType: "dynamic"}
 	st.Functions["native_reflect_get_property_annotations"] = &FunctionSignature{Name: "native_reflect_get_property_annotations", ParamTypes: []string{"unknown", "string"}, ReturnType: "array"}
+
+	// 新增的注解反射函数
+	st.Functions["native_reflect_get_class_annotations"] = &FunctionSignature{Name: "native_reflect_get_class_annotations", ParamTypes: []string{"string"}, ReturnType: "array"}
+	st.Functions["native_reflect_get_method_annotations"] = &FunctionSignature{Name: "native_reflect_get_method_annotations", ParamTypes: []string{"string", "string"}, ReturnType: "array"}
+	st.Functions["native_reflect_is_attribute"] = &FunctionSignature{Name: "native_reflect_is_attribute", ParamTypes: []string{"string"}, ReturnType: "bool"}
+	st.Functions["native_reflect_get_parent"] = &FunctionSignature{Name: "native_reflect_get_parent", ParamTypes: []string{"string"}, ReturnType: "string"}
 	
 	// typeof 函数
 	st.Functions["typeof"] = &FunctionSignature{Name: "typeof", ParamTypes: []string{"dynamic"}, ReturnType: "string"}

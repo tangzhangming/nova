@@ -291,8 +291,13 @@ func encodeObjectToJson(obj *bytecode.Object, namingStrategy int) map[string]int
 					case "JsonIgnore":
 						ignore = true
 					case "JsonProperty":
-						if len(ann.Args) > 0 {
-							if s, ok := ann.Args[0].Data.(string); ok {
+						// 支持位置参数（key="0"）或命名参数（key="name"）
+						if arg, ok := ann.Args["0"]; ok {
+							if s, ok := arg.Data.(string); ok {
+								jsonName = s
+							}
+						} else if arg, ok := ann.Args["name"]; ok {
+							if s, ok := arg.Data.(string); ok {
 								jsonName = s
 							}
 						}

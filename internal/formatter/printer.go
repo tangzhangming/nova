@@ -931,12 +931,25 @@ func (p *Printer) closeBraceInline() {
 func (p *Printer) printAnnotation(ann *ast.Annotation) {
 	p.write("@")
 	p.write(ann.Name.Name)
-	if len(ann.Args) > 0 {
+	if len(ann.Args) > 0 || len(ann.NamedArgs) > 0 {
 		p.write("(")
-		for i, arg := range ann.Args {
-			if i > 0 {
+		first := true
+		// 先打印位置参数
+		for _, arg := range ann.Args {
+			if !first {
 				p.write(", ")
 			}
+			first = false
+			p.printExpression(arg)
+		}
+		// 再打印命名参数
+		for name, arg := range ann.NamedArgs {
+			if !first {
+				p.write(", ")
+			}
+			first = false
+			p.write(name)
+			p.write(" = ")
 			p.printExpression(arg)
 		}
 		p.write(")")

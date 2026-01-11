@@ -1,0 +1,164 @@
+namespace sola.reflect
+
+/**
+ * 类反射器
+ * 用于在运行时访问类的元数据、注解和成员
+ */
+public class ClassReflector {
+    private string $className;
+    
+    /**
+     * 私有构造函数，使用静态工厂方法创建
+     */
+    private function __construct(string $className) {
+        $this->className = $className;
+    }
+    
+    /**
+     * 从类名创建反射器
+     */
+    public static function forClass(string $className): ClassReflector {
+        return new ClassReflector($className);
+    }
+    
+    /**
+     * 从对象实例创建反射器
+     */
+    public static function forObject(dynamic $obj): ClassReflector {
+        $className := native_reflect_get_class($obj);
+        return new ClassReflector($className);
+    }
+    
+    /**
+     * 获取类名
+     */
+    public function getName(): string {
+        return $this->className;
+    }
+    
+    /**
+     * 获取类上的所有注解
+     */
+    public function getAnnotations(): Annotation[] {
+        $raw := native_reflect_get_class_annotations($this->className);
+        return $this->wrapAnnotations($raw);
+    }
+    
+    /**
+     * 获取指定名称的注解
+     */
+    public function getAnnotation(string $name): Annotation|null {
+        $annotations := $this->getAnnotations();
+        foreach ($annotations as $ann) {
+            if ($ann->getName() == $name) {
+                return $ann;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否有指定注解
+     */
+    public function hasAnnotation(string $name): bool {
+        return $this->getAnnotation($name) != null;
+    }
+    
+    /**
+     * 获取所有属性反射器
+     */
+    public function getProperties(): PropertyReflector[] {
+        $propNames := native_reflect_get_properties($this->className);
+        $result := PropertyReflector[];
+        foreach ($propNames as $name) {
+            $result[] = new PropertyReflector($this->className, $name);
+        }
+        return $result;
+    }
+    
+    /**
+     * 获取指定属性的反射器
+     */
+    public function getProperty(string $name): PropertyReflector|null {
+        $propNames := native_reflect_get_properties($this->className);
+        foreach ($propNames as $propName) {
+            if ($propName == $name) {
+                return new PropertyReflector($this->className, $name);
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 获取所有方法反射器
+     */
+    public function getMethods(): MethodReflector[] {
+        $methodNames := native_reflect_get_methods($this->className);
+        $result := MethodReflector[];
+        foreach ($methodNames as $name) {
+            $result[] = new MethodReflector($this->className, $name);
+        }
+        return $result;
+    }
+    
+    /**
+     * 获取指定方法的反射器
+     */
+    public function getMethod(string $name): MethodReflector|null {
+        $methodNames := native_reflect_get_methods($this->className);
+        foreach ($methodNames as $methodName) {
+            if ($methodName == $name) {
+                return new MethodReflector($this->className, $name);
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 创建类的新实例
+     */
+    public function newInstance(dynamic ...$args): dynamic {
+        return native_reflect_new_instance($this->className, $args);
+    }
+    
+    /**
+     * 检查类是否是注解类
+     */
+    public function isAttribute(): bool {
+        return native_reflect_is_attribute($this->className);
+    }
+    
+    /**
+     * 获取父类反射器
+     */
+    public function getParent(): ClassReflector|null {
+        $parentName := native_reflect_get_parent($this->className);
+        if ($parentName == "" || $parentName == null) {
+            return null;
+        }
+        return new ClassReflector($parentName);
+    }
+    
+    /**
+     * 获取实现的接口列表
+     */
+    public function getInterfaces(): string[] {
+        return native_reflect_get_interfaces($this->className);
+    }
+    
+    /**
+     * 包装原始注解数据为 Annotation 对象数组
+     */
+    private function wrapAnnotations(dynamic $raw): Annotation[] {
+        $result := Annotation[];
+        if ($raw == null) {
+            return $result;
+        }
+        foreach ($raw as $annData) {
+            $name := $annData["name"] ?? "";
+            $args := $annData["args"] ?? {};
+            $result[] = new Annotation($name, $args);
+        }
+        return $result;
+    }
+}

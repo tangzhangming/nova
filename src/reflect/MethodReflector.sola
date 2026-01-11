@@ -1,0 +1,83 @@
+namespace sola.reflect
+
+/**
+ * 方法反射器
+ * 用于在运行时访问和调用类方法
+ */
+public class MethodReflector {
+    private string $className;
+    private string $methodName;
+    
+    /**
+     * 构造函数（由 ClassReflector 创建）
+     */
+    public function __construct(string $className, string $methodName) {
+        $this->className = $className;
+        $this->methodName = $methodName;
+    }
+    
+    /**
+     * 获取方法名称
+     */
+    public function getName(): string {
+        return $this->methodName;
+    }
+    
+    /**
+     * 获取所属类名
+     */
+    public function getClassName(): string {
+        return $this->className;
+    }
+    
+    /**
+     * 获取方法上的所有注解
+     */
+    public function getAnnotations(): Annotation[] {
+        $raw := native_reflect_get_method_annotations($this->className, $this->methodName);
+        return $this->wrapAnnotations($raw);
+    }
+    
+    /**
+     * 获取指定名称的注解
+     */
+    public function getAnnotation(string $name): Annotation|null {
+        $annotations := $this->getAnnotations();
+        foreach ($annotations as $ann) {
+            if ($ann->getName() == $name) {
+                return $ann;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否有指定注解
+     */
+    public function hasAnnotation(string $name): bool {
+        return $this->getAnnotation($name) != null;
+    }
+    
+    /**
+     * 调用方法
+     */
+    public function invoke(dynamic $obj, dynamic ...$args): dynamic {
+        return native_reflect_invoke_method($obj, $this->methodName, $args);
+    }
+    
+    /**
+     * 包装原始注解数据为 Annotation 对象数组
+     */
+    private function wrapAnnotations(dynamic $raw): Annotation[] {
+        $result := Annotation[];
+        if ($raw == null) {
+            return $result;
+        }
+        foreach ($raw as $annData) {
+            $name := $annData["name"] ?? "";
+            $args := $annData["args"] ?? {};
+            $result[] = new Annotation($name, $args);
+        }
+        return $result;
+    }
+}

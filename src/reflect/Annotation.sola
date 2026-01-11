@@ -1,0 +1,86 @@
+namespace sola.reflect
+
+/**
+ * 注解反射类
+ * 用于在运行时访问注解信息
+ */
+public class Annotation {
+    private string $name;
+    private dynamic $args;
+    
+    /**
+     * 构造函数（由运行时创建）
+     */
+    public function __construct(string $name, dynamic $args) {
+        $this->name = $name;
+        $this->args = $args;
+    }
+    
+    /**
+     * 获取注解名称
+     */
+    public function getName(): string {
+        return $this->name;
+    }
+    
+    /**
+     * 获取参数值
+     * @param key 参数名（位置参数使用 "0", "1" 等）
+     */
+    public function get(string $key): dynamic {
+        return $this->args[$key] ?? null;
+    }
+    
+    /**
+     * 获取字符串参数
+     */
+    public function getString(string $key): string {
+        $val := $this->args[$key] ?? "";
+        return $val as string;
+    }
+    
+    /**
+     * 获取布尔参数
+     */
+    public function getBool(string $key): bool {
+        $val := $this->args[$key] ?? false;
+        return $val as bool;
+    }
+    
+    /**
+     * 获取整数参数
+     */
+    public function getInt(string $key): int {
+        $val := $this->args[$key] ?? 0;
+        return $val as int;
+    }
+    
+    /**
+     * 获取浮点数参数
+     */
+    public function getFloat(string $key): float {
+        $val := $this->args[$key] ?? 0.0;
+        return $val as float;
+    }
+    
+    /**
+     * 获取数组参数
+     */
+    public function getArray(string $key): dynamic {
+        return $this->args[$key] ?? [];
+    }
+    
+    /**
+     * 检查是否有指定参数
+     */
+    public function has(string $key): bool {
+        return isset($this->args[$key]);
+    }
+    
+    /**
+     * 获取所有参数
+     */
+    public function getArgs(): dynamic {
+        return $this->args;
+    }
+}

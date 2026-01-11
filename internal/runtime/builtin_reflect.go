@@ -109,10 +109,15 @@ func annotationsToArray(annotations []*bytecode.Annotation) bytecode.Value {
 
 	result := make([]bytecode.Value, len(annotations))
 	for i, ann := range annotations {
-		// 每个注解转换为 map: {name: "...", args: [...]}
+		// 每个注解转换为 map: {name: "...", args: {...}}
 		annMap := make(map[bytecode.Value]bytecode.Value)
 		annMap[bytecode.NewString("name")] = bytecode.NewString(ann.Name)
-		annMap[bytecode.NewString("args")] = bytecode.NewArray(ann.Args)
+		// args 现在是 map[string]Value 格式
+		argsMap := make(map[bytecode.Value]bytecode.Value)
+		for key, val := range ann.Args {
+			argsMap[bytecode.NewString(key)] = val
+		}
+		annMap[bytecode.NewString("args")] = bytecode.NewMap(argsMap)
 		result[i] = bytecode.NewMap(annMap)
 	}
 
@@ -273,6 +278,120 @@ func (r *Runtime) reflectGetProperties(args []bytecode.Value) bytecode.Value {
 	}
 
 	return bytecode.NewArray(props)
+}
+
+// native_reflect_get_methods(className) - 获取类的所有方法名
+func (r *Runtime) reflectGetMethods(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewArray(nil)
+	}
+
+	var class *bytecode.Class
+	if args[0].Type == bytecode.ValObject {
+		class = args[0].AsObject().Class
+	} else if args[0].Type == bytecode.ValString {
+		className := args[0].AsString()
+		class = r.vm.GetClass(className)
+		if class == nil {
+			return bytecode.NewArray(nil)
+		}
+	} else {
+		return bytecode.NewArray(nil)
+	}
+
+	// 获取所有方法名
+	methods := make([]bytecode.Value, 0, len(class.Methods))
+	for methodName := range class.Methods {
+		methods = append(methods, bytecode.NewString(methodName))
+	}
+
+	return bytecode.NewArray(methods)
+}
+
+// native_reflect_is_attribute(className) - 检查类是否是注解类
+func (r *Runtime) reflectIsAttribute(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.FalseValue
+	}
+
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.FalseValue
+	}
+
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.FalseValue
+	}
+
+	if class.IsAttribute {
+		return bytecode.TrueValue
+	}
+	return bytecode.FalseValue
+}
+
+// native_reflect_get_parent(className) - 获取父类名
+func (r *Runtime) reflectGetParent(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewString("")
+	}
+
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.NewString("")
+	}
+
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.NewString("")
+	}
+
+	return bytecode.NewString(class.ParentName)
+}
+
+// native_reflect_get_interfaces(className) - 获取实现的接口列表
+func (r *Runtime) reflectGetInterfaces(args []bytecode.Value) bytecode.Value {
+	if len(args) < 1 {
+		return bytecode.NewArray(nil)
+	}
+
+	var className string
+	if args[0].Type == bytecode.ValString {
+		className = args[0].AsString()
+	} else if args[0].Type == bytecode.ValObject {
+		className = args[0].AsObject().Class.Name
+	} else {
+		return bytecode.NewArray(nil)
+	}
+
+	class := r.vm.GetClass(className)
+	if class == nil {
+		return bytecode.NewArray(nil)
+	}
+
+	interfaces := make([]bytecode.Value, len(class.Implements))
+	for i, iface := range class.Implements {
+		interfaces[i] = bytecode.NewString(iface)
+	}
+
+	return bytecode.NewArray(interfaces)
+}
+
+// native_reflect_get_class(object) - 获取对象的类名（包装 get_class）
+func builtinReflectGetClass(args []bytecode.Value) bytecode.Value {
+	if len(args) == 0 || args[0].Type != bytecode.ValObject {
+		return bytecode.NewString("")
+	}
+	obj := args[0].AsObject()
+	return bytecode.NewString(obj.Class.Name)
 }
 
 

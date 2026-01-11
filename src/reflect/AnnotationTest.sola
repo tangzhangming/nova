@@ -1,0 +1,136 @@
+namespace sola.reflect
+
+// 注解反射 API 测试
+
+// ============================================================================
+// 定义自定义注解类
+// ============================================================================
+
+@Attribute
+public class TestEntity {
+    public string $table;
+    
+    public function __construct(string $table = "") {
+        $this->table = $table;
+    }
+}
+
+@Attribute
+public class TestColumn {
+    public string $name;
+    public bool $nullable;
+    
+    public function __construct(string $name = "", bool $nullable = true) {
+        $this->name = $name;
+        $this->nullable = $nullable;
+    }
+}
+
+@Attribute
+public class TestId {
+}
+
+// ============================================================================
+// 使用注解的示例类
+// ============================================================================
+
+@TestEntity("test_users")
+public class TestUser {
+    @TestId
+    @TestColumn(name = "user_id", nullable = false)
+    public int $id;
+    
+    @TestColumn("user_name")
+    public string $name;
+    
+    public function __construct(int $id = 0, string $name = "") {
+        $this->id = $id;
+        $this->name = $name;
+    }
+}
+
+// ============================================================================
+// 测试代码
+// ============================================================================
+
+echo "=== 注解反射 API 测试 ===\n\n";
+
+// 测试1: 获取类名
+echo "测试1: 获取类名\n";
+$user := new TestUser(1, "测试用户");
+$className := native_reflect_get_class($user);
+echo "类名: ";
+echo $className;
+echo "\n\n";
+
+// 测试2: 获取类注解
+echo "测试2: 获取类注解\n";
+$classAnns := native_reflect_get_class_annotations($className);
+echo "类注解数量: ";
+echo len($classAnns);
+echo "\n";
+$i := 0;
+while ($i < len($classAnns)) {
+    $ann := $classAnns[$i];
+    echo "  - @";
+    echo $ann["name"];
+    echo "\n";
+    $i = $i + 1;
+}
+echo "\n";
+
+// 测试3: 获取属性列表
+echo "测试3: 获取属性列表\n";
+$props := native_reflect_get_properties($className);
+echo "属性数量: ";
+echo len($props);
+echo "\n";
+$j := 0;
+while ($j < len($props)) {
+    echo "  - ";
+    echo $props[$j];
+    echo "\n";
+    $j = $j + 1;
+}
+echo "\n";
+
+// 测试4: 获取方法列表
+echo "测试4: 获取方法列表\n";
+$methods := native_reflect_get_methods($className);
+echo "方法数量: ";
+echo len($methods);
+echo "\n";
+$k := 0;
+while ($k < len($methods)) {
+    echo "  - ";
+    echo $methods[$k];
+    echo "\n";
+    $k = $k + 1;
+}
+echo "\n";
+
+// 测试5: 检查是否是注解类
+echo "测试5: 检查是否是注解类\n";
+// 尝试不同的类名格式
+$isAttr1 := native_reflect_is_attribute("TestEntity");
+echo "TestEntity 是注解类: ";
+echo $isAttr1;
+echo "\n";
+$isAttr2 := native_reflect_is_attribute("TestUser");
+echo "TestUser 是注解类: ";
+echo $isAttr2;
+echo "\n\n";
+
+// 测试6: 动态属性访问
+echo "测试6: 动态属性访问\n";
+$oldName := native_reflect_get_property($user, "name");
+echo "原名称: ";
+echo $oldName;
+echo "\n";
+native_reflect_set_property($user, "name", "新名称");
+$newName := native_reflect_get_property($user, "name");
+echo "新名称: ";
+echo $newName;
+echo "\n\n";
+
+echo "=== 所有测试完成 ===\n";

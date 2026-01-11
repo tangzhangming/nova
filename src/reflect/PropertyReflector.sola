@@ -1,0 +1,90 @@
+namespace sola.reflect
+
+/**
+ * 属性反射器
+ * 用于在运行时访问和操作类属性
+ */
+public class PropertyReflector {
+    private string $className;
+    private string $propertyName;
+    
+    /**
+     * 构造函数（由 ClassReflector 创建）
+     */
+    public function __construct(string $className, string $propertyName) {
+        $this->className = $className;
+        $this->propertyName = $propertyName;
+    }
+    
+    /**
+     * 获取属性名称
+     */
+    public function getName(): string {
+        return $this->propertyName;
+    }
+    
+    /**
+     * 获取所属类名
+     */
+    public function getClassName(): string {
+        return $this->className;
+    }
+    
+    /**
+     * 获取属性上的所有注解
+     */
+    public function getAnnotations(): Annotation[] {
+        $raw := native_reflect_get_property_annotations($this->className, $this->propertyName);
+        return $this->wrapAnnotations($raw);
+    }
+    
+    /**
+     * 获取指定名称的注解
+     */
+    public function getAnnotation(string $name): Annotation|null {
+        $annotations := $this->getAnnotations();
+        foreach ($annotations as $ann) {
+            if ($ann->getName() == $name) {
+                return $ann;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否有指定注解
+     */
+    public function hasAnnotation(string $name): bool {
+        return $this->getAnnotation($name) != null;
+    }
+    
+    /**
+     * 获取属性值
+     */
+    public function getValue(dynamic $obj): dynamic {
+        return native_reflect_get_property($obj, $this->propertyName);
+    }
+    
+    /**
+     * 设置属性值
+     */
+    public function setValue(dynamic $obj, dynamic $value): void {
+        native_reflect_set_property($obj, $this->propertyName, $value);
+    }
+    
+    /**
+     * 包装原始注解数据为 Annotation 对象数组
+     */
+    private function wrapAnnotations(dynamic $raw): Annotation[] {
+        $result := Annotation[];
+        if ($raw == null) {
+            return $result;
+        }
+        foreach ($raw as $annData) {
+            $name := $annData["name"] ?? "";
+            $args := $annData["args"] ?? {};
+            $result[] = new Annotation($name, $args);
+        }
+        return $result;
+    }
+}

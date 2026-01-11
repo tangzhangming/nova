@@ -514,10 +514,17 @@ func GetTestAnnotations(method *ast.MethodDecl) []TestAnnotation {
 			Args: make(map[string]string),
 		}
 
-		// 解析注解参数
+		// 解析位置参数
 		for i, arg := range ann.Args {
 			if str, ok := arg.(*ast.StringLiteral); ok {
 				testAnn.Args[string(rune('0'+i))] = str.Value
+			}
+		}
+
+		// 解析命名参数
+		for name, arg := range ann.NamedArgs {
+			if str, ok := arg.(*ast.StringLiteral); ok {
+				testAnn.Args[name] = str.Value
 			}
 		}
 

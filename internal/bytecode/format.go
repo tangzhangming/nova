@@ -35,6 +35,8 @@ const (
 const (
 	ClassFlagAbstract  uint8 = 1 << 0 // 抽象类
 	ClassFlagInterface uint8 = 1 << 1 // 接口
+	ClassFlagFinal     uint8 = 1 << 2 // final 类
+	ClassFlagAttribute uint8 = 1 << 3 // 注解类（有 @Attribute 标记）
 )
 
 // 方法标志位

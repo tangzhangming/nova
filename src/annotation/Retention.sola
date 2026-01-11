@@ -1,0 +1,23 @@
+namespace sola.annotation
+
+/**
+ * @Retention 元注解
+ * 指定注解的保留策略
+ * 
+ * 示例:
+ * ```
+ * @Attribute
+ * @Retention(RetentionPolicy::RUNTIME)
+ * public class Entity {
+ *     // 此注解在运行时可用
+ * }
+ * ```
+ */
+@Attribute
+public class Retention {
+    public RetentionPolicy $value;
+    
+    public function __construct(RetentionPolicy $value = RetentionPolicy::RUNTIME) {
+        $this->value = $value;
+    }
+}

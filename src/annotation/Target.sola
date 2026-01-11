@@ -1,0 +1,23 @@
+namespace sola.annotation
+
+/**
+ * @Target 元注解
+ * 限制注解可以使用的位置
+ * 
+ * 示例:
+ * ```
+ * @Attribute
+ * @Target([ElementType::PROPERTY])
+ * public class Column {
+ *     // Column 只能用于属性
+ * }
+ * ```
+ */
+@Attribute
+public class Target {
+    public ElementType[] $value;
+    
+    public function __construct(ElementType[] $value) {
+        $this->value = $value;
+    }
+}

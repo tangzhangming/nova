@@ -1,0 +1,31 @@
+namespace sola.annotation
+
+/**
+ * @Repeatable 元注解
+ * 允许注解在同一元素上重复使用
+ * 
+ * 示例:
+ * ```
+ * @Attribute
+ * @Repeatable(container = "sola.orm.annotation.Indexes")
+ * public class Index {
+ *     public function __construct(
+ *         public string $name,
+ *         public string[] $columns
+ *     ) {}
+ * }
+ * 
+ * // 可以重复使用
+ * @Index(name = "idx_name", columns = ["name"])
+ * @Index(name = "idx_email", columns = ["email"])
+ * public class User { }
+ * ```
+ */
+@Attribute
+public class Repeatable {
+    public string $container;
+    
+    public function __construct(string $container) {
+        $this->container = $container;
+    }
+}

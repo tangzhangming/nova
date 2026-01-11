@@ -1586,24 +1586,85 @@ $status := Status::ACTIVE;
 ```
 
 ### 注解
+
+> **详细设计文档**: [annotation.md](./annotation.md)
+
+Sola 使用**强类型注解**（PHP 8 风格），注解是普通类，用 `@Attribute` 标记。
+
+#### 定义注解
+
 ```sola
-@Deprecated
-@Override
-public function oldMethod(): void {
-    // ...
+namespace sola.orm.annotation
+
+use sola.annotation.Attribute;
+use sola.annotation.Target;
+use sola.annotation.ElementType;
+
+// 注解是普通类，用 @Attribute 标记
+@Attribute
+@Target([ElementType::CLASS])
+public class Table {
+    public string $name;
+    public string $charset;
+    
+    public function __construct(string $name, string $charset = "utf8mb4") {
+        $this->name = $name;
+        $this->charset = $charset;
+    }
 }
 
-@JsonProperty("user_name")
-private string $userName;
-
-@Route("/api/users")
-public class UserController {
-    @Get("/{id}")
-    public function getUser(int $id): User {
-        // ...
+@Attribute
+@Target([ElementType::PROPERTY])
+public class Column {
+    public string $name;
+    public bool $nullable;
+    
+    public function __construct(string $name = "", bool $nullable = true) {
+        $this->name = $name;
+        $this->nullable = $nullable;
     }
 }
 ```
+
+#### 使用注解
+
+```sola
+use sola.orm.annotation.Table;
+use sola.orm.annotation.Column;
+
+@Table("users")
+public class User {
+    
+    @Column("id", nullable = false)
+    public int $id;
+    
+    @Column  // 使用默认值
+    public string $name;
+}
+```
+
+#### 参数传递方式
+
+```sola
+// 命名参数（推荐）
+@Column(name = "user_id", nullable = false)
+
+// 位置参数（按构造函数顺序）
+@Table("users")
+
+// 混合使用（位置参数在前）
+@Column("user_id", nullable = false)
+```
+
+#### 元注解
+
+| 注解 | 作用 |
+|------|------|
+| `@Attribute` | 标记类为注解类 |
+| `@Target` | 限制注解使用位置（CLASS, PROPERTY, METHOD 等）|
+| `@Retention` | 注解保留策略（SOURCE, COMPILE, RUNTIME）|
+| `@Inherited` | 子类继承父类注解 |
+| `@Repeatable` | 允许重复使用 |
 
 ### echo 语句
 ```sola
@@ -1619,6 +1680,22 @@ typeof($value)       // 获取类型名称
 isset($array[$key])  // 检查键是否存在
 unset($array[$key])  // 删除数组元素
 ```
+
+### 原生函数 (native_)
+
+`native_` 开头的函数是 Sola 运行时提供的底层原生函数，**只能在标准库（`sola.*` 命名空间）中调用**，用户代码无法直接使用。
+
+```sola
+// 这些函数只能在标准库代码中使用：
+native_str_index_of($str, $search)      // 字符串查找
+native_str_substring($str, $start, $end) // 字符串截取
+native_crypto_sha1_bytes($data)          // SHA1 哈希
+native_reflect_get_class($obj)           // 反射获取类名
+native_reflect_set_property($obj, $name, $val)  // 反射设置属性
+// ... 等等
+```
+
+如果需要使用这些功能，应通过标准库提供的封装类来调用，如 `sola.lang.Str`、`sola.crypto.Hash` 等。
 
 ### 链式调用
 ```sola

@@ -173,7 +173,9 @@ func (s *Serializer) collectChunkStrings(chunk *Chunk) {
 func (s *Serializer) collectAnnotations(annotations []*Annotation) {
 	for _, ann := range annotations {
 		s.addString(ann.Name)
-		for _, arg := range ann.Args {
+		// 收集参数中的字符串（map 格式）
+		for key, arg := range ann.Args {
+			s.addString(key) // 参数名也需要序列化
 			if arg.Type == ValString {
 				s.addString(arg.Data.(string))
 			}
@@ -328,6 +330,12 @@ func (s *Serializer) writeClassTo(buf *bytes.Buffer, class *Class) {
 	if class.IsInterface {
 		flags |= ClassFlagInterface
 	}
+	if class.IsFinal {
+		flags |= ClassFlagFinal
+	}
+	if class.IsAttribute {
+		flags |= ClassFlagAttribute
+	}
 	buf.WriteByte(flags)
 
 	// 实现的接口
@@ -450,8 +458,10 @@ func (s *Serializer) writeAnnotations(buf *bytes.Buffer, annotations []*Annotati
 	binary.Write(buf, binary.BigEndian, uint16(len(annotations)))
 	for _, ann := range annotations {
 		binary.Write(buf, binary.BigEndian, s.addString(ann.Name))
+		// 写入参数数量和参数（map 格式：key-value 对）
 		binary.Write(buf, binary.BigEndian, uint16(len(ann.Args)))
-		for _, arg := range ann.Args {
+		for key, arg := range ann.Args {
+			binary.Write(buf, binary.BigEndian, s.addString(key))
 			s.writeValue(buf, arg)
 		}
 	}

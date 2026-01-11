@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/tangzhangming/nova/internal/ast"
@@ -58,6 +59,14 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 
 	// 处理类注解
 	class.Annotations = c.compileAnnotations(decl.Annotations)
+
+	// 检查是否是注解类（有 @Attribute 标记）
+	for _, ann := range decl.Annotations {
+		if ann.Name.Name == "Attribute" {
+			class.IsAttribute = true
+			break
+		}
+	}
 
 	// 处理父类
 	if decl.Extends != nil {
@@ -151,21 +160,34 @@ func (c *Compiler) compileAnnotations(annotations []*ast.Annotation) []*bytecode
 	for i, ann := range annotations {
 		result[i] = &bytecode.Annotation{
 			Name: ann.Name.Name,
-			Args: c.evaluateAnnotationArgs(ann.Args),
+			Args: c.evaluateAnnotationArgsMap(ann),
 		}
 	}
 	return result
 }
 
-// evaluateAnnotationArgs 计算注解参数
-func (c *Compiler) evaluateAnnotationArgs(args []ast.Expression) []bytecode.Value {
-	if len(args) == 0 {
+// evaluateAnnotationArgsMap 计算注解参数（返回 map 格式）
+// 位置参数使用数字字符串作为 key（"0", "1", "2"...）
+// 命名参数使用参数名作为 key
+func (c *Compiler) evaluateAnnotationArgsMap(ann *ast.Annotation) map[string]bytecode.Value {
+	// 如果没有参数，返回 nil
+	if len(ann.Args) == 0 && len(ann.NamedArgs) == 0 {
 		return nil
 	}
-	result := make([]bytecode.Value, len(args))
-	for i, arg := range args {
-		result[i] = c.evaluateConstExpr(arg)
+
+	result := make(map[string]bytecode.Value)
+
+	// 处理位置参数
+	for i, arg := range ann.Args {
+		key := strconv.Itoa(i)
+		result[key] = c.evaluateConstExpr(arg)
 	}
+
+	// 处理命名参数
+	for name, arg := range ann.NamedArgs {
+		result[name] = c.evaluateConstExpr(arg)
+	}
+
 	return result
 }
 

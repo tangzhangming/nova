@@ -1339,12 +1339,17 @@ func (v Visibility) String() string {
 }
 
 // Annotation 注解
+// 支持两种参数格式：
+// - 位置参数: @Table("users")
+// - 命名参数: @Column(name = "id", nullable = false)
+// - 混合使用: @Column("id", nullable = false) - 位置参数在前
 type Annotation struct {
-	AtToken token.Token
-	Name    *Identifier
-	LParen  token.Token  // 可选
-	Args    []Expression // 可选
-	RParen  token.Token  // 可选
+	AtToken   token.Token
+	Name      *Identifier
+	LParen    token.Token              // 可选
+	Args      []Expression             // 位置参数（可选）
+	NamedArgs map[string]Expression    // 命名参数（可选）
+	RParen    token.Token              // 可选
 }
 
 // Parameter 函数参数

@@ -1032,9 +1032,12 @@ func (o *Object) SetField(name string, value Value) {
 }
 
 // Annotation 注解
+// Args 使用 map 存储参数：
+// - 位置参数使用数字字符串作为 key（如 "0", "1", "2"）
+// - 命名参数使用参数名作为 key
 type Annotation struct {
 	Name string
-	Args []Value
+	Args map[string]Value
 }
 
 // TypeParamDef 泛型类型参数定义
@@ -1055,6 +1058,7 @@ type Class struct {
 	IsAbstract     bool     // 是否是抽象类
 	IsFinal        bool     // 是否是 final 类（不能被继承）
 	IsInterface    bool     // 是否是接口
+	IsAttribute    bool     // 是否是注解类（有 @Attribute 标记）
 	Annotations    []*Annotation         // 类注解
 	Constants      map[string]Value
 	StaticVars     map[string]Value

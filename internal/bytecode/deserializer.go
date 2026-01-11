@@ -363,6 +363,8 @@ func (d *Deserializer) readClass() (*Class, error) {
 	}
 	class.IsAbstract = (flags & ClassFlagAbstract) != 0
 	class.IsInterface = (flags & ClassFlagInterface) != 0
+	class.IsFinal = (flags & ClassFlagFinal) != 0
+	class.IsAttribute = (flags & ClassFlagAttribute) != 0
 
 	// 实现的接口
 	implCount, err := d.readU16()
@@ -644,13 +646,21 @@ func (d *Deserializer) readAnnotations() ([]*Annotation, error) {
 		if err != nil {
 			return nil, err
 		}
-		args := make([]Value, argCount)
-		for j := uint16(0); j < argCount; j++ {
-			val, err := d.readValue()
-			if err != nil {
-				return nil, err
+		// 读取参数（map 格式：key-value 对）
+		var args map[string]Value
+		if argCount > 0 {
+			args = make(map[string]Value, argCount)
+			for j := uint16(0); j < argCount; j++ {
+				keyIdx, err := d.readU32()
+				if err != nil {
+					return nil, err
+				}
+				val, err := d.readValue()
+				if err != nil {
+					return nil, err
+				}
+				args[d.getString(keyIdx)] = val
 			}
-			args[j] = val
 		}
 		annotations[i] = &Annotation{
 			Name: d.getString(nameIdx),
