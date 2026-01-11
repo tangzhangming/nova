@@ -647,15 +647,6 @@ func (a *Arena) NewThrowStmt(throwTok token.Token, exception Expression, semicol
 	return node
 }
 
-// NewEchoStmt 创建 echo 语句节点
-func (a *Arena) NewEchoStmt(echoTok token.Token, value Expression, semicolon token.Token) *EchoStmt {
-	node := AllocType[EchoStmt](a)
-	node.EchoToken = echoTok
-	node.Value = value
-	node.Semicolon = semicolon
-	return node
-}
-
 // NewGoStmt 创建 go 语句节点（启动协程）
 func (a *Arena) NewGoStmt(goTok token.Token, call Expression, semicolon token.Token) *GoStmt {
 	node := AllocType[GoStmt](a)

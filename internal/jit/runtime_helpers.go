@@ -314,6 +314,105 @@ func CallHelperWithName(funcNamePtr uintptr, args ...int64) int64 {
 	return 0
 }
 
+// CallHelperById4 通过函数 ID 调用（最多 4 个参数）
+// 参数：RCX=funcID, RDX=argCount, R8=arg0, R9=arg1，arg2/arg3 通过栈传递
+// 返回：RAX=返回值
+func CallHelperById4(funcID int32, argCount int64, arg0, arg1, arg2 int64) int64 {
+	if funcID == 0 {
+		return 0
+	}
+	
+	ft := GetFunctionTable()
+	
+	// 通过 ID 获取函数条目
+	entry, ok := ft.GetEntryByID(funcID)
+	if !ok {
+		return 0
+	}
+	
+	// 回退到 VM（目前始终使用 VM 执行函数调用）
+	if vmCallback != nil {
+		// 根据 argCount 传递参数
+		var args []int64
+		switch argCount {
+		case 0:
+			args = nil
+		case 1:
+			args = []int64{arg0}
+		case 2:
+			args = []int64{arg0, arg1}
+		case 3:
+			args = []int64{arg0, arg1, arg2}
+		default:
+			args = []int64{arg0, arg1, arg2}
+		}
+		result, err := vmCallback(entry.FullName, args)
+		if err != nil {
+			return 0
+		}
+		return result
+	}
+	
+	// vmCallback 为空，说明没有设置
+	return 0
+}
+
+// CallHelperById1 通过函数 ID 调用（1 个参数）
+func CallHelperById1(funcID int32, arg0 int64) int64 {
+	if funcID == 0 {
+		return 0
+	}
+	
+	ft := GetFunctionTable()
+	entry, ok := ft.GetEntryByID(funcID)
+	if !ok {
+		return 0
+	}
+	
+	if vmCallback != nil {
+		args := []int64{arg0}
+		result, _ := vmCallback(entry.FullName, args)
+		return result
+	}
+	
+	return 0
+}
+
+// CallHelperById0 通过函数 ID 调用（无参数）
+func CallHelperById0(funcID int32) int64 {
+	if funcID == 0 {
+		return 0
+	}
+	
+	ft := GetFunctionTable()
+	entry, ok := ft.GetEntryByID(funcID)
+	if !ok {
+		return 0
+	}
+	
+	if vmCallback != nil {
+		result, _ := vmCallback(entry.FullName, nil)
+		return result
+	}
+	
+	return 0
+}
+
+// GetCallHelperByIdPtr 获取 CallHelperById 的函数指针（根据参数数量）
+func GetCallHelperByIdPtr() uintptr {
+	return getFuncPtr(CallHelperById4)
+}
+
+// GetCallHelperById1Ptr 获取 1 参数版本
+func GetCallHelperById1Ptr() uintptr {
+	return getFuncPtr(CallHelperById1)
+}
+
+// GetCallHelperById0Ptr 获取无参数版本
+func GetCallHelperById0Ptr() uintptr {
+	return getFuncPtr(CallHelperById0)
+}
+
 // callCompiledFunc 调用已编译的函数
 // 通过函数指针调用
 func callCompiledFunc(addr uintptr, args []int64) int64 {

@@ -32,8 +32,9 @@ const (
 	FuncStateFailed
 )
 
-// JITFunctionEntry JIT ?????
+// JITFunctionEntry JIT 函数条目
 type JITFunctionEntry struct {
+	ID         int32  // 函数唯一 ID
 	Name       string
 	FullName   string
 	State      FunctionState
@@ -68,11 +69,14 @@ const (
 // ???
 // ============================================================================
 
-// FunctionTable ?????
+// FunctionTable 函数表
 type FunctionTable struct {
 	mu        sync.RWMutex
 	functions map[string]*JITFunctionEntry
 	byAddr    map[uintptr]*JITFunctionEntry
+	byID      map[int32]*JITFunctionEntry // 按 ID 查找
+	nameToID  map[string]int32            // 函数名到 ID 的映射
+	nextID    int32                       // 下一个可用 ID
 	
 	pltMu     sync.Mutex
 	pltSlots  []uintptr
@@ -91,12 +95,15 @@ const (
 var globalFunctionTable *FunctionTable
 var functionTableOnce sync.Once
 
-// GetFunctionTable ???????
+// GetFunctionTable 获取全局函数表
 func GetFunctionTable() *FunctionTable {
 	functionTableOnce.Do(func() {
 		globalFunctionTable = &FunctionTable{
 			functions: make(map[string]*JITFunctionEntry),
 			byAddr:    make(map[uintptr]*JITFunctionEntry),
+			byID:      make(map[int32]*JITFunctionEntry),
+			nameToID:  make(map[string]int32),
+			nextID:    1, // ID 从 1 开始，0 表示无效
 			pltSlots:  make([]uintptr, PLTInitialSize),
 			pltIndex:  make(map[string]int),
 			pltSize:   PLTInitialSize,
@@ -105,7 +112,7 @@ func GetFunctionTable() *FunctionTable {
 	return globalFunctionTable
 }
 
-// Register ????
+// Register 注册函数
 func (ft *FunctionTable) Register(name string, fn *bytecode.Function) *JITFunctionEntry {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -115,7 +122,12 @@ func (ft *FunctionTable) Register(name string, fn *bytecode.Function) *JITFuncti
 		return entry
 	}
 	
+	// 分配新 ID
+	id := ft.nextID
+	ft.nextID++
+	
 	entry := &JITFunctionEntry{
+		ID:         id,
 		Name:       name,
 		FullName:   name,
 		State:      FuncStatePending,
@@ -129,10 +141,12 @@ func (ft *FunctionTable) Register(name string, fn *bytecode.Function) *JITFuncti
 	}
 	
 	ft.functions[name] = entry
+	ft.byID[id] = entry
+	ft.nameToID[name] = id
 	return entry
 }
 
-// RegisterMethod ????
+// RegisterMethod 注册方法
 func (ft *FunctionTable) RegisterMethod(className, methodName string, fn *bytecode.Function) *JITFunctionEntry {
 	fullName := className + "::" + methodName
 	
@@ -144,7 +158,12 @@ func (ft *FunctionTable) RegisterMethod(className, methodName string, fn *byteco
 		return entry
 	}
 	
+	// 分配新 ID
+	id := ft.nextID
+	ft.nextID++
+	
 	entry := &JITFunctionEntry{
+		ID:         id,
 		Name:       methodName,
 		FullName:   fullName,
 		State:      FuncStatePending,
@@ -160,6 +179,8 @@ func (ft *FunctionTable) RegisterMethod(className, methodName string, fn *byteco
 	}
 	
 	ft.functions[fullName] = entry
+	ft.byID[id] = entry
+	ft.nameToID[fullName] = id
 	return entry
 }
 
@@ -215,7 +236,7 @@ func patchDirectCall(callAddr uintptr, targetAddr uintptr) {
 	*ptr = offset
 }
 
-// GetAddress ??????
+// GetAddress 获取函数地址
 func (ft *FunctionTable) GetAddress(name string) uintptr {
 	ft.mu.RLock()
 	defer ft.mu.RUnlock()
@@ -224,6 +245,53 @@ func (ft *FunctionTable) GetAddress(name string) uintptr {
 		return entry.EntryPoint
 	}
 	return 0
+}
+
+// GetAddressByID 通过 ID 获取函数地址
+func (ft *FunctionTable) GetAddressByID(id int32) uintptr {
+	ft.mu.RLock()
+	defer ft.mu.RUnlock()
+	
+	if entry, ok := ft.byID[id]; ok && entry.State == FuncStateCompiled {
+		return entry.EntryPoint
+	}
+	return 0
+}
+
+// GetEntryByID 通过 ID 获取函数条目
+func (ft *FunctionTable) GetEntryByID(id int32) (*JITFunctionEntry, bool) {
+	ft.mu.RLock()
+	defer ft.mu.RUnlock()
+	
+	entry, ok := ft.byID[id]
+	return entry, ok
+}
+
+// GetOrCreateID 获取或创建函数 ID
+func (ft *FunctionTable) GetOrCreateID(name string) int32 {
+	ft.mu.Lock()
+	defer ft.mu.Unlock()
+	
+	if id, ok := ft.nameToID[name]; ok {
+		return id
+	}
+	
+	// 创建新条目
+	id := ft.nextID
+	ft.nextID++
+	
+	entry := &JITFunctionEntry{
+		ID:         id,
+		Name:       name,
+		FullName:   name,
+		State:      FuncStatePending,
+		PatchSites: make([]PatchSite, 0),
+	}
+	
+	ft.functions[name] = entry
+	ft.byID[id] = entry
+	ft.nameToID[name] = id
+	return id
 }
 
 // GetEntry ??????

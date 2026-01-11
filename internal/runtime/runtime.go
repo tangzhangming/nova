@@ -93,7 +93,7 @@ func (r *Runtime) Run(source, filename string) error {
 
 	// 编译入口文件（使用共享符号表，以便识别导入的类）
 	c := compiler.NewWithSymbolTable(r.symbolTable)
-	fn, errs := c.Compile(file)
+	_, errs := c.Compile(file)
 
 	if len(errs) > 0 {
 		for _, e := range errs {
@@ -131,13 +131,62 @@ func (r *Runtime) Run(source, filename string) error {
 	// 注册内置函数
 	r.registerBuiltinsToVM()
 
-	// 运行
-	result := r.vm.Run(fn)
+	// 查找入口点：与文件同名的类的静态 main() 方法
+	entryClassName := getClassNameFromFilename(filename)
+	entryClass, ok := r.classes[entryClassName]
+	if !ok {
+		return fmt.Errorf(i18n.T(i18n.ErrMainMethodRequired))
+	}
+
+	// 查找静态 main 方法
+	mainMethod := r.findMainMethod(entryClass)
+	if mainMethod == nil {
+		return fmt.Errorf(i18n.T(i18n.ErrMainMethodRequired))
+	}
+
+	// 调用 main 方法
+	result := r.vm.CallStaticMethod(entryClass, "main", nil)
 	if result != vm.InterpretOK {
 		// VM 已经打印了详细的错误信息，这里返回空错误表示执行失败
 		return fmt.Errorf("")
 	}
 
+	return nil
+}
+
+// getClassNameFromFilename 从文件名提取类名
+// 例如: "src/main.sola" -> "main", "/path/to/Helper.sola" -> "Helper"
+func getClassNameFromFilename(filename string) string {
+	// 获取基本文件名（不含路径）
+	base := filename
+	// 处理 Windows 和 Unix 路径
+	for i := len(filename) - 1; i >= 0; i-- {
+		if filename[i] == '/' || filename[i] == '\\' {
+			base = filename[i+1:]
+			break
+		}
+	}
+	// 移除扩展名
+	for i := len(base) - 1; i >= 0; i-- {
+		if base[i] == '.' {
+			base = base[:i]
+			break
+		}
+	}
+	return base
+}
+
+// findMainMethod 查找类的静态 main() 方法
+func (r *Runtime) findMainMethod(class *bytecode.Class) *bytecode.Method {
+	// 查找名为 "main" 的静态方法
+	if methods, ok := class.Methods["main"]; ok {
+		for _, method := range methods {
+			// 检查是否是静态方法且无参数
+			if method.IsStatic && method.Arity == 0 {
+				return method
+			}
+		}
+	}
 	return nil
 }
 
@@ -346,9 +395,10 @@ func (r *Runtime) RunCompiled(cf *bytecode.CompiledFile) error {
 
 // RunREPL 运行 REPL 输入
 // 支持增量执行，保持环境状态
+// REPL 模式允许顶级代码以支持交互式执行
 func (r *Runtime) RunREPL(source, filename string) error {
-	// 解析输入
-	p := parser.New(source, filename)
+	// 解析输入（使用 REPL 解析器，允许顶级代码）
+	p := parser.NewREPL(source, filename)
 	file := p.Parse()
 
 	if p.HasErrors() {

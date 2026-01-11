@@ -256,8 +256,6 @@ func collectVarDeclarationsAndUsages(stmt ast.Statement, declared map[string]*va
 		for _, val := range s.Values {
 			collectExprUsages(val, used)
 		}
-	case *ast.EchoStmt:
-		collectExprUsages(s.Value, used)
 	case *ast.ThrowStmt:
 		collectExprUsages(s.Exception, used)
 	case *ast.TryStmt:

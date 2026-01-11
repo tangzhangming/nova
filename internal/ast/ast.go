@@ -1149,18 +1149,6 @@ func (s *ThrowStmt) End() token.Position { return s.Semicolon.Pos }
 func (s *ThrowStmt) String() string      { return "throw ...;" }
 func (s *ThrowStmt) stmtNode()           {}
 
-// EchoStmt echo 语句
-type EchoStmt struct {
-	EchoToken token.Token
-	Value     Expression
-	Semicolon token.Token
-}
-
-func (s *EchoStmt) Pos() token.Position { return s.EchoToken.Pos }
-func (s *EchoStmt) End() token.Position { return s.Semicolon.Pos }
-func (s *EchoStmt) String() string      { return "echo " + s.Value.String() + ";" }
-func (s *EchoStmt) stmtNode()           {}
-
 // GoStmt go 语句 (启动协程)
 type GoStmt struct {
 	GoToken   token.Token
@@ -1937,9 +1925,6 @@ func Walk(node Node, visitor Visitor) {
 
 	case *ExprStmt:
 		Walk(n.Expr, visitor)
-
-	case *EchoStmt:
-		Walk(n.Value, visitor)
 
 	case *GoStmt:
 		Walk(n.Call, visitor)

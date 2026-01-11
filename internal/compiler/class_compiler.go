@@ -7,6 +7,7 @@ import (
 	"github.com/tangzhangming/nova/internal/ast"
 	"github.com/tangzhangming/nova/internal/bytecode"
 	"github.com/tangzhangming/nova/internal/i18n"
+	"github.com/tangzhangming/nova/internal/token"
 )
 
 // ClassCompiler 类编译器
@@ -726,4 +727,83 @@ func (c *Compiler) validateFinalConstraints(file *ast.File) {
 			}
 		}
 	}
+}
+
+// validateFileStructure 验证文件结构约束
+// 1. 每个文件最多只能有一个 public 类
+// 2. 如果有 public 类，类名必须与文件名匹配
+func (c *Compiler) validateFileStructure(file *ast.File) {
+	// 从文件名提取期望的类名（不含路径和扩展名）
+	expectedClassName := getClassNameFromFilename(file.Filename)
+	
+	// 收集所有 public 类/接口/枚举
+	var publicDecls []struct {
+		Name string
+		Pos  token.Position
+	}
+	
+	for _, decl := range file.Declarations {
+		switch d := decl.(type) {
+		case *ast.ClassDecl:
+			if d.Visibility == ast.VisibilityPublic {
+				publicDecls = append(publicDecls, struct {
+					Name string
+					Pos  token.Position
+				}{d.Name.Name, d.ClassToken.Pos})
+			}
+		case *ast.InterfaceDecl:
+			if d.Visibility == ast.VisibilityPublic {
+				publicDecls = append(publicDecls, struct {
+					Name string
+					Pos  token.Position
+				}{d.Name.Name, d.InterfaceToken.Pos})
+			}
+		case *ast.EnumDecl:
+			// 枚举默认是 public
+			publicDecls = append(publicDecls, struct {
+				Name string
+				Pos  token.Position
+			}{d.Name.Name, d.EnumToken.Pos})
+		}
+	}
+	
+	// 检查：最多一个 public 类
+	if len(publicDecls) > 1 {
+		// 在第二个 public 声明处报错
+		c.error(publicDecls[1].Pos, i18n.T(i18n.ErrMultiplePublicClasses))
+	}
+	
+	// 检查：public 类名必须与文件名匹配
+	if len(publicDecls) == 1 && publicDecls[0].Name != expectedClassName {
+		c.error(publicDecls[0].Pos, i18n.T(i18n.ErrClassNameMismatch, publicDecls[0].Name, expectedClassName))
+	}
+}
+
+// getClassNameFromFilename 从文件名提取类名
+// 例如: "src/main.sola" -> "main", "/path/to/Helper.sola" -> "Helper"
+func getClassNameFromFilename(filename string) string {
+	// 获取基本文件名（不含路径）
+	base := filename
+	// 处理 Windows 和 Unix 路径
+	for i := len(filename) - 1; i >= 0; i-- {
+		if filename[i] == '/' || filename[i] == '\\' {
+			base = filename[i+1:]
+			break
+		}
+	}
+	// 移除扩展名
+	if idx := lastIndex(base, '.'); idx >= 0 {
+		base = base[:idx]
+	}
+	return base
+}
+
+// lastIndex 找到字符串中最后一个字符的位置
+func lastIndex(s string, c byte) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }

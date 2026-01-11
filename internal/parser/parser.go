@@ -12,13 +12,14 @@ import (
 
 // Parser 语法分析器
 type Parser struct {
-	lexer      *lexer.Lexer
-	tokens     []token.Token
-	current    int
-	errors     []Error
-	filename   string
-	panicMode  bool // 错误恢复模式标志，用于避免级联报错
-	exprDepth  int  // 表达式解析深度，防止栈溢出
+	lexer         *lexer.Lexer
+	tokens        []token.Token
+	current       int
+	errors        []Error
+	filename      string
+	panicMode     bool // 错误恢复模式标志，用于避免级联报错
+	exprDepth     int  // 表达式解析深度，防止栈溢出
+	allowTopLevel bool // 是否允许顶级代码（仅 REPL 模式为 true）
 }
 
 // maxExprDepth 最大表达式嵌套深度，防止栈溢出
@@ -40,11 +41,19 @@ func New(source, filename string) *Parser {
 	tokens := l.ScanTokens()
 
 	return &Parser{
-		lexer:    l,
-		tokens:   tokens,
-		current:  0,
-		filename: filename,
+		lexer:         l,
+		tokens:        tokens,
+		current:       0,
+		filename:      filename,
+		allowTopLevel: false, // 默认禁止顶级代码
 	}
+}
+
+// NewREPL 创建一个 REPL 模式的语法分析器（允许顶级代码）
+func NewREPL(source, filename string) *Parser {
+	p := New(source, filename)
+	p.allowTopLevel = true
+	return p
 }
 
 // Parse 解析源文件
@@ -90,14 +99,21 @@ func (p *Parser) Parse() *ast.File {
 				file.Declarations = append(file.Declarations, decl)
 			}
 		} else {
-			// 顶层语句 (入口文件)
-			stmt := p.parseStatement()
-			if p.panicMode {
+			// 顶级代码处理
+			if p.allowTopLevel {
+				// REPL 模式：允许顶级语句
+				stmt := p.parseStatement()
+				if p.panicMode {
+					p.synchronize()
+					continue
+				}
+				if stmt != nil {
+					file.Statements = append(file.Statements, stmt)
+				}
+			} else {
+				// 正常模式：禁止顶级代码
+				p.error(i18n.T(i18n.ErrTopLevelCodeNotAllowed))
 				p.synchronize()
-				continue
-			}
-			if stmt != nil {
-				file.Statements = append(file.Statements, stmt)
 			}
 		}
 	}
@@ -262,7 +278,7 @@ func (p *Parser) synchronize() {
 			token.ABSTRACT, token.FINAL, token.PUBLIC, token.PROTECTED, token.PRIVATE,
 			token.FUNCTION, token.IF, token.FOR, token.FOREACH, token.WHILE, token.DO,
 			token.RETURN, token.TRY, token.THROW, token.BREAK, token.CONTINUE,
-			token.NAMESPACE, token.USE, token.AT, token.ECHO, token.SWITCH:
+			token.NAMESPACE, token.USE, token.AT, token.SWITCH:
 			return
 		}
 
@@ -1801,8 +1817,6 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseTryStmt()
 	case token.THROW:
 		return p.parseThrowStmt()
-	case token.ECHO:
-		return p.parseEchoStmt()
 	case token.GO:
 		return p.parseGoStmt()
 	case token.SELECT:
@@ -2019,7 +2033,7 @@ func (p *Parser) parseBlock() *ast.BlockStmt {
 			for !p.check(token.RBRACE) && !p.isAtEnd() && !p.checkAny(
 				token.IF, token.FOR, token.FOREACH, token.WHILE, token.DO,
 				token.RETURN, token.TRY, token.THROW, token.BREAK, token.CONTINUE,
-				token.ECHO, token.SWITCH, token.VARIABLE) {
+				token.SWITCH, token.VARIABLE) {
 				if p.previous().Type == token.SEMICOLON || p.previous().Type == token.RBRACE {
 					break
 				}
@@ -2584,18 +2598,6 @@ func (p *Parser) parseThrowStmt() *ast.ThrowStmt {
 		ThrowToken: throwToken,
 		Exception:  exception,
 		Semicolon:  semicolon,
-	}
-}
-
-func (p *Parser) parseEchoStmt() *ast.EchoStmt {
-	echoToken := p.advance()
-	value := p.parseExpression()
-	semicolon := p.consume(token.SEMICOLON, "expected ';'")
-
-	return &ast.EchoStmt{
-		EchoToken: echoToken,
-		Value:     value,
-		Semicolon: semicolon,
 	}
 }
 

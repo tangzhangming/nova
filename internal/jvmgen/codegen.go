@@ -157,39 +157,11 @@ func (g *Generator) generateInitMethod() *MethodInfo {
 
 // generateStatement 生成语句的字节码
 func (g *Generator) generateStatement(stmt ast.Statement) error {
-	switch s := stmt.(type) {
-	case *ast.EchoStmt:
-		return g.generateEcho(s)
+	switch stmt.(type) {
 	default:
 		// 其他语句暂时忽略
 		return nil
 	}
-}
-
-// generateEcho 生成 echo 语句的字节码
-func (g *Generator) generateEcho(stmt *ast.EchoStmt) error {
-	// getstatic java/lang/System.out:Ljava/io/PrintStream;
-	g.code.WriteByte(OpGetstatic)
-	g.code.WriteU16(g.cpIndex["fieldref:java/lang/System.out:Ljava/io/PrintStream;"])
-
-	// 获取要打印的字符串
-	strValue, err := g.getStringValue(stmt.Value)
-	if err != nil {
-		return err
-	}
-
-	// 添加字符串常量
-	strIndex := g.addString(strValue)
-
-	// ldc <string>
-	g.code.WriteByte(OpLdc)
-	g.code.WriteByte(byte(strIndex))
-
-	// invokevirtual java/io/PrintStream.println:(Ljava/lang/String;)V
-	g.code.WriteByte(OpInvokevirtual)
-	g.code.WriteU16(g.cpIndex["methodref:java/io/PrintStream.println:(Ljava/lang/String;)V"])
-
-	return nil
 }
 
 // getStringValue 从表达式获取字符串值

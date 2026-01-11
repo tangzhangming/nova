@@ -257,9 +257,6 @@ func (uc *UninitializedChecker) collectStmtUsedVars(stmt ast.Statement) map[stri
 			uc.collectExprUsedVars(val, result)
 		}
 		
-	case *ast.EchoStmt:
-		uc.collectExprUsedVars(s.Value, result)
-		
 	case *ast.ThrowStmt:
 		uc.collectExprUsedVars(s.Exception, result)
 	}

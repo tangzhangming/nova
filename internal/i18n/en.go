@@ -106,6 +106,14 @@ var messagesEN = map[string]string{
 	
 	// Class name resolution
 	ErrSelfOutsideClass: "cannot use self::class outside of class",
+	
+	// File structure
+	ErrTopLevelCodeNotAllowed:   "top-level code is not allowed, all code must be inside a class",
+	ErrClassNameMismatch:        "public class name '%s' must match file name '%s'",
+	ErrMultiplePublicClasses:    "only one public class is allowed per file",
+	ErrMainMethodRequired:       "entry file must have a public static function main() method",
+	ErrMainMethodMustBeStatic:   "main method must be static",
+	ErrMainMethodMustBePublic:   "main method must be public",
 
 	// ========== VM ==========
 	ErrIPOutOfBounds:            "instruction pointer out of bounds",

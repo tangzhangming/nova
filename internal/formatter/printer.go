@@ -881,11 +881,6 @@ func (p *Printer) printStatement(stmt ast.Statement) {
 		p.write("throw ")
 		p.printExpression(s.Exception)
 		p.writeln(";")
-	case *ast.EchoStmt:
-		p.writeIndent()
-		p.write("echo ")
-		p.printExpression(s.Value)
-		p.writeln(";")
 	}
 }
 

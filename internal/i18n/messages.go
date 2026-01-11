@@ -107,6 +107,14 @@ const (
 	
 	// 类名解析相关
 	ErrSelfOutsideClass = "compiler.self_outside_class"
+	
+	// 文件结构相关
+	ErrTopLevelCodeNotAllowed   = "compiler.top_level_code_not_allowed"
+	ErrClassNameMismatch        = "compiler.class_name_mismatch"
+	ErrMultiplePublicClasses    = "compiler.multiple_public_classes"
+	ErrMainMethodRequired       = "compiler.main_method_required"
+	ErrMainMethodMustBeStatic   = "compiler.main_method_must_be_static"
+	ErrMainMethodMustBePublic   = "compiler.main_method_must_be_public"
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds            = "vm.ip_out_of_bounds"

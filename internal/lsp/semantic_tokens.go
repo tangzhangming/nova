@@ -598,17 +598,6 @@ func collectStmtTokens(stmt ast.Statement) []semanticToken {
 		})
 		tokens = append(tokens, collectExprTokens(s.Exception)...)
 
-	case *ast.EchoStmt:
-		// echo关键字
-		tokens = append(tokens, semanticToken{
-			Line:      uint32(s.EchoToken.Pos.Line - 1),
-			StartChar: uint32(s.EchoToken.Pos.Column - 1),
-			Length:    4, // "echo"
-			TokenType: TokenTypeKeyword,
-			Modifiers: 0,
-		})
-		tokens = append(tokens, collectExprTokens(s.Value)...)
-
 	case *ast.BreakStmt:
 		tokens = append(tokens, semanticToken{
 			Line:      uint32(s.BreakToken.Pos.Line - 1),

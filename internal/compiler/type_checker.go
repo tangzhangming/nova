@@ -245,8 +245,6 @@ func (tc *TypeChecker) checkStatement(stmt ast.Statement) {
 		tc.checkTryStmt(s)
 	case *ast.ThrowStmt:
 		tc.checkExpression(s.Exception)
-	case *ast.EchoStmt:
-		tc.checkExpression(s.Value)
 	case *ast.BreakStmt, *ast.ContinueStmt:
 		// 不需要类型检查
 	}

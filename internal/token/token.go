@@ -203,7 +203,6 @@ const (
 	NAMESPACE // namespace
 	USE       // use
 	MAP       // map
-	ECHO      // echo
 	TYPE      // type (类型别名)
 	keyword_end // 关键字结束标记（不是实际 token）
 
@@ -374,7 +373,6 @@ var tokenNames = map[TokenType]string{
 	NAMESPACE: "namespace",
 	USE:       "use",
 	MAP:       "map",
-	ECHO:      "echo",
 	WHERE:     "where",
 	TYPE:      "type",
 	GET:       "get",
@@ -471,7 +469,6 @@ var keywords = map[string]TokenType{
 	"namespace": NAMESPACE,
 	"use":       USE,
 	"map":       MAP,
-	"echo":      ECHO,
 	"type":      TYPE,
 	// 注意：get、set、value、where 是上下文关键字，不在这里注册
 	// 它们在词法分析时被识别为 IDENT，在解析时特殊处理
@@ -558,7 +555,7 @@ func LookupIdent(ident string) TokenType {
 		}
 
 	case 4:
-		// 四字符关键字：else, case, void, null, true, bool, func, self, enum, byte, echo, type
+		// 四字符关键字：else, case, void, null, true, bool, func, self, enum, byte, type
 		switch ident {
 		case "else":
 			return ELSE
@@ -580,8 +577,6 @@ func LookupIdent(ident string) TokenType {
 			return ENUM
 		case "byte":
 			return BYTE_TYPE
-		case "echo":
-			return ECHO
 		case "type":
 			return TYPE
 		case "uint":

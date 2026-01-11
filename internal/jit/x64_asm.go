@@ -338,6 +338,13 @@ func (a *X64Assembler) IDivReg(reg X64Reg) {
 // 位运算指令
 // ============================================================================
 
+// XorRegReg 位异或: xor dst, src（常用于 xor reg, reg 清零）
+func (a *X64Assembler) XorRegReg(dst, src X64Reg) {
+	a.emit(rex(true, src.IsExtended(), false, dst.IsExtended()))
+	a.emit(0x31)
+	a.emit(modrm(3, src.LowBits(), dst.LowBits()))
+}
+
 // AndRegReg 位与: and dst, src
 func (a *X64Assembler) AndRegReg(dst, src X64Reg) {
 	a.emit(rex(true, src.IsExtended(), false, dst.IsExtended()))
@@ -349,13 +356,6 @@ func (a *X64Assembler) AndRegReg(dst, src X64Reg) {
 func (a *X64Assembler) OrRegReg(dst, src X64Reg) {
 	a.emit(rex(true, src.IsExtended(), false, dst.IsExtended()))
 	a.emit(0x09)
-	a.emit(modrm(3, src.LowBits(), dst.LowBits()))
-}
-
-// XorRegReg 位异或: xor dst, src
-func (a *X64Assembler) XorRegReg(dst, src X64Reg) {
-	a.emit(rex(true, src.IsExtended(), false, dst.IsExtended()))
-	a.emit(0x31)
 	a.emit(modrm(3, src.LowBits(), dst.LowBits()))
 }
 

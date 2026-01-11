@@ -106,6 +106,14 @@ var messagesZH = map[string]string{
 	
 	// 类名解析相关
 	ErrSelfOutsideClass: "不能在类外使用 self::class",
+	
+	// 文件结构相关
+	ErrTopLevelCodeNotAllowed:   "禁止在类外编写代码，所有代码必须在类内",
+	ErrClassNameMismatch:        "public 类名 '%s' 必须与文件名 '%s' 匹配",
+	ErrMultiplePublicClasses:    "一个文件中只能有一个 public 类",
+	ErrMainMethodRequired:       "入口文件必须有 public static function main() 方法",
+	ErrMainMethodMustBeStatic:   "main 方法必须是 static",
+	ErrMainMethodMustBePublic:   "main 方法必须是 public",
 
 	// ========== 虚拟机 ==========
 	ErrIPOutOfBounds:            "指令指针越界",

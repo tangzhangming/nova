@@ -211,11 +211,10 @@ func (c *Compiler) Compile(file *ast.File) (*bytecode.Function, []Error) {
 	
 	// ========== Phase 2.5: Final 约束检查 ==========
 	c.validateFinalConstraints(file)
-
-	// 编译顶层语句
-	for _, stmt := range file.Statements {
-		c.compileStmt(stmt)
-	}
+	
+	// ========== Phase 2.6: 文件结构检查 ==========
+	// 验证 public 类名与文件名匹配
+	c.validateFileStructure(file)
 
 	// 添加返回指令
 	c.emit(bytecode.OpReturnNull)
@@ -870,10 +869,6 @@ func (c *Compiler) compileStmt(stmt ast.Statement) {
 
 	case *ast.ReturnStmt:
 		c.compileReturnStmt(s)
-
-	case *ast.EchoStmt:
-		c.compileExpr(s.Value)
-		c.emit(bytecode.OpDebugPrint)
 
 	case *ast.TryStmt:
 		c.compileTryStmt(s)

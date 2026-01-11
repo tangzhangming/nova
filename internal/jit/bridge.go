@@ -116,15 +116,12 @@ func CanJITWithLevel(fn *bytecode.Function) JITCapability {
 				level = JITWithExceptions
 			}
 		
-		// 函数调用（已实现直接调用和延迟绑定）
-		// 通过 FunctionTable 解析目标地址，支持：
-		// - 直接调用：目标已编译时直接生成 call
-		// - 延迟绑定：目标未编译时生成占位调用，后续修补
-		// - PLT 调用：通过过程链接表间接调用
+		// 函数调用 - 暂时禁用 JIT
+		// 函数调用的 JIT 实现需要复杂的 VM 交互机制，
+		// 包括正确的帧管理和返回值传递。
+		// 目前先禁用，让包含函数调用的代码走解释器。
 		case bytecode.OpCall, bytecode.OpTailCall, bytecode.OpCallMethod, bytecode.OpCallStatic:
-			if level > JITWithCalls {
-				level = JITWithCalls
-			}
+			return JITDisabled
 		
 		// 对象操作（需要 JITWithObjects 级别）
 		case bytecode.OpNewObject, bytecode.OpGetField, bytecode.OpSetField,

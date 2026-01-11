@@ -1268,82 +1268,106 @@ func (cg *X64CodeGenerator) emitCallHelper(addr uintptr) {
 // 支持三种调用模式：
 //   1. 直接调用：目标地址已知，生成 call rel32
 //   2. PLT 调用：通过过程链接表间接调用
-//   3. 延迟绑定：生成占位调用，后续修补
+//   3. Helper 调用：使用 CallHelperById 通过函数 ID 调用
 func (cg *X64CodeGenerator) emitCall(instr *IRInstr) {
 	argCount := len(instr.Args)
 	argRegs := []X64Reg{RCX, RDX, R8, R9}
-	
-	// 计算栈空间需求
-	// Shadow space (32) + 额外参数 + 对齐
-	stackSpace := int32(32) // Shadow space
-	if argCount > 4 {
-		stackSpace += int32((argCount - 4) * 8)
-	}
-	// 对齐到16字节
-	if (stackSpace % 16) != 8 {
-		stackSpace += 8
-	}
-	
-	// 保存调用者保存的寄存器
-	cg.saveCallerSavedRegs()
-	
-	// 分配栈空间
-	cg.asm.SubRegImm32(RSP, stackSpace)
-	
-	// 加载参数
-	// 前4个参数放入寄存器
-	for i := 0; i < argCount && i < 4; i++ {
-		src := cg.loadValue(instr.Args[i], RAX)
-		if src != argRegs[i] {
-			cg.asm.MovRegReg(argRegs[i], src)
-		}
-	}
-	
-	// 额外参数放入栈
-	for i := 4; i < argCount; i++ {
-		src := cg.loadValue(instr.Args[i], RAX)
-		offset := int32(32 + (i-4)*8) // Shadow space后的位置
-		cg.asm.MovMemReg(RSP, offset, src)
-	}
-	
-	// 获取目标函数地址
+
+	// 获取目标函数地址或 ID
 	targetName := instr.CallTarget
 	ft := GetFunctionTable()
-	
+
 	if targetAddr := ft.GetAddress(targetName); targetAddr != 0 {
 		// 直接调用：目标已编译
+		// 计算栈空间需求
+		stackSpace := int32(32) // Shadow space
+		if argCount > 4 {
+			stackSpace += int32((argCount - 4) * 8)
+		}
+		if (stackSpace % 16) != 8 {
+			stackSpace += 8
+		}
+
+		cg.saveCallerSavedRegs()
+		cg.asm.SubRegImm32(RSP, stackSpace)
+
+		// 加载参数
+		for i := 0; i < argCount && i < 4; i++ {
+			src := cg.loadValue(instr.Args[i], RAX)
+			if src != argRegs[i] {
+				cg.asm.MovRegReg(argRegs[i], src)
+			}
+		}
+		for i := 4; i < argCount; i++ {
+			src := cg.loadValue(instr.Args[i], RAX)
+			offset := int32(32 + (i-4)*8)
+			cg.asm.MovMemReg(RSP, offset, src)
+		}
+
+		// 直接调用
 		cg.asm.MovRegImm64(RAX, uint64(targetAddr))
 		cg.asm.Call(RAX)
+
+		cg.asm.AddRegImm32(RSP, stackSpace)
+		cg.restoreCallerSavedRegs()
 	} else {
-		// 延迟绑定：通过 PLT 间接调用
-		pltIndex := ft.GetOrCreatePLTSlot(targetName)
-		pltSlotAddr := ft.GetPLTSlotAddr(pltIndex)
-		
-		if pltSlotAddr != 0 {
-			// 通过 PLT 间接调用: call [pltSlotAddr]
-			// 加载 PLT 槽地址
-			cg.asm.MovRegImm64(R10, uint64(pltSlotAddr))
-			// 加载 PLT 槽中的函数地址
-			cg.asm.MovRegMem(RAX, R10, 0)
-			
-			// 检查是否有地址（如果为0则使用 CallHelper）
-			cg.asm.TestRegReg(RAX, RAX)
-			
-			// 使用条件移动：如果 RAX 为 0，则加载 CallHelper 地址
-			// cmovz rax, r11 (如果 ZF=1 则 rax = r11)
-			helperAddr := GetCallHelperWithNamePtr()
-			cg.asm.MovRegImm64(R11, uint64(helperAddr))
-			cg.asm.Cmovz(RAX, R11)
-			
-			// 调用（RAX 现在是目标地址或 CallHelper）
-			cg.asm.Call(RAX)
-		} else {
-			// 无 PLT 槽，直接使用 CallHelper
-			helperAddr := GetCallHelperWithNamePtr()
-			cg.asm.MovRegImm64(RAX, uint64(helperAddr))
-			cg.asm.Call(RAX)
+		// 延迟绑定：使用 CallHelperById4
+		// CallHelperById4(funcID int32, argCount int64, arg0, arg1, arg2 int64)
+		// RCX=funcID, RDX=argCount, R8=arg0, R9=arg1, 栈[32]=arg2
+
+		// 获取或创建函数 ID
+		funcID := ft.GetOrCreateID(targetName)
+
+		// 固定 5 个参数给 CallHelperById4：funcID, argCount, arg0, arg1, arg2
+		stackSpace := int32(48) // shadow(32) + arg2(8) + 对齐(8)
+
+		cg.saveCallerSavedRegs()
+		cg.asm.SubRegImm32(RSP, stackSpace)
+
+		// 先将用户参数保存到栈的临时区域（偏移 64 开始）
+		for i := 0; i < argCount && i < 3; i++ {
+			src := cg.loadValue(instr.Args[i], RAX)
+			offset := int32(64 + i*8) // 临时位置
+			cg.asm.MovMemReg(RSP, offset, src)
 		}
-		
+
+		// 设置 RCX = funcID
+		cg.asm.MovRegImm64(RCX, uint64(funcID))
+
+		// 设置 RDX = argCount
+		cg.asm.MovRegImm64(RDX, uint64(argCount))
+
+		// 设置 R8 = arg0
+		if argCount > 0 {
+			cg.asm.MovRegMem(R8, RSP, 64)  // arg0
+		} else {
+			cg.asm.XorRegReg(R8, R8)
+		}
+
+		// 设置 R9 = arg1
+		if argCount > 1 {
+			cg.asm.MovRegMem(R9, RSP, 72)  // arg1
+		} else {
+			cg.asm.XorRegReg(R9, R9)
+		}
+
+		// 设置栈参数 arg2
+		if argCount > 2 {
+			cg.asm.MovRegMem(RAX, RSP, 80) // arg2
+			cg.asm.MovMemReg(RSP, 32, RAX) // 放到栈上第 5 个参数位置
+		} else {
+			cg.asm.XorRegReg(RAX, RAX)
+			cg.asm.MovMemReg(RSP, 32, RAX)
+		}
+
+		// 调用 CallHelperById4
+		helperAddr := GetCallHelperByIdPtr()
+		cg.asm.MovRegImm64(RAX, uint64(helperAddr))
+		cg.asm.Call(RAX)
+
+		cg.asm.AddRegImm32(RSP, stackSpace)
+		cg.restoreCallerSavedRegs()
+
 		// 记录调用点用于后续修补
 		ft.AddPatchSite(targetName, PatchSite{
 			CodeAddr:   uintptr(cg.asm.Len()),
@@ -1351,13 +1375,7 @@ func (cg *X64CodeGenerator) emitCall(instr *IRInstr) {
 			CallerFunc: cg.fn.Name,
 		})
 	}
-	
-	// 恢复栈
-	cg.asm.AddRegImm32(RSP, stackSpace)
-	
-	// 恢复调用者保存的寄存器
-	cg.restoreCallerSavedRegs()
-	
+
 	// 处理返回值
 	if instr.Dest != nil {
 		dst := cg.getReg(instr.Dest.ID)

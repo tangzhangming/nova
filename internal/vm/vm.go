@@ -761,6 +761,9 @@ func NewWithConfig(jitConfig *jit.Config) *VM {
 			// 注册回调：当函数变热时调用 onJITFunctionHot
 			profiler.OnFunctionHot(vm.onJITFunctionHot)
 		}
+		
+		// 设置 JIT VM 回调，用于从 JIT 代码调用 VM 执行函数
+		jit.SetVMCallback(vm.jitCallFunction)
 	}
 	
 	// 默认使用单线程模型
@@ -890,6 +893,101 @@ func (vm *VM) onJITFunctionHot(profile *jit.FunctionProfile) {
 			profiler.MarkCompiled(fn)
 		}
 	}
+}
+
+// jitCallFunction 是 JIT 代码调用 VM 执行函数的回调。
+// 当 JIT 编译的代码需要调用一个尚未编译的函数时，会通过此回调来执行。
+//
+// # 参数
+//
+//   - funcName: 要调用的函数完整名称（如 "Benchmark::fib"）
+//   - args: 函数参数（int64 格式）
+//
+// # 返回值
+//
+// 函数的返回值（int64 格式）和可能的错误。
+func (vm *VM) jitCallFunction(funcName string, args []int64) (int64, error) {
+	// 查找函数/方法
+	callee := vm.jitFindCallee(funcName)
+	if callee.Type == bytecode.ValNull {
+		return 0, nil
+	}
+	
+	// 保存当前状态
+	savedFrameCount := vm.frameCount
+	savedStackTop := vm.stackTop
+	
+	// 将参数转换为 Value 并推入栈
+	for _, arg := range args {
+		vm.push(bytecode.NewInt(arg))
+	}
+	
+	// 调用函数
+	result := vm.callValue(callee, len(args))
+	if result != InterpretOK {
+		// 恢复栈状态
+		vm.frameCount = savedFrameCount
+		vm.stackTop = savedStackTop
+		return 0, nil
+	}
+	
+	// 执行函数直到返回到保存的帧深度
+	for vm.frameCount > savedFrameCount {
+		result = vm.execute()
+		if result != InterpretOK {
+			return 0, nil
+		}
+	}
+	
+	// 获取返回值
+	if vm.stackTop > savedStackTop {
+		retVal := vm.pop()
+		return bytecode.ValueToInt64(retVal), nil
+	}
+	
+	return 0, nil
+}
+
+// jitFindCallee 根据名称查找可调用对象（供 JIT 回调使用）
+func (vm *VM) jitFindCallee(funcName string) bytecode.Value {
+	// 检查是否是静态方法（格式：ClassName::methodName）
+	for i := 0; i < len(funcName)-1; i++ {
+		if funcName[i] == ':' && funcName[i+1] == ':' {
+			className := funcName[:i]
+			methodName := funcName[i+2:]
+			
+			if class, ok := vm.classes[className]; ok {
+				// 在 Methods 中查找静态方法
+				if methods, ok := class.Methods[methodName]; ok {
+					for _, method := range methods {
+						if method.IsStatic {
+							// 创建闭包包装方法
+							fn := &bytecode.Function{
+								Name:       method.Name,
+								Arity:      method.Arity,
+								MinArity:   method.MinArity,
+								Chunk:      method.Chunk,
+								LocalCount: method.LocalCount,
+							}
+							closure := &bytecode.Closure{Function: fn}
+							return bytecode.Value{
+								Type: bytecode.ValClosure,
+								Data: closure,
+							}
+						}
+					}
+				}
+			}
+			return bytecode.NullValue
+		}
+	}
+	
+	// 查找全局函数/闭包
+	if globalVal, ok := vm.globals[funcName]; ok {
+		return globalVal
+	}
+	
+	return bytecode.NullValue
 }
 
 // GetJITCompiler 获取 JIT 编译器实例。
@@ -5099,6 +5197,67 @@ func (vm *VM) GetClass(name string) *bytecode.Class {
 // DefineEnum 注册枚举
 func (vm *VM) DefineEnum(enum *bytecode.Enum) {
 	vm.enums[enum.Name] = enum
+}
+
+// CallStaticMethod 调用类的静态方法
+// 用于调用入口点 main() 方法
+func (vm *VM) CallStaticMethod(class *bytecode.Class, methodName string, args []bytecode.Value) InterpretResult {
+	// 查找静态方法
+	methods, ok := class.Methods[methodName]
+	if !ok {
+		vm.runtimeError("undefined static method '%s::%s'", class.Name, methodName)
+		return InterpretRuntimeError
+	}
+
+	// 找到匹配参数数量的方法
+	var method *bytecode.Method
+	argCount := 0
+	if args != nil {
+		argCount = len(args)
+	}
+	for _, m := range methods {
+		if m.IsStatic && m.Arity == argCount {
+			method = m
+			break
+		}
+	}
+
+	if method == nil {
+		vm.runtimeError("no matching static method '%s::%s' with %d arguments", class.Name, methodName, argCount)
+		return InterpretRuntimeError
+	}
+
+	// 将 Method 包装为 Function
+	fn := &bytecode.Function{
+		Name:          method.Name,
+		ClassName:     method.ClassName,
+		SourceFile:    method.SourceFile,
+		Arity:         method.Arity,
+		MinArity:      method.MinArity,
+		Chunk:         method.Chunk,
+		LocalCount:    method.LocalCount,
+		DefaultValues: method.DefaultValues,
+	}
+
+	// 创建闭包
+	closure := &bytecode.Closure{Function: fn}
+	
+	// 压入闭包作为被调用函数（slot 0）
+	vm.push(vm.trackAllocation(bytecode.NewClosure(closure)))
+	
+	// 压入参数
+	for _, arg := range args {
+		vm.push(arg)
+	}
+
+	// 调用方法（使用 call 方法）
+	result := vm.call(closure, argCount)
+	if result != InterpretOK {
+		return result
+	}
+
+	// 执行
+	return vm.execute()
 }
 
 // GetError 获取错误信息
