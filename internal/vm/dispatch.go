@@ -106,6 +106,10 @@ func init() {
 	dispatchTable[bytecode.OpIterKey] = opIterKey
 	dispatchTable[bytecode.OpIterValue] = opIterValue
 
+	// 类型转换
+	dispatchTable[bytecode.OpCast] = opCast
+	dispatchTable[bytecode.OpCastSafe] = opCastSafe
+
 	// 其他
 	dispatchTable[bytecode.OpDebugPrint] = opPrint
 	dispatchTable[bytecode.OpHalt] = opHalt

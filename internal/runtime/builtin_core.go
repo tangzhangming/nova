@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
@@ -118,43 +116,6 @@ func builtinIsObject(args []bytecode.Value) bytecode.Value {
 		return bytecode.FalseValue
 	}
 	return bytecode.NewBool(args[0].Type() == bytecode.ValObject)
-}
-
-func builtinToInt(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.ZeroValue
-	}
-	v := args[0]
-	if v.Type() == bytecode.ValString {
-		s := strings.TrimSpace(v.AsString())
-		n, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			return bytecode.ZeroValue
-		}
-		return bytecode.NewInt(n)
-	}
-	return bytecode.NewInt(v.AsInt())
-}
-
-func builtinToFloat(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.NewFloat(0)
-	}
-	return bytecode.NewFloat(args[0].AsFloat())
-}
-
-func builtinToString(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.NewString("")
-	}
-	return bytecode.NewString(args[0].String())
-}
-
-func builtinToBool(args []bytecode.Value) bytecode.Value {
-	if len(args) == 0 {
-		return bytecode.FalseValue
-	}
-	return bytecode.NewBool(args[0].IsTruthy())
 }
 
 func builtinLen(args []bytecode.Value) bytecode.Value {

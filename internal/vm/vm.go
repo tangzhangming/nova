@@ -75,8 +75,8 @@ type VMStats struct {
 // New 创建新的虚拟机
 func New() *VM {
 	vm := &VM{
-		globals:   make([]bytecode.Value, GlobalsSize),
-		classes:   make(map[string]*bytecode.Class),
+		globals: make([]bytecode.Value, GlobalsSize),
+		classes: make(map[string]*bytecode.Class),
 		functions: make(map[string]*bytecode.Function),
 	}
 	return vm

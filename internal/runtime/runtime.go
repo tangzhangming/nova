@@ -525,12 +525,6 @@ func (r *Runtime) registerBuiltins() {
 	r.builtins["is_map"] = builtinIsMap
 	r.builtins["is_object"] = builtinIsObject
 
-	// 转换函数 (使用 to_ 前缀避免与类型关键字冲突)
-	r.builtins["to_int"] = builtinToInt
-	r.builtins["to_float"] = builtinToFloat
-	r.builtins["to_string"] = builtinToString
-	r.builtins["to_bool"] = builtinToBool
-
 	// 数组/字符串长度函数
 	r.builtins["len"] = builtinLen
 

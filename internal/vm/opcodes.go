@@ -563,17 +563,14 @@ func opReturnNull(vm *VM) {
 // opCallStatic 调用静态方法
 // 字节码格式: OpCallStatic + classIdx(u16) + methodIdx(u16) + argCount(u8)
 func opCallStatic(vm *VM) {
-	// 读取类索引
-	classIndex := int(vm.readShort())
-	// 读取方法名索引
-	methodIndex := int(vm.readShort())
-	// 读取参数数量
+	// 读取类索引和方法索引
+	classIndex := vm.readShort()
+	methodIndex := vm.readShort()
 	argCount := int(vm.readByte())
 
 	frame := vm.currentFrame()
 	
-	// 从常量池获取类名
-	if classIndex >= len(frame.chunk.Constants) {
+	if int(classIndex) >= len(frame.chunk.Constants) {
 		vm.runtimeError("invalid class index: %d", classIndex)
 		return
 	}
@@ -586,15 +583,7 @@ func opCallStatic(vm *VM) {
 	
 	className := classNameVal.AsString()
 	
-	// 查找类
-	class := vm.GetClass(className)
-	if class == nil {
-		vm.runtimeError("undefined class: %s", className)
-		return
-	}
-	
-	// 从常量池获取方法名
-	if methodIndex >= len(frame.chunk.Constants) {
+	if int(methodIndex) >= len(frame.chunk.Constants) {
 		vm.runtimeError("invalid method index: %d", methodIndex)
 		return
 	}
@@ -607,6 +596,13 @@ func opCallStatic(vm *VM) {
 	
 	methodName := methodNameVal.AsString()
 	
+	// 查找类
+	class := vm.GetClass(className)
+	if class == nil {
+		vm.runtimeError("undefined class: %s", className)
+		return
+	}
+	
 	// 查找方法
 	method := class.GetMethod(methodName)
 	if method == nil {
@@ -614,17 +610,26 @@ func opCallStatic(vm *VM) {
 		return
 	}
 	
-	// 创建临时 Function 包装 Method
-	fn := &bytecode.Function{
-		Name:  method.Name,
-		Arity: method.Arity,
-		Chunk: method.Chunk,
+	// 使用方法上的缓存 Function
+	fn := method.CachedFunction
+	if fn == nil {
+		// 首次访问，创建并缓存
+		fn = &bytecode.Function{
+			Name:       method.Name,
+			ClassName:  method.ClassName,
+			SourceFile: method.SourceFile,
+			Arity:      method.Arity,
+			MinArity:   method.MinArity,
+			Chunk:      method.Chunk,
+			LocalCount: method.LocalCount,
+		}
+		method.CachedFunction = fn
 	}
 	
 	// 计算基指针（参数已经在栈上了）
 	bp := vm.sp - argCount
 	
-	// 直接压入调用帧（静态方法调用不需要被调用者在栈上）
+	// 直接使用缓存的 Function
 	vm.pushStaticFrame(fn, bp)
 }
 
@@ -939,6 +944,140 @@ func opIterValue(vm *VM) {
 		return
 	}
 	vm.push(iter.CurrentValue())
+}
+
+// ============================================================================
+// 类型转换
+// ============================================================================
+
+// opCast 类型转换 (失败抛出异常)
+func opCast(vm *VM) {
+	typeNameVal := vm.readConstant()
+	typeName := typeNameVal.AsString()
+	val := vm.pop()
+
+	result, ok := castValue(val, typeName)
+	if !ok {
+		vm.runtimeError("cannot cast %s to %s", val.Type(), typeName)
+		return
+	}
+	vm.push(result)
+}
+
+// opCastSafe 安全类型转换 (失败返回 null)
+func opCastSafe(vm *VM) {
+	typeNameVal := vm.readConstant()
+	typeName := typeNameVal.AsString()
+	val := vm.pop()
+
+	result, ok := castValue(val, typeName)
+	if !ok {
+		vm.push(bytecode.NullValue)
+		return
+	}
+	vm.push(result)
+}
+
+// castValue 执行类型转换
+func castValue(val bytecode.Value, targetType string) (bytecode.Value, bool) {
+	switch targetType {
+	case "int", "i64":
+		return castToInt(val)
+	case "float", "f64":
+		return castToFloat(val)
+	case "string":
+		return castToString(val)
+	case "bool":
+		return castToBool(val)
+	default:
+		// 对象类型转换：检查类型是否匹配
+		if val.IsObject() {
+			obj := val.AsObject()
+			if obj != nil && obj.Class != nil {
+				if obj.Class.Name == targetType {
+					return val, true
+				}
+			}
+		}
+		return bytecode.NullValue, false
+	}
+}
+
+// castToInt 转换为 int
+func castToInt(val bytecode.Value) (bytecode.Value, bool) {
+	switch {
+	case val.IsInt():
+		return val, true
+	case val.IsFloat():
+		return bytecode.NewInt(int64(val.AsFloat())), true
+	case val.IsBool():
+		if val.AsBool() {
+			return bytecode.OneValue, true
+		}
+		return bytecode.ZeroValue, true
+	case val.IsString():
+		s := val.AsString()
+		var n int64
+		_, err := fmt.Sscanf(s, "%d", &n)
+		if err != nil {
+			return bytecode.NullValue, false
+		}
+		return bytecode.NewInt(n), true
+	default:
+		return bytecode.NullValue, false
+	}
+}
+
+// castToFloat 转换为 float
+func castToFloat(val bytecode.Value) (bytecode.Value, bool) {
+	switch {
+	case val.IsFloat():
+		return val, true
+	case val.IsInt():
+		return bytecode.NewFloat(float64(val.AsInt())), true
+	case val.IsBool():
+		if val.AsBool() {
+			return bytecode.NewFloat(1.0), true
+		}
+		return bytecode.NewFloat(0.0), true
+	case val.IsString():
+		s := val.AsString()
+		var f float64
+		_, err := fmt.Sscanf(s, "%f", &f)
+		if err != nil {
+			return bytecode.NullValue, false
+		}
+		return bytecode.NewFloat(f), true
+	default:
+		return bytecode.NullValue, false
+	}
+}
+
+// castToString 转换为 string
+func castToString(val bytecode.Value) (bytecode.Value, bool) {
+	switch {
+	case val.IsString():
+		return val, true
+	case val.IsInt():
+		return bytecode.NewString(fmt.Sprintf("%d", val.AsInt())), true
+	case val.IsFloat():
+		return bytecode.NewString(fmt.Sprintf("%g", val.AsFloat())), true
+	case val.IsBool():
+		if val.AsBool() {
+			return bytecode.NewString("true"), true
+		}
+		return bytecode.NewString("false"), true
+	case val.IsNull():
+		return bytecode.NewString("null"), true
+	default:
+		// 对象类型使用 String() 方法
+		return bytecode.NewString(val.String()), true
+	}
+}
+
+// castToBool 转换为 bool
+func castToBool(val bytecode.Value) (bytecode.Value, bool) {
+	return bytecode.NewBool(val.IsTruthy()), true
 }
 
 // ============================================================================

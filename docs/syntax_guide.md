@@ -2,6 +2,15 @@
 
 > 本文档为 Sola 编程语言的完整语法参考，适合任何 AI 或开发者快速了解 Sola 的基础语法。
 
+## 核心特性
+
+- **纯面向对象**：代码通过类和方法组织
+- **静态类型**：编译时类型检查，提供类型安全
+- **泛型支持**：强大的泛型系统
+- **现代语法**：模式匹配、属性访问器、箭头函数等
+- **并发模型**：基于 CSP 的协程和通道
+- **高性能**：JIT 编译和虚拟机优化
+
 ## 目录
 1. [基本概念](#基本概念)
 2. [类型系统](#类型系统)
@@ -30,21 +39,50 @@
 
 ## 基本概念
 
+### 程序组织
+
+Sola 是一门**纯面向对象**的语言，程序通过类、接口和方法进行组织：
+
+- ✅ **必须**：所有代码都组织在类中
+- ❌ **不支持**：顶级语句（Sola 不支持在类外直接执行代码）
+- 📦 **标准做法**：每个 `.sola` 文件包含一个主要的类定义
+- 🚀 **入口点**：程序必须有 `public static function main()` 作为入口
+
+### 程序执行
+
+Sola 程序**强制要求**有 `main` 入口函数：
+
+```sola
+public class Application {
+    public static function main() {
+        Console::writeLine("Hello, Sola!");
+    }
+}
+```
+
+**重要说明**：
+- ❌ **不支持顶级语句**：所有代码必须在类中
+- ✅ **必须有 main 函数**：程序入口点必须是 `public static function main()`
+- 📦 **一个文件一个类**：每个 `.sola` 文件包含一个主要的类定义
+
 ### 文件结构
 ```sola
 namespace company.project      // 命名空间声明（可选）
 
 use sola.collections.ArrayList; // 导入声明
 use sola.lang.Exception;
+use sola.io.Console;
 
 // 类/接口/枚举声明
 public class MyClass {
-    // ...
+    public static function main() {
+        // 程序入口点，必须是这个签名
+        Console::writeLine("Hello, Sola!");
+    }
 }
-
-// 顶层语句（入口文件）
-echo "Hello, Sola!";
 ```
+
+> **重要**：Sola 强制要求 `main` 入口函数，不支持顶级语句。
 
 ### 注释
 ```sola
@@ -229,21 +267,20 @@ int[][] $matrix = new int[][] {
 int[] $arr = new int[] { 10, 20, 30 };
 
 // 索引访问
-echo $arr[0];       // 输出: 10
+$first := $arr[0];  // 获取元素: 10
 $arr[1] = 25;       // 修改元素
-echo $arr[1];       // 输出: 25
 
 // 获取长度
-echo $arr.length;   // 输出: 3
+$length := $arr.length;   // 3
 
 // 遍历数组
 foreach ($arr as $value) {
-    echo $value;
+    Console::writeLine($value);
 }
 
 // 带索引遍历
 foreach ($arr as $index => $value) {
-    echo #"{$index}: {$value}";
+    Console::writeLine(#"{$index}: {$value}");
 }
 ```
 
@@ -288,8 +325,10 @@ int[] $a = new int[] { 1, 2, 3 };
 int[] $b = new int[] { 1, 2, 3 };
 int[] $c = new int[] { 1, 2, 4 };
 
-echo $a == $b;   // true（逐元素比较，值相等）
-echo $a == $c;   // false（第3个元素不同）
+$result1 := $a == $b;  // true（逐元素比较，值相等）
+$result2 := $a == $c;  // false（第3个元素不同）
+Console::writeLine($result1);
+Console::writeLine($result2);
 ```
 
 ##### 数组与 SuperArray 的区别
@@ -369,8 +408,10 @@ string[] $names = ["a", "b", "c"];  // 编译错误！应使用 string{"a", "b",
 
 ```sola
 // 访问
-echo $arr[0];        // 1
-echo $data["name"];  // Sola
+$value := $arr[0];         // 1
+$name := $data["name"];    // Sola
+Console::writeLine($value);
+Console::writeLine($name);
 ```
 
 > **静态类型建议**：对于已知结构的数据，推荐使用类型化数组 `T[]`、`map[K]V` 或自定义类，以获得更好的类型安全和IDE支持。
@@ -382,7 +423,7 @@ echo $data["name"];  // Sola
 
 // 可空类型必须在使用前检查
 if ($name != null) {
-    echo $name;
+    Console::writeLine($name);
 }
 ```
 
@@ -488,7 +529,7 @@ public class Config {
 }
 
 // 使用
-echo Config::VERSION;
+Console::writeLine(Config::VERSION);
 ```
 
 ---
@@ -521,24 +562,24 @@ Sola 是强类型语言，**不允许隐式类型转换**。算术运算符要�
 // ✅ 正确：相同类型运算
 int $a = 10;
 int $b = 20;
-echo $a + $b;      // 30
+Console::writeLine($a + $b);      // 30
 
 float $x = 1.5;
 float $y = 2.5;
-echo $x + $y;      // 4.0
+Console::writeLine($x + $y);      // 4.0
 
 string $s1 = "Hello";
 string $s2 = " World";
-echo $s1 + $s2;    // "Hello World"
+Console::writeLine($s1 + $s2);    // "Hello World"
 
 // ❌ 错误：不同类型不能运算
 int $n = 10;
 float $f = 3.14;
-// echo $n + $f;   // 编译错误：运算符 '+' 不能用于 int 和 float 类型
+// Console::writeLine($n + $f);   // 编译错误：运算符 '+' 不能用于 int 和 float 类型
 
 string $str = "100";
 int $num = 50;
-// echo $str + $num;  // 编译错误：运算符 '+' 不能用于 string 和 int 类型
+// Console::writeLine($str + $num);  // 编译错误：运算符 '+' 不能用于 string 和 int 类型
 ```
 
 **如需混合类型运算，必须显式类型转换：**
@@ -548,10 +589,12 @@ int $n = 10;
 float $f = 3.14;
 
 // 方法1：将 int 转为 float
-echo ($n as float) + $f;   // 13.14
+$result1 := ($n as float) + $f;   // 13.14
+Console::writeLine($result1);
 
 // 方法2：将 float 转为 int（截断小数）
-echo $n + ($f as int);     // 13
+$result2 := $n + ($f as int);     // 13
+Console::writeLine($result2);
 ```
 
 ### 比较运算符
@@ -616,17 +659,17 @@ $user := $obj as? User;          // 安全转换，失败返回 null
 ### if / elseif / else
 ```sola
 if ($age < 18) {
-    echo "未成年";
+    Console::writeLine("未成年");
 } elseif ($age < 60) {
-    echo "成年人";
+    Console::writeLine("成年人");
 } else {
-    echo "老年人";
+    Console::writeLine("老年人");
 }
 
 // 条件中的类型收窄
 if ($value is string) {
     // $value 在此作用域内是 string 类型
-    echo $value->length();
+    $length := $value.length;
 }
 ```
 
@@ -670,15 +713,15 @@ switch 语句用于执行多条语句，使用 `:` 和 `break`：
 ```sola
 switch ($status) {
     case 0, 1:
-        echo "待处理";
+        Console::writeLine("待处理");
         sendNotification();
         break;
     case 2, 3, 4:
-        echo "进行中";
+        Console::writeLine("进行中");
         updateProgress();
         break;
     default:
-        echo "已完成";
+        Console::writeLine("已完成");
 }
 ```
 
@@ -723,7 +766,7 @@ $dayName := match ($day) {
     7 => "周日",
     _ => "未知"   // 通配符（默认分支）
 };
-echo $dayName;  // 输出: 周三
+Console::writeLine($dayName);  // 输出: 周三
 ```
 
 #### 类型匹配（带变量绑定）
@@ -731,10 +774,10 @@ echo $dayName;  // 输出: 周三
 $value := 42;
 $result := match ($value) {
     int $n => $n * 2,        // 类型匹配并绑定变量 $n
-    string $s => $s.len(),   // 匹配字符串类型
+    string $s => $s.length,  // 匹配字符串类型
     _ => 0                   // 通配符
 };
-echo $result;  // 输出: 84
+Console::writeLine($result);  // 输出: 84
 ```
 
 #### 带守卫条件的匹配
@@ -747,7 +790,7 @@ $grade := match ($score) {
     int $s if $s >= 60 => "D",
     _ => "F"
 };
-echo $grade;  // 输出: B
+Console::writeLine($grade);  // 输出: B
 ```
 
 #### match 语法规则
@@ -763,7 +806,7 @@ echo $grade;  // 输出: B
 ```sola
 // 经典 for 循环
 for ($i := 0; $i < 10; $i++) {
-    echo $i;
+    Console::writeLine($i);
 }
 
 // 省略部分
@@ -776,24 +819,24 @@ for (; $i < 10; ) {
 ```sola
 // 遍历数组
 foreach ($items as $item) {
-    echo $item;
+    Console::writeLine($item);
 }
 
 // 带索引/键遍历
 foreach ($items as $index => $item) {
-    echo #"{$index}: {$item}";
+    Console::writeLine(#"{$index}: {$item}");
 }
 
 // 遍历 Map
 foreach ($map as $key => $value) {
-    echo #"{$key} = {$value}";
+    Console::writeLine(#"{$key} = {$value}");
 }
 ```
 
 ### while 循环
 ```sola
 while ($count > 0) {
-    echo $count;
+    Console::writeLine($count);
     $count--;
 }
 ```
@@ -801,7 +844,7 @@ while ($count > 0) {
 ### do-while 循环
 ```sola
 do {
-    echo $count;
+    Console::writeLine($count);
     $count--;
 } while ($count > 0);
 ```
@@ -815,7 +858,7 @@ for ($i := 0; $i < 10; $i++) {
     if ($i % 2 == 0) {
         continue;   // 跳过本次迭代
     }
-    echo $i;
+    Console::writeLine($i);
 }
 ```
 
@@ -832,7 +875,7 @@ function greet(string $name): string {
 
 // 无返回值
 function printMessage(string $msg): void {
-    echo $msg;
+    Console::writeLine($msg);
 }
 
 // 带默认参数
@@ -991,9 +1034,9 @@ public class User {
 
 // 使用
 $user := new User("001", "Alice");
-echo $user->name;        // 自动调用 getter
-$user->name = "Bob";     // 自动调用 setter
-// $user->id = "002";    // 错误：只读属性不能赋值
+Console::writeLine($user->name);  // 自动调用 getter
+$user->name = "Bob";              // 自动调用 setter
+// $user->id = "002";             // 错误：只读属性不能赋值
 ```
 
 #### 表达式体属性（Expression-bodied properties）
@@ -1019,7 +1062,7 @@ public class Person {
 
 // 使用
 $person := new Person("张", "三");
-echo $person->fullName;  // 输出: 张 三
+Console::writeLine($person->fullName);  // 输出: 张 三
 ```
 
 #### 完整属性（Full properties）
@@ -1073,8 +1116,8 @@ public class User {
 $user := new User();
 $user->age = 25;        // 调用 setter，验证通过
 // $user->age = -5;      // 抛出异常
-echo $user->age;        // 调用 getter
-echo $user->status;     // 调用 getter，返回计算值
+Console::writeLine($user->age);     // 调用 getter
+Console::writeLine($user->status);  // 调用 getter，返回计算值
 ```
 
 #### 属性访问器特性
@@ -1105,11 +1148,11 @@ public class Example {
 
 // 两种方式使用相同
 $obj := new Example();
-$obj->name = "Sola";     // 属性访问器
-echo $obj->name;         // 属性访问器
+$obj->name = "Sola";              // 属性访问器
+Console::writeLine($obj->name);   // 属性访问器
 
-$obj->setName("Sola");   // 传统方法
-echo $obj->getName();    // 传统方法
+$obj->setName("Sola");            // 传统方法
+Console::writeLine($obj->getName());  // 传统方法
 ```
 
 ### 对象创建与使用
@@ -1118,12 +1161,12 @@ echo $obj->getName();    // 传统方法
 $user := new User(1, "Alice", "alice@example.com");
 
 // 访问属性和方法
-echo $user->email;
+Console::writeLine($user->email);
 $user->setName("Bob");
 
 // 静态访问
-echo User::getCount();
-echo User::DEFAULT_ROLE;
+Console::writeLine(User::getCount());
+Console::writeLine(User::DEFAULT_ROLE);
 ```
 
 ### 访问修饰符
@@ -1423,9 +1466,9 @@ Throwable
 try {
     $result := riskyOperation();
 } catch (IOException $e) {
-    echo "IO错误: " + $e->getMessage();
+    Console::error("IO错误: " + $e->getMessage());
 } catch (Exception $e) {
-    echo "一般错误: " + $e->getMessage();
+    Console::error("一般错误: " + $e->getMessage());
 } finally {
     // 无论是否异常都会执行
     cleanup();
@@ -1522,13 +1565,13 @@ go $worker->run();
 
 // 启动协程执行闭包
 go function(): void {
-    echo "Hello from goroutine";
+    Console::writeLine("Hello from goroutine");
 }();
 
 // 带参数的闭包
 $count := 100;
 go function(): void use ($count) {
-    echo "Count: " + $count;
+    Console::writeLine("Count: " + $count);
 }();
 ```
 
@@ -1553,13 +1596,13 @@ $value := $ch->receive();
 
 // 非阻塞发送
 if ($ch->trySend(100)) {
-    echo "Sent successfully";
+    Console::writeLine("Sent successfully");
 }
 
 // 非阻塞接收
 $msg := $ch->tryReceive();
 if ($msg != null) {
-    echo "Received: " + $msg;
+    Console::writeLine("Received: " + $msg);
 }
 
 // 关闭通道
@@ -1579,17 +1622,17 @@ $quit := new Channel<bool>();
 
 select {
     case $num := $ch1->receive():
-        echo "Received number: " + $num;
+        Console::writeLine("Received number: " + $num);
         
     case $msg := $ch2->receive():
-        echo "Received message: " + $msg;
+        Console::writeLine("Received message: " + $msg);
         
     case $quit->receive():
-        echo "Quit signal received";
+        Console::writeLine("Quit signal received");
         return;
         
     default:
-        echo "No channel ready";
+        Console::writeLine("No channel ready");
 }
 ```
 
@@ -1611,7 +1654,7 @@ for ($i := 0; $i < 10; $i++) {
 }
 
 $wg->wait();
-echo "All tasks done!";
+Console::writeLine("All tasks done!");
 ```
 
 ### 并发模式示例
@@ -1646,7 +1689,7 @@ $jobs->close();
 // 收集结果
 for ($i := 0; $i < 10; $i++) {
     $result := $results->receive();
-    echo $result;
+    Console::writeLine($result);
 }
 ```
 
@@ -1667,11 +1710,11 @@ go function(): void use ($result) {
 // 使用 select 实现超时
 select {
     case $data := $result->receive():
-        echo "Got result: " + $data;
+        Console::writeLine("Got result: " + $data);
         
     default:
         // 超时处理（实际超时需要配合定时器通道）
-        echo "Operation timed out";
+        Console::writeLine("Operation timed out");
 }
 ```
 
@@ -1789,20 +1832,35 @@ public class User {
 | `@Inherited` | 子类继承父类注解 |
 | `@Repeatable` | 允许重复使用 |
 
-### echo 语句
+### 输出
+
+Sola 使用 `sola.io.Console` 类进行所有输出操作：
+
 ```sola
-echo "Hello, World!";
-echo $variable;
-echo 1 + 2;
+use sola.io.Console;
+
+Console::writeLine("Hello, World!");  // 输出并换行
+Console::write("Hello");              // 输出不换行
+Console::debug("Debug info");         // [DEBUG] Debug info
+Console::info("Information");         // [INFO] Information
+Console::warn("Warning");             // [WARN] Warning
+Console::error("Error message");      // [ERROR] Error message
 ```
 
+> **注意**：Sola 不支持 `echo` 语句或 `print()` 函数，所有输出必须通过 `Console` 类。
+
 ### 内置函数
+
+Sola 提供以下内置函数：
+
 ```sola
 len($array)          // 获取数组长度
 typeof($value)       // 获取类型名称
 isset($array[$key])  // 检查键是否存在
 unset($array[$key])  // 删除数组元素
 ```
+
+> **输出说明**：Sola 不提供 `echo` 或 `print()` 函数，所有输出必须使用 `sola.io.Console` 类。
 
 ### 原生函数 (native_)
 
@@ -1853,14 +1911,14 @@ $response := $client
 
 ### 常用标准库
 ```sola
+// 输入输出
+use sola.io.{Console, File, Dir};
+
 // 集合
 use sola.collections.{ArrayList, HashMap, HashSet};
 
 // 字符串处理
 use sola.lang.Str;
-
-// 文件操作
-use sola.io.{File, Dir};
 
 // 时间处理
 use sola.time.{DateTime, Duration};
@@ -1873,15 +1931,50 @@ use sola.net.http.HttpClient;
 
 // 正则表达式
 use sola.regex.Regex;
+
+// 并发编程
+use sola.concurrent.{Channel, WaitGroup};
 ```
 
 ### 完整示例
+
+以下是一个完整的 Sola 程序示例，展示了面向对象的代码组织方式：
+
 ```sola
 namespace app.services
 
 use sola.collections.ArrayList;
 use sola.json.Json;
 use sola.net.http.HttpClient;
+use sola.io.Console;
+use sola.lang.Exception;
+
+/**
+ * 用户实体类
+ */
+public class User {
+    private int $id;
+    private string $name;
+    private string $email;
+
+    public function __construct(int $id, string $name, string $email) {
+        $this->id = $id;
+        $this->name = $name;
+        $this->email = $email;
+    }
+
+    public function getName(): string {
+        return $this->name;
+    }
+
+    public function getEmail(): string {
+        return $this->email;
+    }
+
+    public function isActive(): bool {
+        return true; // 示例逻辑
+    }
+}
 
 /**
  * 用户服务类
@@ -1934,20 +2027,44 @@ public class UserService {
     }
 }
 
-// 使用示例
-$service := new UserService("https://api.example.com");
-$users := $service->getUsers();
+/**
+ * 应用程序主类
+ */
+public class Application {
+    /**
+     * 程序入口点（必须是 main 函数）
+     */
+    public static function main() {
+        try {
+            // 创建服务实例
+            $service := new UserService("https://api.example.com");
 
-// 过滤活跃用户
-$activeUsers := $service->filterUsers(
-    $users,
-    (User $u): bool => $u->isActive()
-);
+            // 获取所有用户
+            Console::info("正在获取用户列表...");
+            $users := $service->getUsers();
+            Console::info(#"获取到 {$users->size()} 个用户");
 
-// 遍历输出
-foreach ($activeUsers as $user) {
-    echo #"用户: {$user->getName()}, 邮箱: {$user->getEmail()}";
+            // 过滤活跃用户
+            $activeUsers := $service->filterUsers(
+                $users,
+                (User $u): bool => $u->isActive()
+            );
+
+            // 遍历输出
+            Console::writeLine("活跃用户列表:");
+            foreach ($activeUsers as $user) {
+                Console::writeLine(#"  - {$user->getName()} ({$user->getEmail()})");
+            }
+
+            Console::info("处理完成!");
+
+        } catch (Exception $e) {
+            Console::error(#"发生错误: {$e->getMessage()}");
+        }
+    }
 }
+
+// 程序从 Application::main() 开始执行
 ```
 
 ---
@@ -2036,8 +2153,15 @@ foreach ($activeUsers as $user) {
 | `as` | 类型转换 |
 | `as?` | 安全类型转换 |
 | `is` | 类型检查 |
-| `echo` | 输出 |
 | `where` | 泛型约束 |
+
+#### 内置函数
+| 函数 | 说明 |
+|------|------|
+| `len()` | 获取长度 |
+| `typeof()` | 获取类型 |
+| `isset()` | 检查是否存在 |
+| `unset()` | 删除元素 |
 
 ### 上下文关键字
 
@@ -2087,6 +2211,11 @@ public function doSomething(): void { }     // 显式 void（推荐省略）
 
 // 有返回值
 public function getName(): string {
+    return $this->name;
+}
+
+// 多返回值
+public function getName(): (int, string) {
     return $this->name;
 }
 ```

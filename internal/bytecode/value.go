@@ -2242,6 +2242,9 @@ type Method struct {
 	Chunk         *Chunk
 	LocalCount    int     // 局部变量数量
 	DefaultValues []Value // 默认参数值（从第 MinArity 个参数开始）
+
+	// CachedFunction 缓存的 Function 包装（用于 VM 调用优化）
+	CachedFunction *Function
 }
 
 // Function 函数定义
