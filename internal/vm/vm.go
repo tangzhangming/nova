@@ -1,8 +1,34 @@
 package vm
 
 import (
+	"encoding/json"
+	"os"
+	"time"
+
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
+
+// #region agent log
+func vmDebugLog(location, hypothesisId, message string, data map[string]interface{}) {
+	logPath := `d:\workspace\go\src\nova\.cursor\debug.log`
+	entry := map[string]interface{}{
+		"timestamp":    time.Now().UnixMilli(),
+		"location":     location,
+		"hypothesisId": hypothesisId,
+		"message":      message,
+		"data":         data,
+		"sessionId":    "debug-session",
+	}
+	jsonBytes, _ := json.Marshal(entry)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		f.Write(jsonBytes)
+		f.Write([]byte("\n"))
+		f.Close()
+	}
+}
+
+// #endregion
 
 // ============================================================================
 // VM 核心结构
@@ -52,11 +78,12 @@ type VM struct {
 
 // CallFrame 调用帧
 type CallFrame struct {
-	function *bytecode.Function // 当前函数
-	closure  *bytecode.Closure  // 当前闭包 (可能为 nil)
-	ip       int                // 返回地址
-	bp       int                // 基指针 (栈基址)
-	chunk    *bytecode.Chunk    // 函数的字节码
+	function     *bytecode.Function // 当前函数
+	closure      *bytecode.Closure  // 当前闭包 (可能为 nil)
+	ip           int                // 返回地址
+	bp           int                // 基指针 (栈基址)
+	chunk        *bytecode.Chunk    // 函数的字节码
+	isStaticCall bool               // 是否是静态方法调用（不需要弹出被调用者）
 }
 
 // VMStats 虚拟机统计信息
@@ -130,6 +157,20 @@ func (vm *VM) pushFrame(fn *bytecode.Function, bp int) {
 	frame.chunk = fn.Chunk
 	frame.ip = 0
 	frame.bp = bp
+	frame.isStaticCall = false // 默认不是静态调用
+	vm.fp++
+	vm.stats.FunctionCalls++
+}
+
+// pushStaticFrame 压入静态方法调用帧
+func (vm *VM) pushStaticFrame(fn *bytecode.Function, bp int) {
+	frame := &vm.frames[vm.fp]
+	frame.function = fn
+	frame.closure = nil
+	frame.chunk = fn.Chunk
+	frame.ip = 0
+	frame.bp = bp
+	frame.isStaticCall = true // 标记为静态调用
 	vm.fp++
 	vm.stats.FunctionCalls++
 }
@@ -139,6 +180,7 @@ func (vm *VM) pushClosureFrame(closure *bytecode.Closure, bp int) {
 	frame := &vm.frames[vm.fp]
 	frame.function = closure.Function
 	frame.closure = closure
+	frame.isStaticCall = false // 闭包调用不是静态调用
 	frame.chunk = closure.Function.Chunk
 	frame.ip = 0
 	frame.bp = bp
@@ -208,6 +250,9 @@ const (
 
 // RegisterClass 注册类
 func (vm *VM) RegisterClass(class *bytecode.Class) {
+	// #region agent log
+	vmDebugLog("vm.go:RegisterClass", "E", "registering class", map[string]interface{}{"className": class.Name, "namespace": class.Namespace, "fullName": class.FullName()})
+	// #endregion
 	// 注册完整名称
 	vm.classes[class.FullName()] = class
 	// 同时注册短名（用于简单引用）

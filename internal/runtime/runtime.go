@@ -93,6 +93,7 @@ func (r *Runtime) Run(source, filename string) error {
 	_, errs := c.Compile(file)
 
 	if len(errs) > 0 {
+		fmt.Println("DEBUG: 编译错误:")
 		for _, e := range errs {
 			fmt.Printf(i18n.T(i18n.ErrCompileError, e) + "\n")
 		}
@@ -102,7 +103,13 @@ func (r *Runtime) Run(source, filename string) error {
 	// 注册编译的类
 	classes := c.Classes()
 	for name, class := range classes {
-		r.classes[name] = class
+		// 使用完整路径作为类名（命名空间.类名）
+		fullName := name
+		if file.Namespace != nil {
+			fullName = file.Namespace.Name + "." + name
+		}
+		r.classes[fullName] = class
+		r.classes[name] = class // 也用短名注册
 		r.vm.DefineClass(class)
 	}
 
@@ -131,6 +138,13 @@ func (r *Runtime) Run(source, filename string) error {
 	// 查找入口点：与文件同名的类的静态 main() 方法
 	entryClassName := getClassNameFromFilename(filename)
 	entryClass, ok := r.classes[entryClassName]
+	
+	// 如果短名找不到，尝试用命名空间前缀的完整名
+	if !ok && file.Namespace != nil {
+		fullClassName := file.Namespace.Name + "." + entryClassName
+		entryClass, ok = r.classes[fullClassName]
+	}
+	
 	if !ok {
 		return fmt.Errorf(i18n.T(i18n.ErrMainMethodRequired))
 	}

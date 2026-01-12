@@ -23,9 +23,9 @@ func (c *Compiler) CompileClass(decl *ast.ClassDecl) *bytecode.Class {
 	
 	// 保存并设置当前类名（用于类型推导）
 	prevClassName := c.currentClassName
-	// 如果有命名空间，添加命名空间前缀
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if c.currentNamespace != "" {
-		c.currentClassName = c.currentNamespace + "\\" + decl.Name.Name
+		c.currentClassName = c.currentNamespace + "." + decl.Name.Name
 	} else {
 		c.currentClassName = decl.Name.Name
 	}
@@ -286,8 +286,10 @@ func (c *Compiler) compileMethod(class *bytecode.Class, decl *ast.MethodDecl) *b
 	c.function.MinArity = minArity
 	c.function.IsVariadic = isVariadic
 
-	// 预留 slot 0 给 $this
-	c.addLocal("")
+	// 只有非静态方法才预留 slot 0 给 $this
+	if !decl.Static {
+		c.addLocal("")
+	}
 	
 	// 添加参数作为局部变量
 	for _, param := range decl.Parameters {

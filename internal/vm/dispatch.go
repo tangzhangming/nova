@@ -48,6 +48,9 @@ func init() {
 	dispatchTable[bytecode.OpShl] = opShl
 	dispatchTable[bytecode.OpShr] = opShr
 
+	// 字符串操作
+	dispatchTable[bytecode.OpConcat] = opConcat
+
 	// 比较运算
 	dispatchTable[bytecode.OpEq] = opEq
 	dispatchTable[bytecode.OpNe] = opNe

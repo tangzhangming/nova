@@ -532,20 +532,11 @@ func (st *SymbolTable) GetMethod(className, methodName string, arity int) *Metho
 		return sig
 	}
 	
-	// 如果类名不包含命名空间分隔符，尝试在所有命名空间中查找
-	if !strings.Contains(baseClassName, "\\") {
-		suffix := "\\" + baseClassName
+	// 如果类名不包含命名空间分隔符，尝试在所有命名空间中查找（统一使用 . 作为分隔符）
+	if !strings.Contains(baseClassName, ".") {
+		suffix := "." + baseClassName
 		for fullClassName := range st.ClassMethods {
 			if strings.HasSuffix(fullClassName, suffix) || fullClassName == baseClassName {
-				if sig := st.getMethodDirect(fullClassName, methodName, arity); sig != nil {
-					return sig
-				}
-			}
-		}
-		// 同时尝试点分隔符（命名空间可能用点而不是反斜杠）
-		suffix2 := "." + baseClassName
-		for fullClassName := range st.ClassMethods {
-			if strings.HasSuffix(fullClassName, suffix2) {
 				if sig := st.getMethodDirect(fullClassName, methodName, arity); sig != nil {
 					return sig
 				}
@@ -591,10 +582,10 @@ func (st *SymbolTable) getMethodDirect(className, methodName string, arity int) 
 		return st.GetMethod(parentName, methodName, arity)
 	}
 	
-	// 如果类名包含命名空间分隔符，也尝试用基类名查找父类
-	if strings.Contains(className, "\\") {
+	// 如果类名包含命名空间分隔符，也尝试用基类名查找父类（统一使用 . 作为分隔符）
+	if strings.Contains(className, ".") {
 		// 提取基类名
-		parts := strings.Split(className, "\\")
+		parts := strings.Split(className, ".")
 		baseName := parts[len(parts)-1]
 		if parentName, ok := st.ClassParents[baseName]; ok && parentName != "" {
 			return st.GetMethod(parentName, methodName, arity)
@@ -614,9 +605,9 @@ func (st *SymbolTable) GetProperty(className, propName string) *PropertySignatur
 		return sig
 	}
 	
-	// 如果类名不包含命名空间分隔符，尝试在所有命名空间中查找
-	if !strings.Contains(baseClassName, "\\") {
-		suffix := "\\" + baseClassName
+	// 如果类名不包含命名空间分隔符，尝试在所有命名空间中查找（统一使用 . 作为分隔符）
+	if !strings.Contains(baseClassName, ".") {
+		suffix := "." + baseClassName
 		for fullClassName := range st.ClassProperties {
 			if strings.HasSuffix(fullClassName, suffix) || fullClassName == baseClassName {
 				if sig := st.getPropertyDirect(fullClassName, propName); sig != nil {
@@ -649,9 +640,9 @@ func (st *SymbolTable) getPropertyDirect(className, propName string) *PropertySi
 		return st.GetProperty(parentName, propName)
 	}
 	
-	// 如果类名包含命名空间分隔符，也尝试用基类名查找父类
-	if strings.Contains(className, "\\") {
-		parts := strings.Split(className, "\\")
+	// 如果类名包含命名空间分隔符，也尝试用基类名查找父类（统一使用 . 作为分隔符）
+	if strings.Contains(className, ".") {
+		parts := strings.Split(className, ".")
 		baseName := parts[len(parts)-1]
 		if parentName, ok := st.ClassParents[baseName]; ok && parentName != "" {
 			return st.GetProperty(parentName, propName)
@@ -695,8 +686,9 @@ func (st *SymbolTable) CollectFromFile(file *ast.File) {
 // collectFromEnum 从枚举声明收集符号
 func (st *SymbolTable) collectFromEnum(decl *ast.EnumDecl, namespace string) {
 	enumName := decl.Name.Name
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if namespace != "" {
-		enumName = namespace + "\\" + enumName
+		enumName = namespace + "." + enumName
 	}
 	
 	// 收集枚举值列表（用于穷尽性检查）
@@ -711,8 +703,9 @@ func (st *SymbolTable) collectFromEnum(decl *ast.EnumDecl, namespace string) {
 // 类型别名创建与目标类型完全兼容的新名称，可以互相替换使用
 func (st *SymbolTable) collectFromTypeAlias(decl *ast.TypeAliasDecl, namespace string) {
 	aliasName := decl.Name.Name
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if namespace != "" {
-		aliasName = namespace + "\\" + aliasName
+		aliasName = namespace + "." + aliasName
 	}
 	
 	targetType := typeNodeToString(decl.AliasType)
@@ -723,8 +716,9 @@ func (st *SymbolTable) collectFromTypeAlias(decl *ast.TypeAliasDecl, namespace s
 // 新类型创建与基础类型不兼容的独立类型，需要显式转换
 func (st *SymbolTable) collectFromNewType(decl *ast.NewTypeDecl, namespace string) {
 	typeName := decl.Name.Name
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if namespace != "" {
-		typeName = namespace + "\\" + typeName
+		typeName = namespace + "." + typeName
 	}
 	
 	baseType := typeNodeToString(decl.BaseType)
@@ -792,9 +786,9 @@ func (st *SymbolTable) IsEnumType(typeName string) bool {
 // collectFromClass 从类声明收集符号
 func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 	className := decl.Name.Name
-	// 如果有命名空间，添加命名空间前缀
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if namespace != "" {
-		className = namespace + "\\" + className
+		className = namespace + "." + className
 	}
 	
 	// 收集泛型类型参数（包括类型参数和 where 子句）
@@ -901,9 +895,9 @@ func (st *SymbolTable) collectFromClass(decl *ast.ClassDecl, namespace string) {
 // collectFromInterface 从接口声明收集符号
 func (st *SymbolTable) collectFromInterface(decl *ast.InterfaceDecl, namespace string) {
 	interfaceName := decl.Name.Name
-	// 如果有命名空间，添加命名空间前缀
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if namespace != "" {
-		interfaceName = namespace + "\\" + interfaceName
+		interfaceName = namespace + "." + interfaceName
 	}
 	
 	// 收集泛型类型参数（包括类型参数和 where 子句）

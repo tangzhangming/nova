@@ -3677,9 +3677,9 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 	case *ast.Identifier:
 		className = cls.Name
 		// 如果类名不包含命名空间，且当前有命名空间，尝试添加命名空间前缀
-		if !strings.Contains(className, "\\") && c.currentNamespace != "" {
-			// 先尝试带命名空间的完整类名
-			fullName := c.currentNamespace + "\\" + className
+		if !strings.Contains(className, ".") && c.currentNamespace != "" {
+			// 先尝试带命名空间的完整类名（统一使用 . 作为分隔符）
+			fullName := c.currentNamespace + "." + className
 			// 检查符号表中是否存在（通过查找方法或属性）
 			if _, ok := c.symbolTable.ClassMethods[fullName]; ok {
 				className = fullName
@@ -4213,9 +4213,9 @@ func (c *Compiler) compileClassAccessExpr(e *ast.ClassAccessExpr) {
 		return
 	}
 	
-	// 如果有命名空间，添加命名空间前缀
+	// 如果有命名空间，添加命名空间前缀（统一使用 . 作为分隔符）
 	if c.currentNamespace != "" {
-		className = c.currentNamespace + "\\" + className
+		className = c.currentNamespace + "." + className
 	}
 	
 	// 将类名作为字符串常量压入栈
@@ -5605,19 +5605,11 @@ func (c *Compiler) inferMethodCallType(e *ast.MethodCall) string {
 	baseType := c.extractBaseTypeName(objType)
 	typeArgs := c.extractTypeArgs(objType)
 	
-	// 如果类型没有命名空间分隔符，尝试加上当前命名空间
-	if !strings.Contains(baseType, "\\") && !strings.Contains(baseType, ".") && c.currentNamespace != "" {
-		// 尝试反斜杠分隔符
-		fullType := c.currentNamespace + "\\" + baseType
+	// 如果类型没有命名空间分隔符，尝试加上当前命名空间（统一使用 . 作为分隔符）
+	if !strings.Contains(baseType, ".") && c.currentNamespace != "" {
+		fullType := c.currentNamespace + "." + baseType
 		if sig := c.symbolTable.GetMethod(fullType, e.Method.Name, len(e.Arguments)); sig != nil {
 			return c.substituteTypeParams(sig.ReturnType, baseType, typeArgs)
-		}
-		// 尝试点分隔符（如果命名空间用点）
-		fullType2 := strings.ReplaceAll(c.currentNamespace, ".", "\\") + "\\" + baseType
-		if fullType2 != fullType {
-			if sig := c.symbolTable.GetMethod(fullType2, e.Method.Name, len(e.Arguments)); sig != nil {
-				return c.substituteTypeParams(sig.ReturnType, baseType, typeArgs)
-			}
 		}
 	}
 	
@@ -5770,9 +5762,9 @@ func (c *Compiler) inferStaticAccessType(e *ast.StaticAccess) string {
 	case *ast.Identifier:
 		className = cls.Name
 		// 如果类名不包含命名空间，且当前有命名空间，尝试添加命名空间前缀
-		if !strings.Contains(className, "\\") && c.currentNamespace != "" {
-			// 先尝试带命名空间的完整类名
-			fullName := c.currentNamespace + "\\" + className
+		if !strings.Contains(className, ".") && c.currentNamespace != "" {
+			// 先尝试带命名空间的完整类名（统一使用 . 作为分隔符）
+			fullName := c.currentNamespace + "." + className
 			// 检查符号表中是否存在（通过查找方法或属性）
 			if _, ok := c.symbolTable.ClassMethods[fullName]; ok {
 				className = fullName
@@ -6254,14 +6246,14 @@ func (c *Compiler) isTypeCompatible(actual, expected string) bool {
 		return true
 	}
 	
-	// 命名空间匹配：sola.net.tcp\TcpClient 与 TcpClient 应匹配
+	// 命名空间匹配：sola.net.tcp.TcpClient 与 TcpClient 应匹配（统一使用 . 作为分隔符）
 	// 提取基类名进行比较
 	actualBase := actual
-	if idx := strings.LastIndex(actual, "\\"); idx != -1 {
+	if idx := strings.LastIndex(actual, "."); idx != -1 {
 		actualBase = actual[idx+1:]
 	}
 	expectedBase := expected
-	if idx := strings.LastIndex(expected, "\\"); idx != -1 {
+	if idx := strings.LastIndex(expected, "."); idx != -1 {
 		expectedBase = expected[idx+1:]
 	}
 	if actualBase == expectedBase && actualBase != "" {
