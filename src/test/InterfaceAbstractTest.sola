@@ -1,0 +1,193 @@
+use sola.io.Console;
+
+/**
+ * 接口和抽象类测试
+ */
+public class InterfaceAbstractTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("接口和抽象类测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        InterfaceAbstractTest::testInterface();
+        InterfaceAbstractTest::testMultipleInterfaces();
+        InterfaceAbstractTest::testAbstractClass();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 接口和抽象类测试完成");
+    }
+
+    private static function testInterface(): void {
+        Console::writeLine("1. 接口测试");
+        
+        $circle := new TestCircle(5.0);
+        float $area = $circle->area();
+        float $perimeter = $circle->perimeter();
+        
+        Console::writeLine("  Circle半径5.0");
+        Console::writeLine("  面积: " + ($area as string));
+        Console::writeLine("  周长: " + ($perimeter as string));
+        
+        $rect := new TestRectangle(4.0, 6.0);
+        $area = $rect->area();
+        $perimeter = $rect->perimeter();
+        
+        Console::writeLine("  Rectangle 4x6");
+        Console::writeLine("  面积: " + ($area as string));
+        Console::writeLine("  周长: " + ($perimeter as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testMultipleInterfaces(): void {
+        Console::writeLine("2. 多接口实现测试");
+        
+        $doc := new Document("test.txt", 1024);
+        Console::writeLine("  文档名: " + $doc->getName());
+        Console::writeLine("  文档大小: " + ($doc->getSize() as string));
+        
+        string $json = $doc->toJson();
+        Console::writeLine("  JSON: " + $json);
+        
+        $doc->save();
+        
+        Console::writeLine("");
+    }
+
+    private static function testAbstractClass(): void {
+        Console::writeLine("3. 抽象类测试");
+        
+        $triangle := new Triangle("red", 3.0, 4.0);
+        float $area = $triangle->calculateArea();
+        Console::writeLine("  Triangle颜色: " + $triangle->getColor());
+        Console::writeLine("  Triangle面积: " + ($area as string));
+        
+        $square := new Square("blue", 5.0);
+        $area = $square->calculateArea();
+        Console::writeLine("  Square颜色: " + $square->getColor());
+        Console::writeLine("  Square面积: " + ($area as string));
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 测试类定义 ====================
+
+// 接口定义
+interface IShape {
+    public function area(): float;
+    public function perimeter(): float;
+}
+
+class TestCircle implements IShape {
+    private float $radius;
+
+    public function __construct(float $radius) {
+        $this->radius = $radius;
+    }
+
+    public function area(): float {
+        return 3.14159 * $this->radius * $this->radius;
+    }
+
+    public function perimeter(): float {
+        return 2.0 * 3.14159 * $this->radius;
+    }
+}
+
+class TestRectangle implements IShape {
+    private float $width;
+    private float $height;
+
+    public function __construct(float $width, float $height) {
+        $this->width = $width;
+        $this->height = $height;
+    }
+
+    public function area(): float {
+        return $this->width * $this->height;
+    }
+
+    public function perimeter(): float {
+        return 2.0 * ($this->width + $this->height);
+    }
+}
+
+// 多接口定义
+interface ISerializable {
+    public function toJson(): string;
+}
+
+interface ISaveable {
+    public function save(): void;
+}
+
+class Document implements ISerializable, ISaveable {
+    private string $name;
+    private int $size;
+
+    public function __construct(string $name, int $size) {
+        $this->name = $name;
+        $this->size = $size;
+    }
+
+    public function getName(): string {
+        return $this->name;
+    }
+
+    public function getSize(): int {
+        return $this->size;
+    }
+
+    public function toJson(): string {
+        return #"{\"name\":\"{$this->name}\",\"size\":{$this->size}}";
+    }
+
+    public function save(): void {
+        Console::writeLine("  保存文档: " + $this->name);
+    }
+}
+
+// 抽象类定义
+abstract class TestShape {
+    protected string $color;
+
+    public function __construct(string $color) {
+        $this->color = $color;
+    }
+
+    public function getColor(): string {
+        return $this->color;
+    }
+
+    abstract public function calculateArea(): float;
+}
+
+class Triangle extends TestShape {
+    private float $base;
+    private float $height;
+
+    public function __construct(string $color, float $base, float $height) {
+        parent::__construct($color);
+        $this->base = $base;
+        $this->height = $height;
+    }
+
+    public function calculateArea(): float {
+        return 0.5 * $this->base * $this->height;
+    }
+}
+
+class Square extends TestShape {
+    private float $side;
+
+    public function __construct(string $color, float $side) {
+        parent::__construct($color);
+        $this->side = $side;
+    }
+
+    public function calculateArea(): float {
+        return $this->side * $this->side;
+    }
+}

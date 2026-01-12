@@ -1,0 +1,156 @@
+use sola.io.Console;
+use sola.concurrent.Channel;
+use sola.concurrent.WaitGroup;
+
+/**
+ * 并发编程测试
+ */
+public class ConcurrencyTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("并发编程测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        ConcurrencyTest::testBasicGoroutine();
+        ConcurrencyTest::testChannel();
+        ConcurrencyTest::testBufferedChannel();
+        ConcurrencyTest::testWaitGroup();
+        ConcurrencyTest::testSelect();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 并发编程测试完成");
+    }
+
+    private static function testBasicGoroutine(): void {
+        Console::writeLine("1. 基本协程测试");
+        
+        Console::writeLine("  主线程开始");
+        
+        // 启动协程
+        go function(): void {
+            Console::writeLine("    协程1执行");
+        }();
+        
+        go function(): void {
+            Console::writeLine("    协程2执行");
+        }();
+        
+        // 等待协程执行（简单延时）
+        ConcurrencyTest::sleep(100);
+        
+        Console::writeLine("  主线程继续");
+        Console::writeLine("");
+    }
+
+    private static function sleep(int $ms): void {
+        // 简单的忙等待
+        int $count = $ms * 10000;
+        for ($i := 0; $i < $count; $i++) {
+            // 空循环
+        }
+    }
+
+    private static function testChannel(): void {
+        Console::writeLine("2. Channel测试");
+        
+        // 创建无缓冲通道
+        $ch := new Channel<int>();
+        
+        // 在协程中发送数据
+        go function(): void use ($ch) {
+            Console::writeLine("  协程: 发送数据 42");
+            $ch->send(42);
+        }();
+        
+        // 主线程接收数据
+        int $value = $ch->receive();
+        Console::writeLine("  主线程: 接收到 " + ($value as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testBufferedChannel(): void {
+        Console::writeLine("3. 缓冲Channel测试");
+        
+        // 创建缓冲通道
+        $ch := new Channel<string>(3);
+        
+        // 发送多个值（不会阻塞，因为有缓冲）
+        $ch->send("first");
+        $ch->send("second");
+        $ch->send("third");
+        
+        Console::writeLine("  发送了3个值到缓冲通道");
+        
+        // 接收值
+        string $val1 = $ch->receive();
+        string $val2 = $ch->receive();
+        string $val3 = $ch->receive();
+        
+        Console::writeLine("  接收: " + $val1 + ", " + $val2 + ", " + $val3);
+        
+        Console::writeLine("");
+    }
+
+    private static function testWaitGroup(): void {
+        Console::writeLine("4. WaitGroup测试");
+        
+        $wg := new WaitGroup();
+        int $count = 3;
+        
+        Console::writeLine("  启动 " + ($count as string) + " 个协程");
+        
+        for ($i := 0; $i < $count; $i++) {
+            $wg->add();
+            $id := $i;
+            go function(): void use ($wg, $id) {
+                Console::writeLine("    协程 " + ($id as string) + " 开始");
+                ConcurrencyTest::sleep(50);
+                Console::writeLine("    协程 " + ($id as string) + " 完成");
+                $wg->done();
+            }();
+        }
+        
+        Console::writeLine("  等待所有协程完成...");
+        $wg->wait();
+        Console::writeLine("  所有协程已完成");
+        
+        Console::writeLine("");
+    }
+
+    private static function testSelect(): void {
+        Console::writeLine("5. Select测试");
+        
+        $ch1 := new Channel<int>();
+        $ch2 := new Channel<string>();
+        
+        // 在协程中发送到ch1
+        go function(): void use ($ch1) {
+            ConcurrencyTest::sleep(50);
+            $ch1->send(100);
+        }();
+        
+        // 在协程中发送到ch2
+        go function(): void use ($ch2) {
+            ConcurrencyTest::sleep(100);
+            $ch2->send("hello");
+        }();
+        
+        Console::writeLine("  等待多个通道...");
+        
+        // 使用select等待第一个可用的通道
+        select {
+            case $num := $ch1->receive():
+                Console::writeLine("  从ch1接收: " + ($num as string));
+                
+            case $msg := $ch2->receive():
+                Console::writeLine("  从ch2接收: " + $msg);
+                
+            default:
+                Console::writeLine("  没有通道就绪");
+        }
+        
+        Console::writeLine("");
+    }
+}

@@ -432,6 +432,101 @@ func (tc *TypeChecker) checkSwitchStmt(stmt *ast.SwitchStmt) {
 	}
 }
 
+// checkSwitchExpr 检查 switch 表达式并返回类型
+func (tc *TypeChecker) checkSwitchExpr(expr *ast.SwitchExpr) string {
+	// 检查 switch 条件表达式
+	tc.checkExpression(expr.Expr)
+
+	var types []string
+
+	// 收集所有 case body 的类型
+	for _, switchCase := range expr.Cases {
+		// 检查 case 值
+		for _, value := range switchCase.Values {
+			tc.checkExpression(value)
+		}
+
+		// 检查 body 的类型
+		if bodyExpr, ok := switchCase.Body.(ast.Expression); ok {
+			bodyType := tc.checkExpression(bodyExpr)
+			if bodyType != "" && bodyType != "error" {
+				types = append(types, bodyType)
+			}
+		}
+	}
+
+	// 检查 default
+	if expr.Default != nil {
+		if bodyExpr, ok := expr.Default.Body.(ast.Expression); ok {
+			bodyType := tc.checkExpression(bodyExpr)
+			if bodyType != "" && bodyType != "error" {
+				types = append(types, bodyType)
+			}
+		}
+	}
+
+	// 如果没有类型信息，返回 dynamic
+	if len(types) == 0 {
+		return "dynamic"
+	}
+
+	// 如果所有类型相同，返回该类型
+	firstType := types[0]
+	allSame := true
+	for _, t := range types[1:] {
+		if t != firstType {
+			allSame = false
+			break
+		}
+	}
+
+	if allSame {
+		return firstType
+	}
+
+	// 类型不同时，返回第一个类型（或可以考虑返回联合类型）
+	return firstType
+}
+
+// checkMatchExpr 检查 match 表达式并返回类型
+func (tc *TypeChecker) checkMatchExpr(expr *ast.MatchExpr) string {
+	// 检查 match 条件表达式
+	tc.checkExpression(expr.Expr)
+
+	var types []string
+
+	// 收集所有 case body 的类型（包括 default/wildcard case）
+	for _, matchCase := range expr.Cases {
+		// 检查 body 的类型
+		bodyType := tc.checkExpression(matchCase.Body)
+		if bodyType != "" && bodyType != "error" {
+			types = append(types, bodyType)
+		}
+	}
+
+	// 如果没有类型信息，返回 dynamic
+	if len(types) == 0 {
+		return "dynamic"
+	}
+
+	// 如果所有类型相同，返回该类型
+	firstType := types[0]
+	allSame := true
+	for _, t := range types[1:] {
+		if t != firstType {
+			allSame = false
+			break
+		}
+	}
+
+	if allSame {
+		return firstType
+	}
+
+	// 类型不同时，返回第一个类型
+	return firstType
+}
+
 // checkReturnStmt 检查 return 语句
 func (tc *TypeChecker) checkReturnStmt(stmt *ast.ReturnStmt) {
 	if tc.currentFunc == nil {
@@ -541,6 +636,10 @@ func (tc *TypeChecker) checkExpression(expr ast.Expression) string {
 	case *ast.NonNullAssertExpr:
 		// BUG FIX 2026-01-10: 空安全系统完善 - 添加非空断言类型检查
 		return tc.checkNonNullAssertExpr(e)
+	case *ast.SwitchExpr:
+		return tc.checkSwitchExpr(e)
+	case *ast.MatchExpr:
+		return tc.checkMatchExpr(e)
 	default:
 		return "dynamic"
 	}
@@ -573,7 +672,19 @@ func (tc *TypeChecker) checkVariable(expr *ast.Variable) string {
 func (tc *TypeChecker) checkBinaryExpr(expr *ast.BinaryExpr) string {
 	leftType := tc.checkExpression(expr.Left)
 	rightType := tc.checkExpression(expr.Right)
-	
+
+	// 如果有一侧是 dynamic 类型，放宽类型检查，允许运算并返回 dynamic
+	// 这使得 string + dynamic 等运算能够正常工作
+	if leftType == "dynamic" || rightType == "dynamic" {
+		// 比较运算和逻辑运算返回 bool
+		switch expr.Operator.Type {
+		case token.EQ, token.NE, token.LT, token.LE, token.GT, token.GE, token.AND, token.OR:
+			return "bool"
+		default:
+			return "dynamic"
+		}
+	}
+
 	// ========================================================================
 	// 与 Go 保持一致：字面量可以与同类别的任何类型运算
 	// Go 中字面量是"无类型"的，根据上下文推断类型：

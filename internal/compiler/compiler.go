@@ -24,6 +24,10 @@ type Compiler struct {
 	loopDepth  int
 	breakJumps []int
 
+	// switch上下文
+	switchDepth      int   // switch嵌套深度
+	breakJumpsSwitch []int // switch专用break跳转列表
+
 	// 类
 	classes map[string]*bytecode.Class
 	
@@ -1743,7 +1747,12 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 	// 穷尽性检查：如果 switch 表达式是枚举类型，检查是否覆盖所有值
 	exprType := c.inferExprType(s.Expr)
 	c.checkSwitchExhaustiveness(s, exprType)
-	
+
+	// 增加switch深度，保存当前break跳转列表
+	c.switchDepth++
+	oldBreakJumps := c.breakJumpsSwitch
+	c.breakJumpsSwitch = nil
+
 	c.compileExpr(s.Expr)
 
 	var endJumps []int
@@ -1790,7 +1799,7 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 		}
 
 		endJumps = append(endJumps, c.emitJump(bytecode.OpJump))
-		
+
 		// 修补不匹配跳转到下一个case
 		c.patchJump(nextCaseJump)
 		c.emit(bytecode.OpPop) // 弹出不匹配的 false
@@ -1816,6 +1825,15 @@ func (c *Compiler) compileSwitchStmt(s *ast.SwitchStmt) {
 	}
 
 	c.emit(bytecode.OpPop) // 弹出 switch 表达式值
+
+	// 修补所有switch内的break跳转到这里
+	for _, jump := range c.breakJumpsSwitch {
+		c.patchJump(jump)
+	}
+
+	// 恢复switch深度和break跳转列表
+	c.breakJumpsSwitch = oldBreakJumps
+	c.switchDepth--
 }
 
 // checkSwitchExhaustiveness 检查 switch 语句的穷尽性
@@ -1861,12 +1879,20 @@ func (c *Compiler) checkSwitchExhaustiveness(s *ast.SwitchStmt, exprType string)
 }
 
 func (c *Compiler) compileBreakStmt() {
-	if c.loopDepth == 0 {
+	if c.loopDepth == 0 && c.switchDepth == 0 {
 		c.error(token.Position{}, i18n.T(i18n.ErrBreakOutsideLoop))
 		return
 	}
+	
 	jump := c.emitJump(bytecode.OpJump)
-	c.breakJumps = append(c.breakJumps, jump)
+	
+	// 如果在switch中但不在循环中，或者switch比循环更近，跳到switch结束
+	if c.switchDepth > 0 && c.loopDepth == 0 {
+		c.breakJumpsSwitch = append(c.breakJumpsSwitch, jump)
+	} else {
+		// 在循环中
+		c.breakJumps = append(c.breakJumps, jump)
+	}
 }
 
 func (c *Compiler) compileContinueStmt() {
@@ -5866,6 +5892,12 @@ func (c *Compiler) isInterfaceType(typeName string) bool {
 //   - float 是浮点字面量的默认类型，可以与任何浮点类型运算
 // ========================================================================
 func (c *Compiler) checkBinaryOpTypes(op token.Token, leftType, rightType string) {
+	// 如果有一侧是 dynamic 类型，跳过类型检查
+	// 这使得 string + dynamic 等运算能够在运行时正常工作
+	if leftType == "dynamic" || rightType == "dynamic" {
+		return
+	}
+
 	// 判断是否是数字类型
 	isNumeric := func(t string) bool {
 		switch t {

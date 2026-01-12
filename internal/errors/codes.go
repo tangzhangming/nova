@@ -136,16 +136,6 @@ const (
 	// R0500-R0599: 变量错误
 	R0500 = "R0500" // 未定义的变量
 	R0501 = "R0501" // 参数数量错误
-
-	// R0600-R0699: JIT 相关错误
-	R0600 = "R0600" // JIT 编译失败
-	R0601 = "R0601" // JIT 不支持的指令
-	R0602 = "R0602" // JIT 函数调用失败
-	R0603 = "R0603" // JIT 内存分配失败
-	R0604 = "R0604" // JIT 代码执行失败
-	R0605 = "R0605" // JIT 类型转换失败
-	R0606 = "R0606" // JIT 对象操作失败
-	R0607 = "R0607" // JIT 内联失败
 )
 
 // ============================================================================
@@ -260,16 +250,6 @@ var runtimeErrors = map[string]ErrorInfo{
 	// 变量错误
 	R0500: {R0500, LevelError, "vm.undefined_var", "variable", ""},
 	R0501: {R0501, LevelError, "vm.argument_count_min", "variable", ""},
-
-	// JIT 错误
-	R0600: {R0600, LevelError, "jit.compilation_failed", "jit", ""},
-	R0601: {R0601, LevelError, "jit.unsupported_instruction", "jit", ""},
-	R0602: {R0602, LevelError, "jit.call_failed", "jit", ""},
-	R0603: {R0603, LevelError, "jit.memory_allocation_failed", "jit", ""},
-	R0604: {R0604, LevelError, "jit.execution_failed", "jit", ""},
-	R0605: {R0605, LevelError, "jit.type_conversion_failed", "jit", ""},
-	R0606: {R0606, LevelError, "jit.object_operation_failed", "jit", ""},
-	R0607: {R0607, LevelError, "jit.inlining_failed", "jit", ""},
 }
 
 // GetCompilerErrorInfo 获取编译器错误信息

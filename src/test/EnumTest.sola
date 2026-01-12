@@ -1,0 +1,111 @@
+use sola.io.Console;
+
+/**
+ * 枚举测试
+ */
+public class EnumTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("枚举测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        EnumTest::testSimpleEnum();
+        EnumTest::testIntEnum();
+        EnumTest::testStringEnum();
+        EnumTest::testEnumComparison();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 枚举测试完成");
+    }
+
+    private static function testSimpleEnum(): void {
+        Console::writeLine("1. 简单枚举测试");
+        
+        $red := TestColor::RED;
+        $green := TestColor::GREEN;
+        $blue := TestColor::BLUE;
+        
+        Console::writeLine("  枚举值创建成功");
+        Console::writeLine("  RED == RED: " + (($red == TestColor::RED) as string));
+        Console::writeLine("  RED == GREEN: " + (($red == TestColor::GREEN) as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testIntEnum(): void {
+        Console::writeLine("2. 整数枚举测试");
+        
+        $pending := TestStatus::PENDING;
+        $active := TestStatus::ACTIVE;
+        $closed := TestStatus::CLOSED;
+        
+        Console::writeLine("  整数枚举值:");
+        Console::writeLine("    PENDING: " + ($pending as string));
+        Console::writeLine("    ACTIVE: " + ($active as string));
+        Console::writeLine("    CLOSED: " + ($closed as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testStringEnum(): void {
+        Console::writeLine("3. 字符串枚举测试");
+        
+        $get := TestHttpMethod::GET;
+        $post := TestHttpMethod::POST;
+        $put := TestHttpMethod::PUT;
+        $delete := TestHttpMethod::DELETE;
+        
+        Console::writeLine("  字符串枚举值:");
+        Console::writeLine("    GET: " + ($get as string));
+        Console::writeLine("    POST: " + ($post as string));
+        Console::writeLine("    PUT: " + ($put as string));
+        Console::writeLine("    DELETE: " + ($delete as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testEnumComparison(): void {
+        Console::writeLine("4. 枚举比较测试");
+        
+        $color1 := TestColor::RED;
+        $color2 := TestColor::RED;
+        $color3 := TestColor::BLUE;
+        
+        bool $equal1 = $color1 == $color2;
+        bool $equal2 = $color1 == $color3;
+        bool $notEqual = $color1 != $color3;
+        
+        Console::writeLine("  RED == RED: " + ($equal1 as string));
+        Console::writeLine("  RED == BLUE: " + ($equal2 as string));
+        Console::writeLine("  RED != BLUE: " + ($notEqual as string));
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 枚举定义 ====================
+
+enum TestColor {
+    RED,
+    GREEN,
+    BLUE,
+    YELLOW,
+    BLACK,
+    WHITE
+}
+
+enum TestStatus: int {
+    PENDING = 0,
+    ACTIVE = 1,
+    COMPLETED = 2,
+    CLOSED = 3
+}
+
+enum TestHttpMethod: string {
+    GET = "GET",
+    POST = "POST",
+    PUT = "PUT",
+    DELETE = "DELETE",
+    PATCH = "PATCH"
+}

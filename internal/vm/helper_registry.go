@@ -9,7 +9,7 @@ import (
 
 // ============================================================================
 // Helper 注册表
-// 用于 JIT 编译器获取 Helper 函数地址
+// 用于运行时获取 Helper 函数
 // ============================================================================
 
 // HelperFunc Helper 函数类型
@@ -24,7 +24,7 @@ var helperAddrs = make(map[string]uintptr)
 // RegisterHelper 注册 Helper 函数
 func RegisterHelper(name string, fn HelperFunc) {
 	helperRegistry[name] = fn
-	// 缓存函数地址供 JIT 使用
+	// 缓存函数地址
 	helperAddrs[name] = getFuncAddr(fn)
 }
 
@@ -33,7 +33,7 @@ func GetHelper(name string) HelperFunc {
 	return helperRegistry[name]
 }
 
-// GetHelperAddr 获取 Helper 函数地址（供 JIT 使用）
+// GetHelperAddr 获取 Helper 函数地址
 func GetHelperAddr(name string) uintptr {
 	return helperAddrs[name]
 }
@@ -53,7 +53,7 @@ func getFuncAddr(fn interface{}) uintptr {
 }
 
 // ============================================================================
-// Helper 函数指针类型（供 JIT 直接调用）
+// Helper 函数指针类型
 // ============================================================================
 
 // HelperFuncPtr Helper 函数指针

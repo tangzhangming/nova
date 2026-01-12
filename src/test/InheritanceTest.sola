@@ -1,0 +1,149 @@
+use sola.io.Console;
+
+/**
+ * 继承测试
+ */
+public class InheritanceTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("继承测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        InheritanceTest::testBasicInheritance();
+        InheritanceTest::testMethodOverride();
+        InheritanceTest::testParentCall();
+        InheritanceTest::testFinalClass();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 继承测试完成");
+    }
+
+    private static function testBasicInheritance(): void {
+        Console::writeLine("1. 基本继承测试");
+        
+        $animal := new Animal("Generic");
+        Console::writeLine("  Animal: " + $animal->getName());
+        Console::writeLine("  Sound: " + $animal->makeSound());
+        
+        $dog := new Dog("Buddy", "Golden Retriever");
+        Console::writeLine("  Dog: " + $dog->getName());
+        Console::writeLine("  Breed: " + $dog->getBreed());
+        Console::writeLine("  Sound: " + $dog->makeSound());
+        
+        Console::writeLine("");
+    }
+
+    private static function testMethodOverride(): void {
+        Console::writeLine("2. 方法重写测试");
+        
+        $cat := new Cat("Whiskers");
+        Console::writeLine("  Cat名字: " + $cat->getName());
+        Console::writeLine("  Cat声音: " + $cat->makeSound());
+        Console::writeLine("  Cat描述: " + $cat->describe());
+        
+        Console::writeLine("");
+    }
+
+    private static function testParentCall(): void {
+        Console::writeLine("3. 父类调用测试");
+        
+        $bird := new Bird("Tweety", true);
+        Console::writeLine("  Bird: " + $bird->getName());
+        Console::writeLine("  Can fly: " + ($bird->canFly() as string));
+        Console::writeLine("  Description: " + $bird->describe());
+        
+        Console::writeLine("");
+    }
+
+    private static function testFinalClass(): void {
+        Console::writeLine("4. Final类和方法测试");
+        
+        $sealed := new SealedClass();
+        $sealed->normalMethod();
+        $sealed->finalMethod();
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 测试类定义 ====================
+
+class Animal {
+    protected string $name;
+
+    public function __construct(string $name) {
+        $this->name = $name;
+    }
+
+    public function getName(): string {
+        return $this->name;
+    }
+
+    public function makeSound(): string {
+        return "Some sound";
+    }
+
+    public function describe(): string {
+        return "Animal: " + $this->name;
+    }
+}
+
+class Dog extends Animal {
+    private string $breed;
+
+    public function __construct(string $name, string $breed) {
+        parent::__construct($name);
+        $this->breed = $breed;
+    }
+
+    public function getBreed(): string {
+        return $this->breed;
+    }
+
+    public function makeSound(): string {
+        return "Woof!";
+    }
+}
+
+class Cat extends Animal {
+    public function __construct(string $name) {
+        parent::__construct($name);
+    }
+
+    public function makeSound(): string {
+        return "Meow!";
+    }
+
+    public function describe(): string {
+        return "Cat named " + $this->name;
+    }
+}
+
+class Bird extends Animal {
+    private bool $canFlyFlag;
+
+    public function __construct(string $name, bool $canFly) {
+        parent::__construct($name);
+        $this->canFlyFlag = $canFly;
+    }
+
+    public function canFly(): bool {
+        return $this->canFlyFlag;
+    }
+
+    public function describe(): string {
+        string $parentDesc = parent::describe();
+        return $parentDesc + " (Bird)";
+    }
+}
+
+class SealedClass {
+    public function normalMethod(): void {
+        Console::writeLine("  普通方法可以被重写");
+    }
+
+    final public function finalMethod(): void {
+        Console::writeLine("  Final方法不能被重写");
+    }
+}

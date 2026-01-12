@@ -20,7 +20,7 @@ const (
 	ValString
 	ValArray
 	ValFixedArray   // 定长数组（旧版，兼容）
-	ValNativeArray  // 原生定长数组（类型化存储，JIT 友好）
+	ValNativeArray  // 原生定长数组（类型化存储）
 	ValBytes        // 字节数组类型
 	ValMap
 	ValSuperArray   // PHP风格万能数组
@@ -44,7 +44,7 @@ type FixedArray struct {
 }
 
 // ============================================================================
-// NativeArray 原生定长数组（类型化存储，JIT 友好）
+// NativeArray 原生定长数组（类型化存储）
 // ============================================================================
 
 // NativeArrayElementSize 元素大小（字节）
@@ -52,7 +52,7 @@ type FixedArray struct {
 const NativeArrayElementSize = 8
 
 // NativeArray 原生定长数组
-// 使用类型化原生存储，JIT 可直接通过指针操作内存
+// 使用类型化原生存储
 type NativeArray struct {
 	ElementType ValueType      // 元素类型 (ValInt/ValFloat/ValBool/ValString/ValObject)
 	Length      int32          // 数组长度（不可变）
@@ -334,7 +334,7 @@ func (arr *NativeArray) ToSuperArray() *SuperArray {
 	return sa
 }
 
-// GetElementPtr 获取元素指针（JIT 使用）
+// GetElementPtr 获取元素指针
 func (arr *NativeArray) GetElementPtr(index int) unsafe.Pointer {
 	if index < 0 || index >= int(arr.Length) {
 		return nil
@@ -1117,6 +1117,12 @@ type Value struct {
 // Type 返回值的类型 (兼容旧 API)
 func (v Value) Type() ValueType {
 	return ValueType(v.typ)
+}
+
+// Raw 返回原始数值（用于快速路径，避免类型转换开销）
+// 仅用于已知类型为 ValInt 的情况
+func (v Value) Raw() uint64 {
+	return v.num
 }
 
 // Data 返回值的数据 (兼容旧 API，用于类型断言)

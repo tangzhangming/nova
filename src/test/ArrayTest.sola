@@ -1,0 +1,196 @@
+use sola.io.Console;
+
+/**
+ * 数组测试
+ */
+public class ArrayTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("数组测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        ArrayTest::testArrayCreation();
+        ArrayTest::testArrayAccess();
+        ArrayTest::testArrayMethods();
+        ArrayTest::testNumericArrayMethods();
+        ArrayTest::testTwoDimensionalArrays();
+        ArrayTest::testArrayComparison();
+        ArrayTest::testSuperArray();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 数组测试完成");
+    }
+
+    private static function testArrayCreation(): void {
+        Console::writeLine("1. 数组创建测试");
+        
+        // 方式1: new + 指定大小
+        int[] $arr1 = new int[5];
+        Console::writeLine("  new int[5] 长度: " + ($arr1.length as string));
+        
+        // 方式2: new + 初始化列表
+        int[] $arr2 = new int[] { 1, 2, 3, 4, 5 };
+        Console::writeLine("  new int[]{1,2,3,4,5} 长度: " + ($arr2.length as string));
+        Console::writeLine("  第一个元素: " + ($arr2[0] as string));
+        
+        // 方式3: Go风格简写
+        $arr3 := int{10, 20, 30};
+        Console::writeLine("  int{10,20,30} 长度: " + ($arr3.length as string));
+        Console::writeLine("  第二个元素: " + ($arr3[1] as string));
+        
+        // 字符串数组
+        string[] $names = new string[] { "Alice", "Bob", "Charlie" };
+        Console::writeLine("  字符串数组: " + $names[0] + ", " + $names[1] + ", " + $names[2]);
+        
+        Console::writeLine("");
+    }
+
+    private static function testArrayAccess(): void {
+        Console::writeLine("2. 数组访问和修改测试");
+        
+        int[] $arr = new int[] { 10, 20, 30 };
+        
+        // 读取
+        Console::writeLine("  arr[0]: " + ($arr[0] as string));
+        Console::writeLine("  arr[1]: " + ($arr[1] as string));
+        Console::writeLine("  arr[2]: " + ($arr[2] as string));
+        
+        // 修改
+        $arr[1] = 25;
+        Console::writeLine("  修改arr[1]为25: " + ($arr[1] as string));
+        
+        // 获取长度
+        Console::writeLine("  数组长度: " + ($arr.length as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testArrayMethods(): void {
+        Console::writeLine("3. 数组方法测试");
+        
+        int[] $arr = new int[] { 3, 1, 4, 1, 5, 9, 2, 6 };
+        
+        // indexOf
+        int $index = $arr.indexOf(4);
+        Console::writeLine("  indexOf(4): " + ($index as string));
+        
+        // lastIndexOf
+        int $lastIndex = $arr.lastIndexOf(1);
+        Console::writeLine("  lastIndexOf(1): " + ($lastIndex as string));
+        
+        // contains
+        bool $hasValue = $arr.contains(5);
+        Console::writeLine("  contains(5): " + ($hasValue as string));
+        
+        bool $noValue = $arr.contains(100);
+        Console::writeLine("  contains(100): " + ($noValue as string));
+        
+        // slice
+        int[] $slice = $arr.slice(2, 5);
+        Console::writeLine("  slice(2,5) 长度: " + ($slice.length as string));
+        Console::writeLine("  slice第一个元素: " + ($slice[0] as string));
+        
+        // copy
+        int[] $copy = $arr.copy();
+        Console::writeLine("  copy() 长度: " + ($copy.length as string));
+        
+        // concat
+        int[] $arr2 = new int[] { 7, 8, 9 };
+        int[] $merged = $arr.concat($arr2);
+        Console::writeLine("  concat后长度: " + ($merged.length as string));
+        
+        // reverse
+        int[] $toReverse = new int[] { 1, 2, 3, 4, 5 };
+        $toReverse.reverse();
+        Console::writeLine("  reverse后第一个元素: " + ($toReverse[0] as string));
+        
+        // sort
+        int[] $toSort = new int[] { 5, 2, 8, 1, 9 };
+        $toSort.sort();
+        Console::writeLine("  sort后第一个元素: " + ($toSort[0] as string));
+        Console::writeLine("  sort后最后元素: " + ($toSort[4] as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testNumericArrayMethods(): void {
+        Console::writeLine("4. 数值数组方法测试");
+        
+        int[] $numbers = new int[] { 1, 2, 3, 4, 5 };
+        
+        // sum
+        int $sum = $numbers.sum();
+        Console::writeLine("  sum: " + ($sum as string));
+        
+        // max
+        int $max = $numbers.max();
+        Console::writeLine("  max: " + ($max as string));
+        
+        // min
+        int $min = $numbers.min();
+        Console::writeLine("  min: " + ($min as string));
+        
+        // average
+        float $avg = $numbers.average();
+        Console::writeLine("  average: " + ($avg as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testTwoDimensionalArrays(): void {
+        Console::writeLine("5. 二维数组测试");
+        
+        int[][] $matrix = new int[][] {
+            int{1, 2, 3},
+            int{4, 5, 6},
+            int{7, 8, 9}
+        };
+        
+        Console::writeLine("  矩阵行数: " + ($matrix.length as string));
+        Console::writeLine("  第一行列数: " + ($matrix[0].length as string));
+        Console::writeLine("  matrix[0][0]: " + ($matrix[0][0] as string));
+        Console::writeLine("  matrix[1][1]: " + ($matrix[1][1] as string));
+        Console::writeLine("  matrix[2][2]: " + ($matrix[2][2] as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testArrayComparison(): void {
+        Console::writeLine("6. 数组比较测试");
+        
+        int[] $arr1 = new int[] { 1, 2, 3 };
+        int[] $arr2 = new int[] { 1, 2, 3 };
+        int[] $arr3 = new int[] { 1, 2, 4 };
+        
+        bool $equal1 = $arr1 == $arr2;
+        bool $equal2 = $arr1 == $arr3;
+        
+        Console::writeLine("  [1,2,3] == [1,2,3]: " + ($equal1 as string));
+        Console::writeLine("  [1,2,3] == [1,2,4]: " + ($equal2 as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testSuperArray(): void {
+        Console::writeLine("7. SuperArray测试");
+        
+        // 自动索引
+        SuperArray $arr = [1, 2, 3];
+        Console::writeLine("  SuperArray[0]: " + ($arr[0] as string));
+        Console::writeLine("  SuperArray[1]: " + ($arr[1] as string));
+        
+        // 关联数组
+        SuperArray $data = [
+            "name" => "Alice",
+            "age" => 25,
+            0 => "first"
+        ];
+        
+        Console::writeLine("  data['name']: " + ($data["name"] as string));
+        Console::writeLine("  data['age']: " + ($data["age"] as string));
+        Console::writeLine("  data[0]: " + ($data[0] as string));
+        
+        Console::writeLine("");
+    }
+}

@@ -1,0 +1,186 @@
+use sola.io.Console;
+
+/**
+ * 函数测试
+ */
+public class FunctionTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("函数测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        FunctionTest::testBasicFunction();
+        FunctionTest::testDefaultParameters();
+        FunctionTest::testMultipleReturnValues();
+        FunctionTest::testClosure();
+        FunctionTest::testArrowFunction();
+        FunctionTest::testVariadicParameters();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 函数测试完成");
+    }
+
+    private static function testBasicFunction(): void {
+        Console::writeLine("1. 基本函数测试");
+        
+        int $sum = FunctionTest::add(10, 20);
+        Console::writeLine("  add(10, 20): " + ($sum as string));
+        
+        int $prod = FunctionTest::multiply(6, 7);
+        Console::writeLine("  multiply(6, 7): " + ($prod as string));
+        
+        FunctionTest::printMessage("Hello from function");
+        
+        Console::writeLine("");
+    }
+
+    private static function add(int $a, int $b): int {
+        return $a + $b;
+    }
+
+    private static function multiply(int $a, int $b): int {
+        return $a * $b;
+    }
+
+    private static function printMessage(string $msg): void {
+        Console::writeLine("  消息: " + $msg);
+    }
+
+    private static function testDefaultParameters(): void {
+        Console::writeLine("2. 默认参数测试");
+        
+        string $result1 = FunctionTest::greet("Alice");
+        Console::writeLine("  " + $result1);
+        
+        string $result2 = FunctionTest::greet("Bob", "Good morning");
+        Console::writeLine("  " + $result2);
+        
+        Console::writeLine("");
+    }
+
+    private static function greet(string $name, string $greeting = "Hello"): string {
+        return $greeting + ", " + $name + "!";
+    }
+
+    private static function testMultipleReturnValues(): void {
+        Console::writeLine("3. 多返回值测试");
+        
+        int $quotient = 0;
+        int $remainder = 0;
+        $quotient, $remainder = FunctionTest::divmod(17, 5);
+        
+        Console::writeLine("  divmod(17, 5):");
+        Console::writeLine("    商: " + ($quotient as string));
+        Console::writeLine("    余数: " + ($remainder as string));
+        
+        int $min = 0;
+        int $max = 0;
+        $min, $max = FunctionTest::minMax(5, 3, 9, 1, 7);
+        Console::writeLine("  minMax(5,3,9,1,7):");
+        Console::writeLine("    最小值: " + ($min as string));
+        Console::writeLine("    最大值: " + ($max as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function divmod(int $a, int $b): (int, int) {
+        return $a / $b, $a % $b;
+    }
+
+    private static function minMax(int ...$numbers): (int, int) {
+        int $min = $numbers[0];
+        int $max = $numbers[0];
+        
+        foreach ($numbers as $n) {
+            if ($n < $min) {
+                $min = $n;
+            }
+            if ($n > $max) {
+                $max = $n;
+            }
+        }
+        
+        return $min, $max;
+    }
+
+    private static function testClosure(): void {
+        Console::writeLine("4. 闭包测试");
+        
+        // 简单闭包
+        $square := function(int $x): int {
+            return $x * $x;
+        };
+        
+        int $result = $square(5);
+        Console::writeLine("  square(5): " + ($result as string));
+        
+        // 捕获外部变量
+        int $multiplier = 3;
+        $triple := function(int $x): int use ($multiplier) {
+            return $x * $multiplier;
+        };
+        
+        $result = $triple(4);
+        Console::writeLine("  triple(4): " + ($result as string));
+        
+        // 作为参数传递
+        int[] $numbers = new int[] { 1, 2, 3, 4, 5 };
+        $doubled := FunctionTest::mapArray($numbers, function(int $x): int {
+            return $x * 2;
+        });
+        
+        Console::writeLine("  映射结果:");
+        foreach ($doubled as $n) {
+            Console::writeLine("    " + ($n as string));
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function mapArray(int[] $arr, function(int $x): int $fn): int[] {
+        int[] $result = new int[$arr.length];
+        for ($i := 0; $i < $arr.length; $i++) {
+            $result[$i] = $fn($arr[$i]);
+        }
+        return $result;
+    }
+
+    private static function testArrowFunction(): void {
+        Console::writeLine("5. 箭头函数测试");
+        
+        // 简洁的箭头函数
+        $double := (int $x): int => $x * 2;
+        int $result = $double(10);
+        Console::writeLine("  double(10): " + ($result as string));
+        
+        $add := (int $a, int $b): int => $a + $b;
+        $result = $add(15, 25);
+        Console::writeLine("  add(15, 25): " + ($result as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testVariadicParameters(): void {
+        Console::writeLine("6. 可变参数测试");
+        
+        int $sum1 = FunctionTest::sum(1, 2, 3);
+        Console::writeLine("  sum(1,2,3): " + ($sum1 as string));
+        
+        int $sum2 = FunctionTest::sum(1, 2, 3, 4, 5);
+        Console::writeLine("  sum(1,2,3,4,5): " + ($sum2 as string));
+        
+        int $sum3 = FunctionTest::sum(10);
+        Console::writeLine("  sum(10): " + ($sum3 as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function sum(int ...$numbers): int {
+        int $total = 0;
+        foreach ($numbers as $n) {
+            $total += $n;
+        }
+        return $total;
+    }
+}

@@ -1,0 +1,168 @@
+use sola.io.Console;
+
+/**
+ * 基础类型测试
+ */
+public class BasicTypes {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("基础类型测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        BasicTypes::testIntegerTypes();
+        BasicTypes::testFloatTypes();
+        BasicTypes::testBooleanType();
+        BasicTypes::testStringType();
+        BasicTypes::testTypeConversion();
+        BasicTypes::testTypeChecking();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 基础类型测试完成");
+    }
+
+    private static function testIntegerTypes(): void {
+        Console::writeLine("1. 整数类型测试");
+        
+        // int (64位有符号)
+        int $i = 42;
+        Console::writeLine("  int: " + ($i as string));
+        
+        // 正数和负数
+        int $positive = 100;
+        int $negative = -50;
+        Console::writeLine("  正数: " + ($positive as string));
+        Console::writeLine("  负数: " + ($negative as string));
+        
+        // 十六进制
+        int $hex = 0xFF;
+        Console::writeLine("  十六进制 0xFF: " + ($hex as string));
+        
+        // 二进制
+        int $binary = 0b1010;
+        Console::writeLine("  二进制 0b1010: " + ($binary as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testFloatTypes(): void {
+        Console::writeLine("2. 浮点类型测试");
+        
+        // float (64位)
+        float $f = 3.14;
+        Console::writeLine("  float: " + ($f as string));
+        
+        // 科学计数法
+        float $scientific = 1.5e10;
+        Console::writeLine("  科学计数法: " + ($scientific as string));
+        
+        // 浮点运算
+        float $a = 10.5;
+        float $b = 2.5;
+        float $sum = $a + $b;
+        float $diff = $a - $b;
+        float $prod = $a * $b;
+        float $quot = $a / $b;
+        
+        Console::writeLine("  10.5 + 2.5 = " + ($sum as string));
+        Console::writeLine("  10.5 - 2.5 = " + ($diff as string));
+        Console::writeLine("  10.5 * 2.5 = " + ($prod as string));
+        Console::writeLine("  10.5 / 2.5 = " + ($quot as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testBooleanType(): void {
+        Console::writeLine("3. 布尔类型测试");
+        
+        bool $t = true;
+        bool $f = false;
+        
+        Console::writeLine("  true: " + ($t as string));
+        Console::writeLine("  false: " + ($f as string));
+        
+        // 逻辑运算
+        bool $and = $t && $f;
+        bool $or = $t || $f;
+        bool $not = !$f;
+        
+        Console::writeLine("  true && false: " + ($and as string));
+        Console::writeLine("  true || false: " + ($or as string));
+        Console::writeLine("  !false: " + ($not as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testStringType(): void {
+        Console::writeLine("4. 字符串类型测试");
+        
+        // 基本字符串
+        string $s1 = "Hello";
+        string $s2 = "World";
+        
+        Console::writeLine("  字符串1: " + $s1);
+        Console::writeLine("  字符串2: " + $s2);
+        
+        // 字符串拼接
+        string $concat = $s1 + " " + $s2;
+        Console::writeLine("  拼接: " + $concat);
+        
+        // 单引号和双引号
+        string $single = 'Single quotes';
+        string $double = "Double quotes";
+        Console::writeLine("  单引号: " + $single);
+        Console::writeLine("  双引号: " + $double);
+        
+        // 转义字符
+        string $escape = "Line1\nLine2\tTabbed";
+        Console::writeLine("  转义字符:");
+        Console::writeLine($escape);
+        
+        // 插值字符串
+        string $name = "Alice";
+        int $age = 25;
+        string $interpolated = #"Name: {$name}, Age: {$age}";
+        Console::writeLine("  插值字符串: " + $interpolated);
+        
+        Console::writeLine("");
+    }
+
+    private static function testTypeConversion(): void {
+        Console::writeLine("5. 类型转换测试");
+        
+        // int -> string
+        int $num = 123;
+        string $str = $num as string;
+        Console::writeLine("  int(123) -> string: " + $str);
+        
+        // float -> int
+        float $f = 3.14;
+        int $i = $f as int;
+        Console::writeLine("  float(3.14) -> int: " + ($i as string));
+        
+        // int -> float
+        int $intVal = 42;
+        float $floatVal = $intVal as float;
+        Console::writeLine("  int(42) -> float: " + ($floatVal as string));
+        
+        // bool -> string
+        bool $b = true;
+        string $boolStr = $b as string;
+        Console::writeLine("  bool(true) -> string: " + $boolStr);
+        
+        Console::writeLine("");
+    }
+
+    private static function testTypeChecking(): void {
+        Console::writeLine("6. 类型检查测试");
+        
+        int $val = 42;
+        
+        // typeof
+        string $typeName = typeof($val);
+        Console::writeLine("  typeof(42): " + $typeName);
+        
+        Console::writeLine("");
+    }
+
+}

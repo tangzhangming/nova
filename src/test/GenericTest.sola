@@ -1,0 +1,147 @@
+use sola.io.Console;
+
+/**
+ * 泛型测试
+ */
+public class GenericTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("泛型测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        GenericTest::testGenericClass();
+        GenericTest::testMultiTypeParameters();
+        GenericTest::testGenericMethods();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 泛型测试完成");
+    }
+
+    private static function testGenericClass(): void {
+        Console::writeLine("1. 泛型类测试");
+        
+        // 整数Box
+        $intBox := new TestBox<int>(42);
+        int $intValue = $intBox->get();
+        Console::writeLine("  Int Box值: " + ($intValue as string));
+        
+        $intBox->set(100);
+        $intValue = $intBox->get();
+        Console::writeLine("  更新后: " + ($intValue as string));
+        
+        // 字符串Box
+        $strBox := new TestBox<string>("Hello");
+        string $strValue = $strBox->get();
+        Console::writeLine("  String Box值: " + $strValue);
+        
+        $strBox->set("World");
+        $strValue = $strBox->get();
+        Console::writeLine("  更新后: " + $strValue);
+        
+        // 浮点Box
+        $floatBox := new TestBox<float>(3.14);
+        float $floatValue = $floatBox->get();
+        Console::writeLine("  Float Box值: " + ($floatValue as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testMultiTypeParameters(): void {
+        Console::writeLine("2. 多类型参数测试");
+        
+        $pair1 := new Pair<string, int>("age", 25);
+        Console::writeLine("  Pair<string, int>:");
+        Console::writeLine("    Key: " + $pair1->getKey());
+        Console::writeLine("    Value: " + ($pair1->getValue() as string));
+        
+        $pair2 := new Pair<int, string>(1, "first");
+        Console::writeLine("  Pair<int, string>:");
+        Console::writeLine("    Key: " + ($pair2->getKey() as string));
+        Console::writeLine("    Value: " + $pair2->getValue());
+        
+        Console::writeLine("");
+    }
+
+    private static function testGenericMethods(): void {
+        Console::writeLine("3. 泛型方法测试");
+        
+        // swap方法
+        int $a = 10;
+        int $b = 20;
+        int $swappedA = 0;
+        int $swappedB = 0;
+        $swappedA, $swappedB = GenericUtils::swap<int>($a, $b);
+        Console::writeLine("  swap(10, 20): " + ($swappedA as string) + ", " + ($swappedB as string));
+        
+        string $s1 = "hello";
+        string $s2 = "world";
+        string $swappedS1 = "";
+        string $swappedS2 = "";
+        $swappedS1, $swappedS2 = GenericUtils::swap<string>($s1, $s2);
+        Console::writeLine("  swap(hello, world): " + $swappedS1 + ", " + $swappedS2);
+        
+        // identity方法
+        int $num = GenericUtils::identity<int>(42);
+        Console::writeLine("  identity(42): " + ($num as string));
+        
+        string $str = GenericUtils::identity<string>("test");
+        Console::writeLine("  identity(test): " + $str);
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 测试类定义 ====================
+
+class TestBox<T> {
+    private T $value;
+
+    public function __construct(T $value) {
+        $this->value = $value;
+    }
+
+    public function get(): T {
+        return $this->value;
+    }
+
+    public function set(T $value): void {
+        $this->value = $value;
+    }
+}
+
+class Pair<K, V> {
+    private K $key;
+    private V $value;
+
+    public function __construct(K $key, V $value) {
+        $this->key = $key;
+        $this->value = $value;
+    }
+
+    public function getKey(): K {
+        return $this->key;
+    }
+
+    public function getValue(): V {
+        return $this->value;
+    }
+
+    public function setKey(K $key): void {
+        $this->key = $key;
+    }
+
+    public function setValue(V $value): void {
+        $this->value = $value;
+    }
+}
+
+class GenericUtils {
+    public static function swap<T>(T $a, T $b): (T, T) {
+        return $b, $a;
+    }
+
+    public static function identity<T>(T $value): T {
+        return $value;
+    }
+}

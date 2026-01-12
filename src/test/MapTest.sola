@@ -1,0 +1,87 @@
+use sola.io.Console;
+
+/**
+ * Map测试
+ */
+public class MapTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("Map测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        MapTest::testMapCreation();
+        MapTest::testMapAccess();
+        MapTest::testMapIteration();
+
+        Console::writeLine("");
+        Console::writeLine("✓ Map测试完成");
+    }
+
+    private static function testMapCreation(): void {
+        Console::writeLine("1. Map创建测试");
+        
+        // 创建string->int映射
+        map[string]int $ages = map[string]int{
+            "Alice": 25,
+            "Bob": 30,
+            "Charlie": 35
+        };
+        
+        Console::writeLine("  创建了包含3个元素的Map");
+        
+        // 创建string->string映射
+        map[string]string $countries = map[string]string{
+            "US": "United States",
+            "CN": "China",
+            "JP": "Japan"
+        };
+        
+        Console::writeLine("  创建了国家代码映射");
+        
+        Console::writeLine("");
+    }
+
+    private static function testMapAccess(): void {
+        Console::writeLine("2. Map访问和修改测试");
+        
+        map[string]int $scores = map[string]int{
+            "Alice": 90,
+            "Bob": 85
+        };
+        
+        // 读取
+        int $aliceScore = $scores["Alice"];
+        Console::writeLine("  Alice的分数: " + ($aliceScore as string));
+        
+        int $bobScore = $scores["Bob"];
+        Console::writeLine("  Bob的分数: " + ($bobScore as string));
+        
+        // 修改
+        $scores["Alice"] = 95;
+        Console::writeLine("  修改Alice的分数为95: " + ($scores["Alice"] as string));
+        
+        // 添加新元素
+        $scores["Charlie"] = 88;
+        Console::writeLine("  添加Charlie，分数88");
+        
+        Console::writeLine("");
+    }
+
+    private static function testMapIteration(): void {
+        Console::writeLine("3. Map遍历测试");
+        
+        map[string]int $data = map[string]int{
+            "one": 1,
+            "two": 2,
+            "three": 3
+        };
+        
+        Console::writeLine("  遍历Map:");
+        foreach ($data as $key => $value) {
+            Console::writeLine("    " + $key + " => " + ($value as string));
+        }
+        
+        Console::writeLine("");
+    }
+}

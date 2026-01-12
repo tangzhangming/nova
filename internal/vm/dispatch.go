@@ -124,35 +124,8 @@ func (vm *VM) Run(fn *bytecode.Function) bytecode.Value {
 	// 设置初始帧
 	vm.pushFrame(fn, 0)
 
-	// 主执行循环
-	for {
-		if vm.hasError {
-			return bytecode.NullValue
-		}
-
-		frame := vm.currentFrame()
-		if frame.ip >= len(frame.chunk.Code) {
-			break
-		}
-
-		op := frame.chunk.Code[frame.ip]
-		frame.ip++
-		vm.stats.InstructionsExecuted++
-
-		// 通过分派表调用处理器
-		dispatchTable[op](vm)
-
-		// 检查是否执行完毕
-		if vm.fp == 0 {
-			break
-		}
-	}
-
-	// 返回栈顶值
-	if vm.sp > 0 {
-		return vm.pop()
-	}
-	return bytecode.NullValue
+	// 使用优化的执行循环
+	return vm.runLoopOptimized()
 }
 
 // RunClosure 执行闭包
@@ -171,28 +144,358 @@ func (vm *VM) RunClosure(closure *bytecode.Closure, args []bytecode.Value) bytec
 
 // runLoop 内部执行循环
 func (vm *VM) runLoop() bytecode.Value {
+	return vm.runLoopOptimized()
+}
+
+// runLoopOptimized 优化的执行循环
+// 使用 switch 语句替代分派表调用，内联高频操作
+func (vm *VM) runLoopOptimized() bytecode.Value {
+	stack := &vm.stack
+	sp := vm.sp // 本地化栈指针，减少内存访问
+
+mainLoop:
 	for {
-		if vm.hasError {
-			return bytecode.NullValue
+		// 每次迭代获取当前frame（因为函数调用/返回会改变它）
+		frame := &vm.frames[vm.fp-1]
+		code := frame.chunk.Code
+		constants := frame.chunk.Constants
+		bp := frame.bp
+
+		// 内部循环 - 在同一个frame内执行，避免重复获取frame
+		for frame.ip < len(code) {
+			op := bytecode.OpCode(code[frame.ip])
+			frame.ip++
+
+			// 使用 switch 替代分派表，Go 编译器可以更好地优化
+			switch op {
+			// ===== 高频操作内联 =====
+
+			case bytecode.OpLoadLocal:
+				// 内联局部变量加载 (Big Endian)
+				slot := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2
+				stack[sp] = stack[bp+slot]
+				sp++
+
+			case bytecode.OpStoreLocal:
+				// 内联局部变量存储 (Big Endian) - 使用peek不pop
+				slot := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2
+				stack[bp+slot] = stack[sp-1]
+
+			case bytecode.OpAdd:
+				// 内联加法（整数快速路径，完全内联类型检查）
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					// 完全内联整数加法
+					stack[sp-2] = bytecode.NewInt(int64(a.Raw()) + int64(b.Raw()))
+				} else {
+					stack[sp-2] = Helper_Add(a, b)
+				}
+				sp--
+
+			case bytecode.OpSub:
+				// 内联减法（整数快速路径）
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewInt(int64(a.Raw()) - int64(b.Raw()))
+				} else {
+					stack[sp-2] = Helper_Sub(a, b)
+				}
+				sp--
+
+			case bytecode.OpMul:
+				// 内联乘法（整数快速路径）
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewInt(int64(a.Raw()) * int64(b.Raw()))
+				} else {
+					stack[sp-2] = Helper_Mul(a, b)
+				}
+				sp--
+
+			case bytecode.OpDiv:
+				// 内联除法
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					bv := int64(b.Raw())
+					if bv != 0 {
+						stack[sp-2] = bytecode.NewInt(int64(a.Raw()) / bv)
+					} else {
+						stack[sp-2] = bytecode.NullValue
+					}
+				} else {
+					stack[sp-2] = Helper_Div(a, b)
+				}
+				sp--
+
+			case bytecode.OpMod:
+				// 内联取模
+				b := stack[sp-1]
+				a := stack[sp-2]
+				bi := int64(b.Raw())
+				if bi != 0 {
+					stack[sp-2] = bytecode.NewInt(int64(a.Raw()) % bi)
+				} else {
+					stack[sp-2] = bytecode.NullValue
+				}
+				sp--
+
+			case bytecode.OpLt:
+				// 内联小于比较（整数快速路径）
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewBool(int64(a.Raw()) < int64(b.Raw()))
+				} else {
+					stack[sp-2] = bytecode.NewBool(a.AsFloat() < b.AsFloat())
+				}
+				sp--
+
+			case bytecode.OpLe:
+				// 内联小于等于比较
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewBool(int64(a.Raw()) <= int64(b.Raw()))
+				} else {
+					stack[sp-2] = bytecode.NewBool(a.AsFloat() <= b.AsFloat())
+				}
+				sp--
+
+			case bytecode.OpGt:
+				// 内联大于比较
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewBool(int64(a.Raw()) > int64(b.Raw()))
+				} else {
+					stack[sp-2] = bytecode.NewBool(a.AsFloat() > b.AsFloat())
+				}
+				sp--
+
+			case bytecode.OpGe:
+				// 内联大于等于比较
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewBool(int64(a.Raw()) >= int64(b.Raw()))
+				} else {
+					stack[sp-2] = bytecode.NewBool(a.AsFloat() >= b.AsFloat())
+				}
+				sp--
+
+			case bytecode.OpPush:
+				// 内联常量加载 (Big Endian)
+				idx := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2
+				stack[sp] = constants[idx]
+				sp++
+
+			case bytecode.OpPop:
+				// 内联弹栈
+				sp--
+
+			case bytecode.OpDup:
+				// 内联复制栈顶
+				stack[sp] = stack[sp-1]
+				sp++
+
+			case bytecode.OpJump:
+				// 内联无条件跳转 (Big Endian)
+				offset := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2 + offset
+
+			case bytecode.OpJumpIfFalse:
+				// 内联条件跳转 (Big Endian) - 使用peek不pop
+				offset := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2
+				if !stack[sp-1].IsTruthy() {
+					frame.ip += offset
+				}
+
+			case bytecode.OpJumpIfTrue:
+				// 内联条件跳转 (Big Endian) - 使用peek不pop
+				offset := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2
+				if stack[sp-1].IsTruthy() {
+					frame.ip += offset
+				}
+
+			case bytecode.OpLoop:
+				// 内联循环跳转（向后跳，Big Endian）
+				offset := int(code[frame.ip])<<8 | int(code[frame.ip+1])
+				frame.ip += 2
+				frame.ip -= offset
+
+			case bytecode.OpZero:
+				// 内联压入0
+				stack[sp] = bytecode.ZeroValue
+				sp++
+
+			case bytecode.OpOne:
+				// 内联压入1
+				stack[sp] = bytecode.OneValue
+				sp++
+
+			case bytecode.OpNull:
+				// 内联压入null
+				stack[sp] = bytecode.NullValue
+				sp++
+
+			case bytecode.OpTrue:
+				// 内联压入true
+				stack[sp] = bytecode.TrueValue
+				sp++
+
+			case bytecode.OpFalse:
+				// 内联压入false
+				stack[sp] = bytecode.FalseValue
+				sp++
+
+			case bytecode.OpEq:
+				// 内联相等比较（整数快速路径）
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewBool(a.Raw() == b.Raw())
+				} else {
+					stack[sp-2] = bytecode.NewBool(a.Equals(b))
+				}
+				sp--
+
+			case bytecode.OpNe:
+				// 内联不等比较（整数快速路径）
+				b := stack[sp-1]
+				a := stack[sp-2]
+				if a.Type() == bytecode.ValInt && b.Type() == bytecode.ValInt {
+					stack[sp-2] = bytecode.NewBool(a.Raw() != b.Raw())
+				} else {
+					stack[sp-2] = bytecode.NewBool(!a.Equals(b))
+				}
+				sp--
+
+			case bytecode.OpCall:
+				// 内联函数调用（简单情况）
+				argCount := int(code[frame.ip])
+				frame.ip++
+				callee := stack[sp-argCount-1]
+
+				if callee.IsFunc() {
+					fn := callee.AsFunc()
+					if fn != nil && !fn.IsBuiltin {
+						// 处理参数数量不匹配
+						if argCount < fn.MinArity {
+							for i := argCount; i < fn.Arity; i++ {
+								defIdx := i - fn.MinArity
+								if defIdx >= 0 && defIdx < len(fn.DefaultValues) {
+									stack[sp] = fn.DefaultValues[defIdx]
+								} else {
+									stack[sp] = bytecode.NullValue
+								}
+								sp++
+							}
+							argCount = fn.Arity
+						}
+						// 保存当前sp到vm
+						vm.sp = sp
+						// 压入新帧
+						newBp := sp - argCount
+						vm.pushFrame(fn, newBp)
+						// 跳转到外层循环获取新frame
+						continue mainLoop
+					}
+					// 内置函数处理
+					if fn != nil && fn.IsBuiltin && fn.BuiltinFn != nil {
+						args := make([]bytecode.Value, argCount)
+						for i := argCount - 1; i >= 0; i-- {
+							sp--
+							args[i] = stack[sp]
+						}
+						sp-- // 弹出函数本身
+						result := fn.BuiltinFn(args)
+						stack[sp] = result
+						sp++
+						continue
+					}
+				}
+				// 闭包或其他复杂情况回退到分派表
+				// 需要恢复ip，因为我们已经读取了argCount
+				frame.ip--
+				vm.sp = sp
+				dispatchTable[byte(op)](vm)
+				sp = vm.sp
+				if vm.hasError {
+					return bytecode.NullValue
+				}
+				continue mainLoop
+
+			case bytecode.OpReturn:
+				// 内联函数返回
+				result := stack[sp-1]
+				sp--
+
+				// 弹出当前帧
+				vm.fp--
+				if vm.fp == 0 {
+					// 主函数返回
+					vm.sp = sp
+					return result
+				}
+
+				// 清理栈上的局部变量和参数
+				sp = bp
+				// 弹出被调用者
+				if !frame.isStaticCall && sp > 0 {
+					sp--
+				}
+				// 压入返回值
+				stack[sp] = result
+				sp++
+				// 跳转到外层循环获取新frame
+				continue mainLoop
+
+			case bytecode.OpReturnNull:
+				// 内联null返回
+				vm.fp--
+				if vm.fp == 0 {
+					vm.sp = sp
+					return bytecode.NullValue
+				}
+				sp = bp
+				if !frame.isStaticCall && sp > 0 {
+					sp--
+				}
+				stack[sp] = bytecode.NullValue
+				sp++
+				continue mainLoop
+
+			// ===== 其他操作使用分派表 =====
+			default:
+				vm.sp = sp
+				dispatchTable[byte(op)](vm)
+				sp = vm.sp
+				if vm.hasError {
+					return bytecode.NullValue
+				}
+				// 检查是否需要重新获取frame (函数调用/返回会改变)
+				if vm.fp == 0 {
+					break mainLoop
+				}
+				continue mainLoop
+			}
 		}
 
-		frame := vm.currentFrame()
-		if frame.ip >= len(frame.chunk.Code) {
-			break
-		}
-
-		op := frame.chunk.Code[frame.ip]
-		frame.ip++
-		vm.stats.InstructionsExecuted++
-
-		dispatchTable[op](vm)
-
-		if vm.fp == 0 {
-			break
-		}
+		// 当前frame执行完毕
+		break
 	}
 
-	if vm.sp > 0 {
+	vm.sp = sp
+	if sp > 0 {
 		return vm.pop()
 	}
 	return bytecode.NullValue

@@ -3,32 +3,32 @@ namespace sola.io
 
 public class Console {
     // 输出一行文本
-    public static function writeLine(string $text) {
-        echo $text;
+    public static function writeLine(string $text): void {
+        print($text + "\n");
     }
     
-    // 输出文本（不换行，使用 print）
-    public static function write(string $text) {
+    // 输出文本（不换行）
+    public static function write(string $text): void {
         print($text);
     }
     
     // 输出调试信息
-    public static function debug(string $text) {
-        echo "[DEBUG] " + $text;
+    public static function debug(string $text): void {
+        print("[DEBUG] " + $text + "\n");
     }
     
     // 输出信息
-    public static function info(string $text) {
-        echo "[INFO] " + $text;
+    public static function info(string $text): void {
+        print("[INFO] " + $text + "\n");
     }
     
     // 输出警告
-    public static function warn(string $text) {
-        echo "[WARN] " + $text;
+    public static function warn(string $text): void {
+        print("[WARN] " + $text + "\n");
     }
     
     // 输出错误
-    public static function error(string $text) {
-        echo "[ERROR] " + $text;
+    public static function error(string $text): void {
+        print("[ERROR] " + $text + "\n");
     }
 }

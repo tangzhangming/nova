@@ -27,16 +27,12 @@ type BuiltinFunc func(args []bytecode.Value) bytecode.Value
 
 // Options 运行时选项
 type Options struct {
-	// JITEnabled 是否启用 JIT 编译
-	// 设置为 false 等效于 --jitless 或 -Xint
-	JITEnabled bool
+	// 预留扩展字段
 }
 
 // DefaultOptions 返回默认选项
 func DefaultOptions() Options {
-	return Options{
-		JITEnabled: true,
-	}
+	return Options{}
 }
 
 // New 创建运行时
@@ -46,9 +42,8 @@ func New() *Runtime {
 
 // NewWithOptions 创建带选项的运行时
 func NewWithOptions(opts Options) *Runtime {
-	// JIT 配置（当前 JIT 未完全实现，暂时忽略）
-	_ = opts.JITEnabled
-	
+	_ = opts // 预留扩展
+
 	r := &Runtime{
 		vm:          vm.New(),
 		builtins:    make(map[string]BuiltinFunc),

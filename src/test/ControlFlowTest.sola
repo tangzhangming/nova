@@ -1,0 +1,227 @@
+use sola.io.Console;
+
+/**
+ * 控制流测试
+ */
+public class ControlFlowTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("控制流测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        ControlFlowTest::testIfElse();
+        ControlFlowTest::testSwitchExpression();
+        ControlFlowTest::testSwitchStatement();
+        ControlFlowTest::testMatch();
+        ControlFlowTest::testForLoop();
+        ControlFlowTest::testForeachLoop();
+        ControlFlowTest::testWhileLoop();
+        ControlFlowTest::testDoWhileLoop();
+        ControlFlowTest::testBreakContinue();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 控制流测试完成");
+    }
+
+    private static function testIfElse(): void {
+        Console::writeLine("1. if-else测试");
+        
+        int $x = 10;
+        
+        if ($x > 5) {
+            Console::writeLine("  x > 5: true");
+        } else {
+            Console::writeLine("  x > 5: false");
+        }
+        
+        if ($x > 20) {
+            Console::writeLine("  x > 20: true");
+        } elseif ($x > 10) {
+            Console::writeLine("  x > 10: true");
+        } else {
+            Console::writeLine("  x <= 10: true");
+        }
+        
+        // 三元运算符
+        string $result = $x > 5 ? "greater" : "less or equal";
+        Console::writeLine("  三元运算: " + $result);
+        
+        Console::writeLine("");
+    }
+
+    private static function testSwitchExpression(): void {
+        Console::writeLine("2. switch表达式测试");
+        
+        int $day = 1;
+        string $dayName = switch ($day) {
+            case 1 => "Monday",
+            case 2 => "Tuesday",
+            case 3 => "Wednesday",
+            case 4 => "Thursday",
+            case 5 => "Friday",
+            case 6 => "Saturday",
+            case 7 => "Sunday",
+            default => "Unknown"
+        };
+        Console::writeLine("  Day 1: " + $dayName);
+        
+        // 多值case
+        $day = 6;
+        string $category = switch ($day) {
+            case 1, 2, 3, 4, 5 => "Weekday",
+            case 6, 7 => "Weekend",
+            default => "Invalid"
+        };
+        Console::writeLine("  Day 6 category: " + $category);
+        
+        Console::writeLine("");
+    }
+
+    private static function testSwitchStatement(): void {
+        Console::writeLine("3. switch语句测试");
+        
+        int $status = 1;
+        
+        switch ($status) {
+            case 0:
+                Console::writeLine("  Status: Pending");
+                break;
+            case 1:
+                Console::writeLine("  Status: Active");
+                break;
+            case 2:
+                Console::writeLine("  Status: Completed");
+                break;
+            default:
+                Console::writeLine("  Status: Unknown");
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function testMatch(): void {
+        Console::writeLine("4. match表达式测试");
+        
+        // 值匹配
+        int $num = 2;
+        string $name = match ($num) {
+            1 => "one",
+            2 => "two",
+            3 => "three",
+            _ => "other"
+        };
+        Console::writeLine("  Match 2: " + $name);
+        
+        // 带守卫条件的匹配
+        int $score = 85;
+        string $grade = match ($score) {
+            int $s if $s >= 90 => "A",
+            int $s if $s >= 80 => "B",
+            int $s if $s >= 70 => "C",
+            int $s if $s >= 60 => "D",
+            _ => "F"
+        };
+        Console::writeLine("  Score 85 grade: " + $grade);
+        
+        Console::writeLine("");
+    }
+
+    private static function testForLoop(): void {
+        Console::writeLine("5. for循环测试");
+        
+        int $sum = 0;
+        for ($i := 0; $i < 5; $i++) {
+            $sum += $i;
+        }
+        Console::writeLine("  Sum 0-4: " + ($sum as string));
+        
+        // 嵌套for
+        Console::writeLine("  嵌套循环输出:");
+        for ($i := 1; $i <= 3; $i++) {
+            for ($j := 1; $j <= 3; $j++) {
+                Console::writeLine("    i=" + ($i as string) + ", j=" + ($j as string));
+            }
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function testForeachLoop(): void {
+        Console::writeLine("6. foreach循环测试");
+        
+        // 值遍历
+        int[] $numbers = new int[] { 1, 2, 3, 4, 5 };
+        Console::writeLine("  遍历数组:");
+        foreach ($numbers as $n) {
+            Console::writeLine("    " + ($n as string));
+        }
+        
+        // 索引+值遍历
+        Console::writeLine("  索引+值遍历:");
+        foreach ($numbers as $i => $n) {
+            Console::writeLine("    [" + ($i as string) + "] = " + ($n as string));
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function testWhileLoop(): void {
+        Console::writeLine("7. while循环测试");
+        
+        int $count = 0;
+        int $sum = 0;
+        
+        while ($count < 5) {
+            $sum += $count;
+            $count++;
+        }
+        
+        Console::writeLine("  While循环sum: " + ($sum as string));
+        Console::writeLine("  While循环count: " + ($count as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testDoWhileLoop(): void {
+        Console::writeLine("8. do-while循环测试");
+        
+        int $count = 0;
+        int $sum = 0;
+        
+        do {
+            $sum += $count;
+            $count++;
+        } while ($count < 5);
+        
+        Console::writeLine("  Do-while循环sum: " + ($sum as string));
+        Console::writeLine("  Do-while循环count: " + ($count as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testBreakContinue(): void {
+        Console::writeLine("9. break和continue测试");
+        
+        // break测试
+        Console::writeLine("  Break测试 (找到5就停止):");
+        for ($i := 0; $i < 10; $i++) {
+            if ($i == 5) {
+                Console::writeLine("    找到5，break");
+                break;
+            }
+            Console::writeLine("    " + ($i as string));
+        }
+        
+        // continue测试
+        Console::writeLine("  Continue测试 (跳过偶数):");
+        for ($i := 0; $i < 6; $i++) {
+            if ($i % 2 == 0) {
+                continue;
+            }
+            Console::writeLine("    " + ($i as string));
+        }
+        
+        Console::writeLine("");
+    }
+}

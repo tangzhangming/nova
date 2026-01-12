@@ -418,8 +418,8 @@ func (p *Parser) parseBaseType() ast.TypeNode {
 		return nil
 	}
 
-	// 数组类型
-	if p.check(token.LBRACKET) {
+	// 数组类型 - 支持多维数组如 int[][]
+	for p.check(token.LBRACKET) {
 		lbracket := p.advance()
 		var size ast.Expression
 		if !p.check(token.RBRACKET) {

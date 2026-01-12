@@ -1,0 +1,544 @@
+use sola.io.Console;
+use sola.lang.Exception;
+
+/**
+ * 综合测试 - 快速验证所有Sola语法特性
+ */
+public class ComprehensiveTest {
+    private static int $testCount = 0;
+    private static int $passCount = 0;
+    private static int $failCount = 0;
+
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("Sola 语法综合测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        ComprehensiveTest::testBasicTypes();
+        ComprehensiveTest::testArrays();
+        ComprehensiveTest::testMaps();
+        ComprehensiveTest::testClasses();
+        ComprehensiveTest::testInheritance();
+        ComprehensiveTest::testInterfaces();
+        ComprehensiveTest::testAbstractClasses();
+        ComprehensiveTest::testGenerics();
+        ComprehensiveTest::testEnums();
+        ComprehensiveTest::testProperties();
+        ComprehensiveTest::testExceptions();
+        ComprehensiveTest::testControlFlow();
+        ComprehensiveTest::testFunctions();
+        ComprehensiveTest::testOperators();
+        ComprehensiveTest::testStrings();
+
+        Console::writeLine("");
+        Console::writeLine("========================================");
+        Console::writeLine("测试总结");
+        Console::writeLine("========================================");
+        Console::writeLine("总计: " + ($testCount as string) + " 个测试");
+        Console::writeLine("通过: " + ($passCount as string) + " 个");
+        Console::writeLine("失败: " + ($failCount as string) + " 个");
+        
+        if ($failCount == 0) {
+            Console::writeLine("");
+            Console::writeLine("✓ 所有测试通过!");
+        }
+    }
+
+    private static function assert(bool $condition, string $message): void {
+        $testCount++;
+        if ($condition) {
+            $passCount++;
+            Console::writeLine("  ✓ " + $message);
+        } else {
+            $failCount++;
+            Console::writeLine("  ✗ " + $message);
+        }
+    }
+
+    // 1. 基本类型测试
+    private static function testBasicTypes(): void {
+        Console::writeLine("1. 基本类型测试");
+        
+        // 整数类型
+        int $i = 42;
+        ComprehensiveTest::assert($i == 42, "int类型");
+        
+        // 浮点类型
+        float $f = 3.14;
+        ComprehensiveTest::assert($f > 3.0 && $f < 4.0, "float类型");
+        
+        // 布尔类型
+        bool $b = true;
+        ComprehensiveTest::assert($b == true, "bool类型");
+        
+        // 字符串类型
+        string $s = "hello";
+        ComprehensiveTest::assert($s == "hello", "string类型");
+        
+        // 类型推断
+        $inferred := 100;
+        ComprehensiveTest::assert($inferred == 100, "类型推断");
+        
+        // 类型转换
+        int $num = 123;
+        string $str = $num as string;
+        ComprehensiveTest::assert($str == "123", "类型转换 int->string");
+        
+        Console::writeLine("");
+    }
+
+    // 2. 数组测试
+    private static function testArrays(): void {
+        Console::writeLine("2. 数组测试");
+        
+        // 定长数组创建
+        int[] $arr1 = new int[5];
+        ComprehensiveTest::assert($arr1.length == 5, "定长数组创建");
+        
+        // 数组初始化
+        int[] $arr2 = new int[] { 1, 2, 3, 4, 5 };
+        ComprehensiveTest::assert($arr2[0] == 1 && $arr2[4] == 5, "数组初始化");
+        
+        // Go风格简写
+        $arr3 := int{10, 20, 30};
+        ComprehensiveTest::assert($arr3[1] == 20, "Go风格数组简写");
+        
+        // 数组方法
+        $arr4 := int{3, 1, 4, 1, 5};
+        $idx := $arr4.indexOf(4);
+        ComprehensiveTest::assert($idx == 2, "数组indexOf方法");
+        
+        $contains := $arr4.contains(5);
+        ComprehensiveTest::assert($contains == true, "数组contains方法");
+        
+        // SuperArray
+        SuperArray $sa = [1, 2, 3];
+        ComprehensiveTest::assert($sa[0] == 1, "SuperArray创建");
+        
+        Console::writeLine("");
+    }
+
+    // 3. Map测试
+    private static function testMaps(): void {
+        Console::writeLine("3. Map测试");
+        
+        // Map创建
+        map[string]int $ages = map[string]int{
+            "Alice": 25,
+            "Bob": 30
+        };
+        ComprehensiveTest::assert($ages["Alice"] == 25, "Map创建和访问");
+        
+        // Map修改
+        $ages["Charlie"] = 35;
+        ComprehensiveTest::assert($ages["Charlie"] == 35, "Map添加元素");
+        
+        Console::writeLine("");
+    }
+
+    // 4. 类测试
+    private static function testClasses(): void {
+        Console::writeLine("4. 类与对象测试");
+        
+        // 创建对象
+        $person := new Person("Alice", 25);
+        ComprehensiveTest::assert($person->getName() == "Alice", "类实例化和方法调用");
+        
+        // 静态方法
+        int $count = Person::getCount();
+        ComprehensiveTest::assert($count >= 1, "静态方法");
+        
+        Console::writeLine("");
+    }
+
+    // 5. 继承测试
+    private static function testInheritance(): void {
+        Console::writeLine("5. 继承测试");
+        
+        $student := new Student("Bob", 20, "S001");
+        ComprehensiveTest::assert($student->getName() == "Bob", "继承的方法");
+        ComprehensiveTest::assert($student->getStudentId() == "S001", "子类的方法");
+        
+        string $info = $student->getInfo();
+        ComprehensiveTest::assert($info == "Student: Bob", "方法重写");
+        
+        Console::writeLine("");
+    }
+
+    // 6. 接口测试
+    private static function testInterfaces(): void {
+        Console::writeLine("6. 接口测试");
+        
+        $circle := new Circle(5.0);
+        float $area = $circle->area();
+        ComprehensiveTest::assert($area > 78.0 && $area < 79.0, "接口实现");
+        
+        Console::writeLine("");
+    }
+
+    // 7. 抽象类测试
+    private static function testAbstractClasses(): void {
+        Console::writeLine("7. 抽象类测试");
+        
+        $rect := new Rectangle(4.0, 5.0);
+        float $area = $rect->calculateArea();
+        ComprehensiveTest::assert($area == 20.0, "抽象类实现");
+        
+        Console::writeLine("");
+    }
+
+    // 8. 泛型测试
+    private static function testGenerics(): void {
+        Console::writeLine("8. 泛型测试");
+        
+        $intBox := new Box<int>(42);
+        int $value = $intBox->get();
+        ComprehensiveTest::assert($value == 42, "泛型类");
+        
+        $strBox := new Box<string>("hello");
+        string $str = $strBox->get();
+        ComprehensiveTest::assert($str == "hello", "泛型类多类型");
+        
+        Console::writeLine("");
+    }
+
+    // 9. 枚举测试
+    private static function testEnums(): void {
+        Console::writeLine("9. 枚举测试");
+        
+        $color := Color::RED;
+        ComprehensiveTest::assert($color == Color::RED, "简单枚举");
+        
+        $status := Status::ACTIVE;
+        ComprehensiveTest::assert($status == Status::ACTIVE, "带值枚举");
+        
+        Console::writeLine("");
+    }
+
+    // 10. 属性访问器测试
+    private static function testProperties(): void {
+        Console::writeLine("10. 属性访问器测试");
+        
+        $user := new User();
+        $user->name = "Alice";
+        ComprehensiveTest::assert($user->name == "Alice", "自动属性");
+        
+        $user->setAge(25);
+        ComprehensiveTest::assert($user->age == 25, "完整属性");
+        
+        Console::writeLine("");
+    }
+
+    // 11. 异常处理测试
+    private static function testExceptions(): void {
+        Console::writeLine("11. 异常处理测试");
+        
+        $caught := false;
+        try {
+            ComprehensiveTest::throwException();
+        } catch (Exception $e) {
+            $caught = true;
+        }
+        ComprehensiveTest::assert($caught == true, "异常捕获");
+        
+        Console::writeLine("");
+    }
+
+    private static function throwException(): void {
+        throw new Exception("Test exception");
+    }
+
+    // 12. 控制流测试
+    private static function testControlFlow(): void {
+        Console::writeLine("12. 控制流测试");
+        
+        // if-else
+        int $x = 10;
+        string $result = "";
+        if ($x > 5) {
+            $result = "greater";
+        } else {
+            $result = "less";
+        }
+        ComprehensiveTest::assert($result == "greater", "if-else");
+        
+        // switch表达式
+        int $day = 1;
+        string $dayName = switch ($day) {
+            case 1 => "Monday",
+            case 2 => "Tuesday",
+            default => "Unknown"
+        };
+        ComprehensiveTest::assert($dayName == "Monday", "switch表达式");
+        
+        // for循环
+        int $sum = 0;
+        for ($i := 0; $i < 5; $i++) {
+            $sum += $i;
+        }
+        ComprehensiveTest::assert($sum == 10, "for循环");
+        
+        // foreach循环
+        int[] $numbers = new int[] { 1, 2, 3 };
+        $sum = 0;
+        foreach ($numbers as $n) {
+            $sum += $n;
+        }
+        ComprehensiveTest::assert($sum == 6, "foreach循环");
+        
+        // while循环
+        int $count = 0;
+        while ($count < 3) {
+            $count++;
+        }
+        ComprehensiveTest::assert($count == 3, "while循环");
+        
+        Console::writeLine("");
+    }
+
+    // 13. 函数特性测试
+    private static function testFunctions(): void {
+        Console::writeLine("13. 函数特性测试");
+        
+        // 基本函数
+        int $result = ComprehensiveTest::add(3, 5);
+        ComprehensiveTest::assert($result == 8, "基本函数");
+        
+        // 多返回值
+        int $q = 0;
+        int $r = 0;
+        $q, $r = ComprehensiveTest::divmod(10, 3);
+        ComprehensiveTest::assert($q == 3 && $r == 1, "多返回值");
+        
+        // 闭包
+        int $multiplier = 2;
+        $double := function(int $n): int use ($multiplier) {
+            return $n * $multiplier;
+        };
+        $result = $double(5);
+        ComprehensiveTest::assert($result == 10, "闭包");
+        
+        Console::writeLine("");
+    }
+
+    private static function add(int $a, int $b): int {
+        return $a + $b;
+    }
+
+    private static function divmod(int $a, int $b): (int, int) {
+        return $a / $b, $a % $b;
+    }
+
+    // 14. 运算符测试
+    private static function testOperators(): void {
+        Console::writeLine("14. 运算符测试");
+        
+        // 算术运算
+        int $a = 10;
+        int $b = 3;
+        ComprehensiveTest::assert($a + $b == 13, "加法运算");
+        ComprehensiveTest::assert($a - $b == 7, "减法运算");
+        ComprehensiveTest::assert($a * $b == 30, "乘法运算");
+        ComprehensiveTest::assert($a / $b == 3, "除法运算");
+        ComprehensiveTest::assert($a % $b == 1, "取模运算");
+        
+        // 比较运算
+        ComprehensiveTest::assert($a > $b, "大于运算");
+        ComprehensiveTest::assert($b < $a, "小于运算");
+        ComprehensiveTest::assert($a == 10, "等于运算");
+        ComprehensiveTest::assert($a != $b, "不等于运算");
+        
+        // 逻辑运算
+        bool $t = true;
+        bool $f = false;
+        ComprehensiveTest::assert($t && $t, "逻辑与");
+        ComprehensiveTest::assert($t || $f, "逻辑或");
+        ComprehensiveTest::assert(!$f, "逻辑非");
+        
+        // 三元运算符
+        int $max = $a > $b ? $a : $b;
+        ComprehensiveTest::assert($max == 10, "三元运算符");
+        
+        Console::writeLine("");
+    }
+
+    // 15. 字符串测试
+    private static function testStrings(): void {
+        Console::writeLine("15. 字符串测试");
+        
+        // 字符串拼接
+        string $s1 = "Hello";
+        string $s2 = "World";
+        string $s3 = $s1 + " " + $s2;
+        ComprehensiveTest::assert($s3 == "Hello World", "字符串拼接");
+        
+        // 插值字符串
+        string $name = "Alice";
+        int $age = 25;
+        string $info = #"Name: {$name}, Age: {$age}";
+        ComprehensiveTest::assert($info == "Name: Alice, Age: 25", "插值字符串");
+        
+        // 转义字符
+        string $escaped = "Line1\nLine2";
+        ComprehensiveTest::assert($escaped == "Line1\nLine2", "转义字符");
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 辅助类定义 ====================
+
+// Person类 - 用于类测试
+class Person {
+    private string $name;
+    private int $age;
+    private static int $count = 0;
+
+    public function __construct(string $name, int $age) {
+        $this->name = $name;
+        $this->age = $age;
+        self::$count++;
+    }
+
+    public function getName(): string {
+        return $this->name;
+    }
+
+    public function getAge(): int {
+        return $this->age;
+    }
+
+    public static function getCount(): int {
+        return self::$count;
+    }
+
+    public function getInfo(): string {
+        return "Person: " + $this->name;
+    }
+}
+
+// Student类 - 用于继承测试
+class Student extends Person {
+    private string $studentId;
+
+    public function __construct(string $name, int $age, string $studentId) {
+        parent::__construct($name, $age);
+        $this->studentId = $studentId;
+    }
+
+    public function getStudentId(): string {
+        return $this->studentId;
+    }
+
+    public function getInfo(): string {
+        return "Student: " + $this->getName();
+    }
+}
+
+// IShape接口 - 用于接口测试
+interface IShape {
+    public function area(): float;
+}
+
+// Circle类 - 用于接口测试
+class Circle implements IShape {
+    private float $radius;
+
+    public function __construct(float $radius) {
+        $this->radius = $radius;
+    }
+
+    public function area(): float {
+        return 3.14159 * $this->radius * $this->radius;
+    }
+}
+
+// Shape抽象类 - 用于抽象类测试
+abstract class Shape {
+    protected string $color;
+
+    public function __construct(string $color) {
+        $this->color = $color;
+    }
+
+    abstract public function calculateArea(): float;
+}
+
+// Rectangle类 - 用于抽象类测试
+class Rectangle extends Shape {
+    private float $width;
+    private float $height;
+
+    public function __construct(float $width, float $height) {
+        parent::__construct("red");
+        $this->width = $width;
+        $this->height = $height;
+    }
+
+    public function calculateArea(): float {
+        return $this->width * $this->height;
+    }
+}
+
+// Box泛型类 - 用于泛型测试
+class Box<T> {
+    private T $value;
+
+    public function __construct(T $value) {
+        $this->value = $value;
+    }
+
+    public function get(): T {
+        return $this->value;
+    }
+
+    public function set(T $value): void {
+        $this->value = $value;
+    }
+}
+
+// Color枚举 - 用于枚举测试
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+// Status枚举 - 用于枚举测试
+enum Status: int {
+    PENDING = 0,
+    ACTIVE = 1,
+    CLOSED = 2
+}
+
+// User类 - 用于属性访问器测试
+class User {
+    // 自动属性
+    public string $name { get; set; }
+    
+    private int $_age;
+
+    public function __construct() {
+        $this->name = "";
+        $this->_age = 0;
+    }
+
+    // 完整属性
+    public int $age {
+        get {
+            return $this->_age;
+        }
+        set {
+            if ($value < 0) {
+                $this->_age = 0;
+            } else {
+                $this->_age = $value;
+            }
+        }
+    }
+
+    public function setAge(int $age): void {
+        $this->age = $age;
+    }
+}

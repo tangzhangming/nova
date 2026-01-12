@@ -38,7 +38,6 @@ type REPL struct {
 
 // Config REPL 配置
 type Config struct {
-	JITEnabled    bool
 	PromptPrimary   string
 	PromptContinue  string
 }
@@ -46,7 +45,6 @@ type Config struct {
 // DefaultConfig 默认配置
 func DefaultConfig() Config {
 	return Config{
-		JITEnabled:    true,
 		PromptPrimary:   ">>> ",
 		PromptContinue:  "... ",
 	}
@@ -55,9 +53,7 @@ func DefaultConfig() Config {
 // New 创建 REPL
 func New(config Config) *REPL {
 	return &REPL{
-		runtime: runtime.NewWithOptions(runtime.Options{
-			JITEnabled: config.JITEnabled,
-		}),
+		runtime:         runtime.New(),
 		reader:          bufio.NewReader(os.Stdin),
 		writer:          os.Stdout,
 		history:         make([]string, 0),
@@ -201,9 +197,7 @@ func (r *REPL) printHelp() {
 
 // reset 重置环境
 func (r *REPL) reset() {
-	r.runtime = runtime.NewWithOptions(runtime.Options{
-		JITEnabled: true,
-	})
+	r.runtime = runtime.New()
 	r.buffer.Reset()
 	r.multiline = false
 }

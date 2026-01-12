@@ -1,0 +1,247 @@
+use sola.io.Console;
+
+/**
+ * 运算符测试
+ */
+public class OperatorTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("运算符测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        OperatorTest::testArithmeticOperators();
+        OperatorTest::testComparisonOperators();
+        OperatorTest::testLogicalOperators();
+        OperatorTest::testBitwiseOperators();
+        OperatorTest::testAssignmentOperators();
+        OperatorTest::testIncrementDecrement();
+        OperatorTest::testTernaryOperator();
+        OperatorTest::testTypeOperators();
+        OperatorTest::testStrictTypeChecking();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 运算符测试完成");
+    }
+
+    private static function testArithmeticOperators(): void {
+        Console::writeLine("1. 算术运算符测试");
+        
+        int $a = 10;
+        int $b = 3;
+        
+        int $sum = $a + $b;
+        int $diff = $a - $b;
+        int $prod = $a * $b;
+        int $quot = $a / $b;
+        int $mod = $a % $b;
+        
+        Console::writeLine("  10 + 3 = " + ($sum as string));
+        Console::writeLine("  10 - 3 = " + ($diff as string));
+        Console::writeLine("  10 * 3 = " + ($prod as string));
+        Console::writeLine("  10 / 3 = " + ($quot as string));
+        Console::writeLine("  10 % 3 = " + ($mod as string));
+        
+        // 浮点运算
+        float $x = 10.5;
+        float $y = 2.5;
+        float $fsum = $x + $y;
+        float $fdiff = $x - $y;
+        float $fprod = $x * $y;
+        float $fquot = $x / $y;
+        
+        Console::writeLine("  10.5 + 2.5 = " + ($fsum as string));
+        Console::writeLine("  10.5 - 2.5 = " + ($fdiff as string));
+        Console::writeLine("  10.5 * 2.5 = " + ($fprod as string));
+        Console::writeLine("  10.5 / 2.5 = " + ($fquot as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testComparisonOperators(): void {
+        Console::writeLine("2. 比较运算符测试");
+        
+        int $a = 10;
+        int $b = 20;
+        
+        bool $eq = $a == $b;
+        bool $ne = $a != $b;
+        bool $lt = $a < $b;
+        bool $le = $a <= $b;
+        bool $gt = $a > $b;
+        bool $ge = $a >= $b;
+        
+        Console::writeLine("  10 == 20: " + ($eq as string));
+        Console::writeLine("  10 != 20: " + ($ne as string));
+        Console::writeLine("  10 < 20: " + ($lt as string));
+        Console::writeLine("  10 <= 20: " + ($le as string));
+        Console::writeLine("  10 > 20: " + ($gt as string));
+        Console::writeLine("  10 >= 20: " + ($ge as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testLogicalOperators(): void {
+        Console::writeLine("3. 逻辑运算符测试");
+        
+        bool $t = true;
+        bool $f = false;
+        
+        bool $and1 = $t && $t;
+        bool $and2 = $t && $f;
+        bool $or1 = $t || $f;
+        bool $or2 = $f || $f;
+        bool $not1 = !$t;
+        bool $not2 = !$f;
+        
+        Console::writeLine("  true && true: " + ($and1 as string));
+        Console::writeLine("  true && false: " + ($and2 as string));
+        Console::writeLine("  true || false: " + ($or1 as string));
+        Console::writeLine("  false || false: " + ($or2 as string));
+        Console::writeLine("  !true: " + ($not1 as string));
+        Console::writeLine("  !false: " + ($not2 as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testBitwiseOperators(): void {
+        Console::writeLine("4. 位运算符测试");
+        
+        int $a = 12;  // 1100 in binary
+        int $b = 10;  // 1010 in binary
+        
+        int $and = $a & $b;  // 1000 = 8
+        int $or = $a | $b;   // 1110 = 14
+        int $xor = $a ^ $b;  // 0110 = 6
+        int $not = ~$a;
+        int $lshift = $a << 2;  // 110000 = 48
+        int $rshift = $a >> 2;  // 0011 = 3
+        
+        Console::writeLine("  12 & 10 = " + ($and as string));
+        Console::writeLine("  12 | 10 = " + ($or as string));
+        Console::writeLine("  12 ^ 10 = " + ($xor as string));
+        Console::writeLine("  ~12 = " + ($not as string));
+        Console::writeLine("  12 << 2 = " + ($lshift as string));
+        Console::writeLine("  12 >> 2 = " + ($rshift as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testAssignmentOperators(): void {
+        Console::writeLine("5. 赋值运算符测试");
+        
+        int $x = 10;
+        Console::writeLine("  初始值: " + ($x as string));
+        
+        $x += 5;
+        Console::writeLine("  += 5: " + ($x as string));
+        
+        $x -= 3;
+        Console::writeLine("  -= 3: " + ($x as string));
+        
+        $x *= 2;
+        Console::writeLine("  *= 2: " + ($x as string));
+        
+        $x /= 4;
+        Console::writeLine("  /= 4: " + ($x as string));
+        
+        $x %= 5;
+        Console::writeLine("  %= 5: " + ($x as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testIncrementDecrement(): void {
+        Console::writeLine("6. 自增自减测试");
+        
+        int $x = 5;
+        Console::writeLine("  初始值: " + ($x as string));
+        
+        $x++;
+        Console::writeLine("  x++: " + ($x as string));
+        
+        $x--;
+        Console::writeLine("  x--: " + ($x as string));
+        
+        ++$x;
+        Console::writeLine("  ++x: " + ($x as string));
+        
+        --$x;
+        Console::writeLine("  --x: " + ($x as string));
+        
+        // 前置和后置的区别
+        int $a = 5;
+        int $b = $a++;
+        Console::writeLine("  后置: a=5, b=a++, a=" + ($a as string) + ", b=" + ($b as string));
+        
+        $a = 5;
+        $b = ++$a;
+        Console::writeLine("  前置: a=5, b=++a, a=" + ($a as string) + ", b=" + ($b as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testTernaryOperator(): void {
+        Console::writeLine("7. 三元运算符测试");
+        
+        int $a = 10;
+        int $b = 20;
+        
+        int $max = $a > $b ? $a : $b;
+        Console::writeLine("  max(10, 20): " + ($max as string));
+        
+        string $result = $a > 5 ? "greater" : "less or equal";
+        Console::writeLine("  10 > 5 ? 'greater' : 'less or equal': " + $result);
+        
+        // 嵌套三元
+        int $x = 15;
+        string $category = $x < 10 ? "small" : ($x < 20 ? "medium" : "large");
+        Console::writeLine("  分类(15): " + $category);
+        
+        Console::writeLine("");
+    }
+
+    private static function testTypeOperators(): void {
+        Console::writeLine("8. 类型运算符测试");
+        
+        // 类型转换 (as)
+        int $num = 42;
+        string $str = $num as string;
+        Console::writeLine("  int(42) as string: " + $str);
+        
+        float $f = 3.14;
+        int $i = $f as int;
+        Console::writeLine("  float(3.14) as int: " + ($i as string));
+        
+        // 类型检查 (typeof)
+        string $type1 = typeof($num);
+        string $type2 = typeof($str);
+        Console::writeLine("  typeof(42): " + $type1);
+        Console::writeLine("  typeof('42'): " + $type2);
+        
+        Console::writeLine("");
+    }
+
+    private static function testStrictTypeChecking(): void {
+        Console::writeLine("9. 严格类型检查测试");
+        
+        // Sola要求相同类型才能运算
+        int $a = 10;
+        int $b = 20;
+        int $sum = $a + $b;
+        Console::writeLine("  int + int: " + ($sum as string));
+        
+        float $x = 10.5;
+        float $y = 2.5;
+        float $fsum = $x + $y;
+        Console::writeLine("  float + float: " + ($fsum as string));
+        
+        // 不同类型需要显式转换
+        int $intVal = 10;
+        float $floatVal = 3.14;
+        float $mixedSum = ($intVal as float) + $floatVal;
+        Console::writeLine("  (int as float) + float: " + ($mixedSum as string));
+        
+        Console::writeLine("");
+    }
+}

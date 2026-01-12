@@ -1,0 +1,226 @@
+use sola.io.Console;
+
+/**
+ * 类与OOP测试
+ */
+public class ClassTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("类与对象测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        ClassTest::testBasicClass();
+        ClassTest::testConstructor();
+        ClassTest::testMethods();
+        ClassTest::testStaticMembers();
+        ClassTest::testAccessModifiers();
+        ClassTest::testConstants();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 类与对象测试完成");
+    }
+
+    private static function testBasicClass(): void {
+        Console::writeLine("1. 基本类测试");
+        
+        $person := new TestPerson("Alice", 25);
+        Console::writeLine("  创建了Person对象");
+        Console::writeLine("  姓名: " + $person->getName());
+        Console::writeLine("  年龄: " + ($person->getAge() as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testConstructor(): void {
+        Console::writeLine("2. 构造函数测试");
+        
+        $p1 := new TestPerson("Bob", 30);
+        $p2 := new TestPerson("Charlie", 35);
+        
+        Console::writeLine("  创建了2个Person对象");
+        Console::writeLine("  对象1: " + $p1->getName());
+        Console::writeLine("  对象2: " + $p2->getName());
+        
+        Console::writeLine("");
+    }
+
+    private static function testMethods(): void {
+        Console::writeLine("3. 方法测试");
+        
+        $calc := new Calculator();
+        
+        int $sum = $calc->add(10, 20);
+        Console::writeLine("  add(10, 20): " + ($sum as string));
+        
+        int $diff = $calc->subtract(50, 15);
+        Console::writeLine("  subtract(50, 15): " + ($diff as string));
+        
+        int $prod = $calc->multiply(6, 7);
+        Console::writeLine("  multiply(6, 7): " + ($prod as string));
+        
+        int $quot = $calc->divide(100, 5);
+        Console::writeLine("  divide(100, 5): " + ($quot as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testStaticMembers(): void {
+        Console::writeLine("4. 静态成员测试");
+        
+        // 静态方法
+        int $result = MathUtils::square(5);
+        Console::writeLine("  square(5): " + ($result as string));
+        
+        int $max = MathUtils::max(10, 20);
+        Console::writeLine("  max(10, 20): " + ($max as string));
+        
+        // 静态属性
+        int $count = Counter::getCount();
+        Console::writeLine("  初始计数: " + ($count as string));
+        
+        Counter::increment();
+        Counter::increment();
+        $count = Counter::getCount();
+        Console::writeLine("  增加2次后: " + ($count as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testAccessModifiers(): void {
+        Console::writeLine("5. 访问修饰符测试");
+        
+        $obj := new AccessTest();
+        
+        // public成员可访问
+        $obj->publicMethod();
+        
+        // protected和private成员不可直接访问（测试public方法访问它们）
+        $obj->testAccess();
+        
+        Console::writeLine("");
+    }
+
+    private static function testConstants(): void {
+        Console::writeLine("6. 常量测试");
+        
+        Console::writeLine("  PI: " + (Constants::PI as string));
+        Console::writeLine("  MAX_SIZE: " + (Constants::MAX_SIZE as string));
+        Console::writeLine("  VERSION: " + Constants::VERSION);
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 测试类定义 ====================
+
+class TestPerson {
+    private string $name;
+    private int $age;
+
+    public function __construct(string $name, int $age) {
+        $this->name = $name;
+        $this->age = $age;
+    }
+
+    public function getName(): string {
+        return $this->name;
+    }
+
+    public function getAge(): int {
+        return $this->age;
+    }
+
+    public function setName(string $name): void {
+        $this->name = $name;
+    }
+
+    public function setAge(int $age): void {
+        $this->age = $age;
+    }
+}
+
+class Calculator {
+    public function add(int $a, int $b): int {
+        return $a + $b;
+    }
+
+    public function subtract(int $a, int $b): int {
+        return $a - $b;
+    }
+
+    public function multiply(int $a, int $b): int {
+        return $a * $b;
+    }
+
+    public function divide(int $a, int $b): int {
+        return $a / $b;
+    }
+}
+
+class MathUtils {
+    public static function square(int $n): int {
+        return $n * $n;
+    }
+
+    public static function max(int $a, int $b): int {
+        return $a > $b ? $a : $b;
+    }
+
+    public static function min(int $a, int $b): int {
+        return $a < $b ? $a : $b;
+    }
+}
+
+class Counter {
+    private static int $count = 0;
+
+    public static function increment(): void {
+        self::$count++;
+    }
+
+    public static function decrement(): void {
+        self::$count--;
+    }
+
+    public static function getCount(): int {
+        return self::$count;
+    }
+
+    public static function reset(): void {
+        self::$count = 0;
+    }
+}
+
+class AccessTest {
+    public string $publicField = "public";
+    protected string $protectedField = "protected";
+    private string $privateField = "private";
+
+    public function publicMethod(): void {
+        Console::writeLine("  调用public方法");
+    }
+
+    protected function protectedMethod(): void {
+        Console::writeLine("  调用protected方法");
+    }
+
+    private function privateMethod(): void {
+        Console::writeLine("  调用private方法");
+    }
+
+    public function testAccess(): void {
+        Console::writeLine("  从内部访问:");
+        Console::writeLine("    public字段: " + $this->publicField);
+        Console::writeLine("    protected字段: " + $this->protectedField);
+        Console::writeLine("    private字段: " + $this->privateField);
+        $this->protectedMethod();
+        $this->privateMethod();
+    }
+}
+
+class Constants {
+    public const float PI = 3.14159;
+    public const int MAX_SIZE = 1000;
+    public const string VERSION = "1.0.0";
+}

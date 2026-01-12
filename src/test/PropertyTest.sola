@@ -1,0 +1,137 @@
+use sola.io.Console;
+
+/**
+ * 属性访问器测试
+ */
+public class PropertyTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("属性访问器测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        PropertyTest::testAutoProperties();
+        PropertyTest::testReadOnlyProperties();
+        PropertyTest::testFullProperties();
+        PropertyTest::testExpressionProperties();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 属性访问器测试完成");
+    }
+
+    private static function testAutoProperties(): void {
+        Console::writeLine("1. 自动属性测试");
+        
+        $person := new PersonWithProps();
+        
+        // get和set
+        $person->name = "Alice";
+        Console::writeLine("  设置name为Alice: " + $person->name);
+        
+        $person->name = "Bob";
+        Console::writeLine("  修改name为Bob: " + $person->name);
+        
+        Console::writeLine("");
+    }
+
+    private static function testReadOnlyProperties(): void {
+        Console::writeLine("2. 只读属性测试");
+        
+        $config := new Configuration("v1.0.0");
+        Console::writeLine("  只读属性version: " + $config->version);
+        
+        // 注意: 只读属性不能在类外修改
+        // $config->version = "v2.0.0";  // 这会编译错误
+        
+        Console::writeLine("");
+    }
+
+    private static function testFullProperties(): void {
+        Console::writeLine("3. 完整属性测试");
+        
+        $account := new Account();
+        
+        // 测试带验证的属性
+        $account->balance = 100.0;
+        Console::writeLine("  设置balance为100: " + ($account->balance as string));
+        
+        // 尝试设置负值（会被拦截）
+        $account->balance = -50.0;
+        Console::writeLine("  尝试设置-50（应该失败）: " + ($account->balance as string));
+        
+        Console::writeLine("");
+    }
+
+    private static function testExpressionProperties(): void {
+        Console::writeLine("4. 表达式体属性测试");
+        
+        $rect := new RectangleWithProps(4.0, 6.0);
+        
+        Console::writeLine("  宽度: " + ($rect->width as string));
+        Console::writeLine("  高度: " + ($rect->height as string));
+        Console::writeLine("  计算属性area: " + ($rect->area as string));
+        Console::writeLine("  计算属性perimeter: " + ($rect->perimeter as string));
+        
+        Console::writeLine("");
+    }
+}
+
+// ==================== 测试类定义 ====================
+
+class PersonWithProps {
+    // 自动属性 - 可读可写
+    public string $name { get; set; }
+    
+    public int $age { get; set; }
+
+    public function __construct() {
+        $this->name = "";
+        $this->age = 0;
+    }
+}
+
+class Configuration {
+    // 只读自动属性
+    public string $version { get; }
+
+    public function __construct(string $version) {
+        $this->version = $version;
+    }
+}
+
+class Account {
+    private float $_balance;
+
+    public function __construct() {
+        $this->_balance = 0.0;
+    }
+
+    // 完整属性 - 带验证逻辑
+    public float $balance {
+        get {
+            return $this->_balance;
+        }
+        set {
+            if ($value < 0.0) {
+                Console::writeLine("    错误: 余额不能为负数");
+                return;
+            }
+            $this->_balance = $value;
+        }
+    }
+}
+
+class RectangleWithProps {
+    public float $width { get; set; }
+    public float $height { get; set; }
+
+    public function __construct(float $width, float $height) {
+        $this->width = $width;
+        $this->height = $height;
+    }
+
+    // 表达式体属性 - 计算属性
+    public float $area => $this->width * $this->height;
+    
+    public float $perimeter => 2.0 * ($this->width + $this->height);
+}

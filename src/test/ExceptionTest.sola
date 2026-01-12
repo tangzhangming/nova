@@ -1,0 +1,168 @@
+use sola.io.Console;
+use sola.lang.Exception;
+use sola.lang.RuntimeException;
+use sola.lang.ArgumentException;
+
+/**
+ * 异常处理测试
+ */
+public class ExceptionTest {
+    public static function main(): void {
+        Console::writeLine("========================================");
+        Console::writeLine("异常处理测试");
+        Console::writeLine("========================================");
+        Console::writeLine("");
+
+        ExceptionTest::testBasicException();
+        ExceptionTest::testMultipleCatch();
+        ExceptionTest::testFinally();
+        ExceptionTest::testCustomException();
+        ExceptionTest::testExceptionRethrow();
+
+        Console::writeLine("");
+        Console::writeLine("✓ 异常处理测试完成");
+    }
+
+    private static function testBasicException(): void {
+        Console::writeLine("1. 基本异常测试");
+        
+        try {
+            ExceptionTest::throwException();
+            Console::writeLine("  不应该到达这里");
+        } catch (Exception $e) {
+            Console::writeLine("  捕获异常: " + $e->getMessage());
+        }
+        
+        Console::writeLine("  异常处理后继续执行");
+        Console::writeLine("");
+    }
+
+    private static function throwException(): void {
+        throw new Exception("这是一个测试异常");
+    }
+
+    private static function testMultipleCatch(): void {
+        Console::writeLine("2. 多catch块测试");
+        
+        // 测试ArgumentException
+        try {
+            ExceptionTest::validateAge(-5);
+        } catch (ArgumentException $e) {
+            Console::writeLine("  捕获ArgumentException: " + $e->getMessage());
+        } catch (Exception $e) {
+            Console::writeLine("  捕获Exception: " + $e->getMessage());
+        }
+        
+        // 测试RuntimeException
+        try {
+            ExceptionTest::performOperation(false);
+        } catch (RuntimeException $e) {
+            Console::writeLine("  捕获RuntimeException: " + $e->getMessage());
+        } catch (Exception $e) {
+            Console::writeLine("  捕获Exception: " + $e->getMessage());
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function validateAge(int $age): void {
+        if ($age < 0) {
+            throw new ArgumentException("年龄不能为负数");
+        }
+    }
+
+    private static function performOperation(bool $success): void {
+        if (!$success) {
+            throw new RuntimeException("操作失败");
+        }
+    }
+
+    private static function testFinally(): void {
+        Console::writeLine("3. finally块测试");
+        
+        $executed := false;
+        
+        try {
+            Console::writeLine("  try块执行");
+            ExceptionTest::mayThrow(true);
+        } catch (Exception $e) {
+            Console::writeLine("  catch块执行: " + $e->getMessage());
+        } finally {
+            Console::writeLine("  finally块总是执行");
+            $executed = true;
+        }
+        
+        Console::writeLine("  finally执行标志: " + ($executed as string));
+        
+        // 测试无异常的finally
+        try {
+            Console::writeLine("  try块执行(无异常)");
+            ExceptionTest::mayThrow(false);
+        } catch (Exception $e) {
+            Console::writeLine("  不应该到这里");
+        } finally {
+            Console::writeLine("  finally块总是执行(无异常)");
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function mayThrow(bool $shouldThrow): void {
+        if ($shouldThrow) {
+            throw new Exception("May throw异常");
+        }
+    }
+
+    private static function testCustomException(): void {
+        Console::writeLine("4. 自定义异常测试");
+        
+        try {
+            ExceptionTest::doValidation();
+        } catch (ValidationException $e) {
+            Console::writeLine("  捕获ValidationException: " + $e->getMessage());
+            Console::writeLine("  错误代码: " + ($e->getErrorCode() as string));
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function doValidation(): void {
+        throw new ValidationException("验证失败", 1001);
+    }
+
+    private static function testExceptionRethrow(): void {
+        Console::writeLine("5. 异常重新抛出测试");
+        
+        try {
+            ExceptionTest::wrapException();
+        } catch (Exception $e) {
+            Console::writeLine("  最终捕获: " + $e->getMessage());
+        }
+        
+        Console::writeLine("");
+    }
+
+    private static function wrapException(): void {
+        try {
+            throw new Exception("原始异常");
+        } catch (Exception $e) {
+            Console::writeLine("  中间捕获，重新抛出");
+            throw $e;
+        }
+    }
+}
+
+// ==================== 自定义异常类 ====================
+
+class ValidationException extends Exception {
+    private int $errorCode;
+
+    public function __construct(string $message, int $errorCode) {
+        parent::__construct($message);
+        $this->errorCode = $errorCode;
+    }
+
+    public function getErrorCode(): int {
+        return $this->errorCode;
+    }
+}
