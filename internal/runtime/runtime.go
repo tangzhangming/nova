@@ -93,7 +93,6 @@ func (r *Runtime) Run(source, filename string) error {
 	_, errs := c.Compile(file)
 
 	if len(errs) > 0 {
-		fmt.Println("DEBUG: 编译错误:")
 		for _, e := range errs {
 			fmt.Printf(i18n.T(i18n.ErrCompileError, e) + "\n")
 		}

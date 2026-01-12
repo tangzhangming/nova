@@ -1,16 +1,16 @@
 package vm
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"time"
 
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
 // #region agent log
 func debugLogToFile(location, hypothesisId, message string, data map[string]interface{}) {
+	// 调试日志已禁用以提高性能
+	// 如需启用，请取消注释以下代码
+	/*
 	logPath := `d:\workspace\go\src\nova\.cursor\debug.log`
 	entry := map[string]interface{}{
 		"timestamp":    time.Now().UnixMilli(),
@@ -27,6 +27,7 @@ func debugLogToFile(location, hypothesisId, message string, data map[string]inte
 		f.Write([]byte("\n"))
 		f.Close()
 	}
+	*/
 }
 
 // #endregion
