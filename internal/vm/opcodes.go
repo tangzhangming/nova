@@ -6,32 +6,6 @@ import (
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
 
-// #region agent log
-func debugLogToFile(location, hypothesisId, message string, data map[string]interface{}) {
-	// 调试日志已禁用以提高性能
-	// 如需启用，请取消注释以下代码
-	/*
-	logPath := `d:\workspace\go\src\nova\.cursor\debug.log`
-	entry := map[string]interface{}{
-		"timestamp":    time.Now().UnixMilli(),
-		"location":     location,
-		"hypothesisId": hypothesisId,
-		"message":      message,
-		"data":         data,
-		"sessionId":    "debug-session",
-	}
-	jsonBytes, _ := json.Marshal(entry)
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		f.Write(jsonBytes)
-		f.Write([]byte("\n"))
-		f.Close()
-	}
-	*/
-}
-
-// #endregion
-
 // ============================================================================
 // 栈操作
 // ============================================================================
@@ -377,9 +351,6 @@ func opOr(vm *VM) {
 func opLoadLocal(vm *VM) {
 	slot := int(vm.readShort())
 	val := vm.getLocal(slot)
-	// #region agent log
-	debugLogToFile("opcodes.go:opLoadLocal", "D", "load local var", map[string]interface{}{"slot": slot, "valueType": fmt.Sprintf("%v", val.Type()), "valueStr": val.String()})
-	// #endregion
 	vm.push(val)
 }
 
@@ -387,9 +358,6 @@ func opLoadLocal(vm *VM) {
 func opStoreLocal(vm *VM) {
 	slot := int(vm.readShort())
 	val := vm.peek(0)
-	// #region agent log
-	debugLogToFile("opcodes.go:opStoreLocal", "D", "store local var", map[string]interface{}{"slot": slot, "valueType": fmt.Sprintf("%v", val.Type()), "valueStr": val.String()})
-	// #endregion
 	vm.setLocal(slot, val)
 }
 
@@ -403,14 +371,8 @@ func opLoadGlobal(vm *VM) {
 		c := frame.chunk.Constants[index]
 		if c.IsString() {
 			name := c.AsString()
-			// #region agent log
-			debugLogToFile("opcodes.go:opLoadGlobal", "D", "looking up name", map[string]interface{}{"name": name, "index": index})
-			// #endregion
 			// 优先查找已注册的函数
 			if fn := vm.GetFunction(name); fn != nil {
-				// #region agent log
-				debugLogToFile("opcodes.go:opLoadGlobal", "D", "found function", map[string]interface{}{"name": name, "fnName": fn.Name})
-				// #endregion
 				vm.push(bytecode.NewFunc(fn))
 				return
 			}
@@ -420,9 +382,6 @@ func opLoadGlobal(vm *VM) {
 
 	// 回退到按索引查找全局变量
 	val := vm.GetGlobal(index)
-	// #region agent log
-	debugLogToFile("opcodes.go:opLoadGlobal", "D", "fallback to global", map[string]interface{}{"index": index, "valueType": fmt.Sprintf("%v", val.Type()), "valueStr": val.String()})
-	// #endregion
 	vm.push(val)
 }
 
@@ -513,18 +472,8 @@ func (vm *VM) callFunction(fn *bytecode.Function, argCount int) {
 		}
 		// 弹出函数本身
 		vm.pop()
-		// #region agent log
-		argsStr := make([]string, len(args))
-		for i, a := range args {
-			argsStr[i] = a.String()
-		}
-		debugLogToFile("opcodes.go:callFunction", "F", "calling builtin", map[string]interface{}{"fnName": fn.Name, "argCount": argCount, "args": argsStr})
-		// #endregion
 		// 调用内置函数
 		result := fn.BuiltinFn(args)
-		// #region agent log
-		debugLogToFile("opcodes.go:callFunction", "F", "builtin returned", map[string]interface{}{"fnName": fn.Name, "result": result.String()})
-		// #endregion
 		// 压入结果
 		vm.push(result)
 		return
@@ -580,10 +529,6 @@ func opReturn(vm *VM) {
 	// 弹出当前帧
 	frame := vm.popFrame()
 
-	// #region agent log
-	debugLogToFile("opcodes.go:opReturn", "C", "return value", map[string]interface{}{"resultType": fmt.Sprintf("%v", result.Type()), "resultStr": result.String(), "frameFnName": frame.function.Name, "spBefore": vm.sp, "frameBp": frame.bp})
-	// #endregion
-
 	// 清理栈上的局部变量和参数
 	vm.sp = frame.bp
 
@@ -592,10 +537,6 @@ func opReturn(vm *VM) {
 	if !frame.isStaticCall && vm.sp > 0 {
 		vm.sp--
 	}
-
-	// #region agent log
-	debugLogToFile("opcodes.go:opReturn", "C", "after cleanup", map[string]interface{}{"spAfter": vm.sp, "isStaticCall": frame.isStaticCall})
-	// #endregion
 
 	// 压入返回值
 	vm.push(result)
@@ -645,15 +586,8 @@ func opCallStatic(vm *VM) {
 	
 	className := classNameVal.AsString()
 	
-	// #region agent log
-	debugLogToFile("opcodes.go:opCallStatic", "A", "className from bytecode", map[string]interface{}{"className": className, "classIndex": classIndex})
-	// #endregion
-	
 	// 查找类
 	class := vm.GetClass(className)
-	// #region agent log
-	debugLogToFile("opcodes.go:opCallStatic", "A", "GetClass result", map[string]interface{}{"className": className, "classFound": class != nil, "classFullName": func() string { if class != nil { return class.FullName() } else { return "nil" } }()})
-	// #endregion
 	if class == nil {
 		vm.runtimeError("undefined class: %s", className)
 		return
@@ -675,9 +609,6 @@ func opCallStatic(vm *VM) {
 	
 	// 查找方法
 	method := class.GetMethod(methodName)
-	// #region agent log
-	debugLogToFile("opcodes.go:opCallStatic", "B", "GetMethod result", map[string]interface{}{"className": className, "methodName": methodName, "methodFound": method != nil, "methodChunkNil": func() bool { if method != nil { return method.Chunk == nil } else { return true } }()})
-	// #endregion
 	if method == nil {
 		vm.runtimeError("undefined method: %s.%s", className, methodName)
 		return
@@ -692,10 +623,6 @@ func opCallStatic(vm *VM) {
 	
 	// 计算基指针（参数已经在栈上了）
 	bp := vm.sp - argCount
-	
-	// #region agent log
-	debugLogToFile("opcodes.go:opCallStatic", "C", "before pushFrame", map[string]interface{}{"fnName": fn.Name, "fnArity": fn.Arity, "argCount": argCount, "bp": bp, "sp": vm.sp})
-	// #endregion
 	
 	// 直接压入调用帧（静态方法调用不需要被调用者在栈上）
 	vm.pushStaticFrame(fn, bp)

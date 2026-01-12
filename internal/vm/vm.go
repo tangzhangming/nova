@@ -1,44 +1,18 @@
 package vm
 
 import (
-	"encoding/json"
-	"os"
-	"time"
-
 	"github.com/tangzhangming/nova/internal/bytecode"
 )
-
-// #region agent log
-func vmDebugLog(location, hypothesisId, message string, data map[string]interface{}) {
-	logPath := `d:\workspace\go\src\nova\.cursor\debug.log`
-	entry := map[string]interface{}{
-		"timestamp":    time.Now().UnixMilli(),
-		"location":     location,
-		"hypothesisId": hypothesisId,
-		"message":      message,
-		"data":         data,
-		"sessionId":    "debug-session",
-	}
-	jsonBytes, _ := json.Marshal(entry)
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		f.Write(jsonBytes)
-		f.Write([]byte("\n"))
-		f.Close()
-	}
-}
-
-// #endregion
 
 // ============================================================================
 // VM 核心结构
 // ============================================================================
 
 // StackSize 默认操作数栈大小
-const StackSize = 1024
+const StackSize = 16384
 
 // CallStackSize 默认调用栈大小
-const CallStackSize = 256
+const CallStackSize = 4096
 
 // GlobalsSize 默认全局变量数量
 const GlobalsSize = 1024
@@ -250,9 +224,6 @@ const (
 
 // RegisterClass 注册类
 func (vm *VM) RegisterClass(class *bytecode.Class) {
-	// #region agent log
-	vmDebugLog("vm.go:RegisterClass", "E", "registering class", map[string]interface{}{"className": class.Name, "namespace": class.Namespace, "fullName": class.FullName()})
-	// #endregion
 	// 注册完整名称
 	vm.classes[class.FullName()] = class
 	// 同时注册短名（用于简单引用）

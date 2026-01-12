@@ -3709,17 +3709,9 @@ func (c *Compiler) compileStaticAccess(e *ast.StaticAccess) {
 		return
 	}
 	
-	// 为字节码使用的类名（可能需要特殊处理 self/parent）
-	bytecodeClassName := className
-	if cls, ok := e.Class.(*ast.SelfExpr); ok {
-		_ = cls
-		bytecodeClassName = "self"
-	} else if cls, ok := e.Class.(*ast.ParentExpr); ok {
-		_ = cls
-		bytecodeClassName = "parent"
-	}
-	
-	classIdx := c.makeConstant(bytecode.NewString(bytecodeClassName))
+	// 为字节码使用的类名
+	// 注意：self/parent 已经在上面被解析为实际类名了，直接使用 className
+	classIdx := c.makeConstant(bytecode.NewString(className))
 	
 	// 处理成员访问
 	switch member := e.Member.(type) {
